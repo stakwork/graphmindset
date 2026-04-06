@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useState } from "react"
-import { Loader2, CheckCircle2, LinkIcon } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { Loader2, CheckCircle2, LinkIcon, Zap } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -10,8 +10,11 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
+import { useUserStore } from "@/stores/user-store"
 import { api } from "@/lib/api"
+import { getL402, payL402, getPrice } from "@/lib/sphinx"
 import {
   detectSourceType,
   SOURCE_TYPE_LABELS,
@@ -20,12 +23,21 @@ import {
 
 export function AddContentModal() {
   const { activeModal, close } = useModalStore()
+  const { budget, setBudget } = useUserStore()
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState("")
+  const [price, setPrice] = useState<number | null>(null)
+
+  // Fetch price when modal opens
+  useEffect(() => {
+    if (activeModal === "addContent") {
+      getPrice("add_node").then(setPrice)
+    }
+  }, [activeModal])
 
   const handleDetect = useCallback(async (value: string) => {
     setSourceUrl(value)
@@ -47,6 +59,21 @@ export function AddContentModal() {
     }
   }, [])
 
+  const submitWithAuth = useCallback(
+    async (source: string, sourceType: SourceType) => {
+      const l402 = await getL402()
+      const headers: Record<string, string> = {}
+      if (l402) headers["Authorization"] = l402
+
+      await api.post(
+        "/radar",
+        { source, source_type: sourceType },
+        headers
+      )
+    },
+    []
+  )
+
   const handleSubmit = useCallback(async () => {
     const trimmed = sourceUrl.trim()
     if (!trimmed || !detectedType) return
@@ -54,23 +81,41 @@ export function AddContentModal() {
     setSubmitting(true)
     setError("")
     try {
-      await api.post("/radar", {
-        source: trimmed,
-        source_type: detectedType,
-      })
+      await submitWithAuth(trimmed, detectedType)
       setSuccess(true)
       setTimeout(() => {
         setSourceUrl("")
         setDetectedType(null)
         setSuccess(false)
+        setPrice(null)
         close()
       }, 1200)
-    } catch {
-      setError("Failed to add content. Try again.")
+    } catch (err: unknown) {
+      // Handle 402 — need payment
+      if (err instanceof Response && err.status === 402) {
+        try {
+          await payL402(setBudget)
+
+          // Retry after payment
+          await submitWithAuth(trimmed, detectedType)
+          setSuccess(true)
+          setTimeout(() => {
+            setSourceUrl("")
+            setDetectedType(null)
+            setSuccess(false)
+            setPrice(null)
+            close()
+          }, 1200)
+        } catch {
+          setError("Payment failed or was cancelled.")
+        }
+      } else {
+        setError("Failed to add content. Try again.")
+      }
     } finally {
       setSubmitting(false)
     }
-  }, [sourceUrl, detectedType, close])
+  }, [sourceUrl, detectedType, close, setBudget, submitWithAuth])
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -80,10 +125,13 @@ export function AddContentModal() {
         setDetectedType(null)
         setSuccess(false)
         setError("")
+        setPrice(null)
       }
     },
     [close]
   )
+
+  const formattedBudget = budget !== null ? budget.toLocaleString() : "--"
 
   return (
     <Dialog open={activeModal === "addContent"} onOpenChange={handleOpenChange}>
@@ -99,19 +147,17 @@ export function AddContentModal() {
 
         <div className="relative z-10 space-y-4 pt-2">
           {/* URL Input */}
-          <div className="space-y-2">
-            <div className="relative">
-              <LinkIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={sourceUrl}
-                onChange={(e) => handleDetect(e.target.value)}
-                placeholder="Paste URL, Twitter handle, RSS feed..."
-                className="h-10 w-full rounded-md border border-border/50 bg-muted/50 pl-9 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
-              />
-              {detecting && (
-                <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
-              )}
-            </div>
+          <div className="relative">
+            <LinkIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={sourceUrl}
+              onChange={(e) => handleDetect(e.target.value)}
+              placeholder="Paste URL, Twitter handle, RSS feed..."
+              className="h-10 w-full rounded-md border border-border/50 bg-muted/50 pl-9 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+            />
+            {detecting && (
+              <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+            )}
           </div>
 
           {/* Detected type badge */}
@@ -122,6 +168,28 @@ export function AddContentModal() {
                 Detected: {SOURCE_TYPE_LABELS[detectedType] ?? detectedType}
               </span>
             </div>
+          )}
+
+          {/* Cost & Budget */}
+          {detectedType && price !== null && price > 0 && (
+            <>
+              <Separator className="bg-border/30" />
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Zap className="h-3 w-3 text-amber" />
+                  <span>Cost</span>
+                </div>
+                <span className="font-mono text-foreground">
+                  {price} sats
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Budget</span>
+                <span className="font-mono text-foreground">
+                  {formattedBudget} sats
+                </span>
+              </div>
+            </>
           )}
 
           {error && (
@@ -151,6 +219,11 @@ export function AddContentModal() {
                 <>
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   Adding...
+                </>
+              ) : price && price > 0 ? (
+                <>
+                  <Zap className="mr-1.5 h-3.5 w-3.5" />
+                  Pay & Add
                 </>
               ) : (
                 "Add Source"
