@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GraphMindset
 
-## Getting Started
+Knowledge graph explorer frontend. Connects to [jarvis-backend](https://github.com/stakwork/jarvis-backend) and [jarvis-boltwall](https://github.com/stakwork/jarvis-boltwall).
 
-First, run the development server:
+## Stack
+
+- Next.js 16 + TypeScript
+- Tailwind v4 + shadcn/ui
+- Zustand for state management
+- sphinx-bridge for Sphinx app integration
+- dagre for ontology graph layout
+
+## Setup
 
 ```bash
+npm install
+cp .env.local.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment Variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+NEXT_PUBLIC_API_URL=        # Boltwall API URL (auto-detects on swarm deployments)
+NEXT_PUBLIC_USE_MOCKS=true  # Use mock data for local development
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Architecture
 
-## Learn More
+```
+src/
+├── app/
+│   ├── page.tsx            # Main app (auth guard → sidebar + graph viewport)
+│   └── ontology/           # Schema/ontology editor with dagre visualization
+├── components/
+│   ├── auth/               # Sphinx bridge auth guard
+│   ├── layout/             # Sidebar, sources panel, search results panel
+│   ├── modals/             # Add content, settings, budget modals
+│   ├── search/             # Search bar (wired to v2/nodes)
+│   ├── universe/           # Graph viewport placeholder
+│   ├── player/             # Media player (audio/video from node media_url)
+│   └── boost/              # Lightning boost button (keysend via Sphinx)
+├── lib/
+│   ├── api.ts              # API client with signed requests + L402 payment retry
+│   ├── sphinx/             # Bridge detection, signing, L402, payment utilities
+│   ├── graph-api.ts        # v2/nodes, v2/edges CRUD
+│   ├── source-detection.ts # URL regex → source type auto-detection
+│   └── mock-data.ts        # Mock fixtures for local dev
+└── stores/                 # Zustand stores (user, app, graph, schema, player, etc.)
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Auth Flow
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. `sphinx-bridge` sends postMessage to Sphinx webview host
+2. On success: gets pubkey, sets `isSphinx=true`
+3. Calls `GET /isAdmin` on boltwall for admin status + feature flags
+4. All API requests append `sig` + `msg` query params (signed message auth)
+5. Paid endpoints return 402 → `payL402()` handles invoice + payment + retry
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Key Backend Endpoints
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `GET /isAdmin` — auth + feature flags (boltwall)
+- `GET /v2/nodes` — search/list nodes (jarvis-backend)
+- `GET /schema/all` — ontology schemas + edges (jarvis-backend)
+- `POST /radar` — add content source (boltwall)
+- `POST /boost` — boost a node with Lightning (boltwall)
+- `GET /about` — graph metadata (jarvis-backend)
