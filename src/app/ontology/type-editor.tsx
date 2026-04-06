@@ -175,27 +175,36 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
                 key={i}
                 className="flex items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 p-2"
               >
-                <input
-                  value={attr.key}
-                  onChange={(e) => updateAttribute(i, { key: e.target.value })}
-                  placeholder="key"
-                  className="h-6 flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-                />
-                <SelectCustom
-                  value={attr.type}
-                  onChange={(val) => updateAttribute(i, { type: val })}
-                  options={ATTR_TYPES.map((t) => ({ value: t, label: t }))}
-                  compact
-                  className="w-[80px] shrink-0"
-                />
-                <div className="flex items-center gap-1 shrink-0" title="Required">
-                  <Switch
-                    checked={attr.required}
-                    onCheckedChange={(checked) =>
-                      updateAttribute(i, { required: !!checked })
-                    }
-                    className="scale-75"
-                  />
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      value={attr.key}
+                      onChange={(e) => updateAttribute(i, { key: e.target.value })}
+                      placeholder="key"
+                      className="h-6 flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                    />
+                    <SelectCustom
+                      value={attr.type}
+                      onChange={(val) => updateAttribute(i, { type: val })}
+                      options={ATTR_TYPES.map((t) => ({ value: t, label: t }))}
+                      compact
+                      className="w-[80px] shrink-0"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Switch
+                        checked={attr.required}
+                        onCheckedChange={(checked) =>
+                          updateAttribute(i, { required: !!checked })
+                        }
+                        className="scale-75"
+                      />
+                      <span className="text-[10px] text-muted-foreground">
+                        {attr.required ? "Required" : "Optional"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
                 <button
                   onClick={() => removeAttribute(i)}
