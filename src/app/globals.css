@@ -208,7 +208,7 @@
 }
 
 .noise-bg {
-  position: relative;
+  isolation: isolate;
 }
 .noise-bg::after {
   content: "";
