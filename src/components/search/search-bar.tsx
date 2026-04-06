@@ -4,12 +4,17 @@ import { Search, X, Loader2 } from "lucide-react"
 import { useCallback, useRef, useState } from "react"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
+import { useUserStore } from "@/stores/user-store"
+import { useModalStore } from "@/stores/modal-store"
 import { searchNodes } from "@/lib/graph-api"
+import { payL402 } from "@/lib/sphinx"
 import { useMocks, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 
 export function SearchBar() {
   const setSearchTerm = useAppStore((s) => s.setSearchTerm)
   const { setGraphData, setLoading } = useGraphStore()
+  const setBudget = useUserStore((s) => s.setBudget)
+  const openModal = useModalStore((s) => s.open)
   const [value, setValue] = useState("")
   const [focused, setFocused] = useState(false)
   const [searching, setSearching] = useState(false)
@@ -43,7 +48,21 @@ export function SearchBar() {
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return
-        console.error("Search failed:", err)
+
+        // Handle 402 — need payment to search
+        if (err instanceof Response && err.status === 402) {
+          try {
+            await payL402(setBudget)
+            // Retry search after payment
+            const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
+            setGraphData(result.nodes ?? [], result.edges ?? [])
+          } catch {
+            // Payment failed or cancelled — open budget modal
+            openModal("budget")
+          }
+        } else {
+          console.error("Search failed:", err)
+        }
       } finally {
         setSearching(false)
         setLoading(false)
