@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
-import { SelectNative } from "@/components/ui/select-native"
+import { SelectCustom } from "@/components/ui/select-custom"
 import type { SchemaNode, SchemaAttribute } from "./page"
 
 const COLORS = [
@@ -104,9 +104,9 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
           <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
             Parent Type
           </Label>
-          <SelectNative
+          <SelectCustom
             value={schema.parent}
-            onChange={(e) => update({ parent: e.target.value })}
+            onChange={(val) => update({ parent: val })}
             options={[
               { value: "", label: "None (root)" },
               ...parentOptions.map((t) => ({ value: t, label: t })),
@@ -140,9 +140,9 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
           <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
             Display Key
           </Label>
-          <SelectNative
+          <SelectCustom
             value={schema.node_key}
-            onChange={(e) => update({ node_key: e.target.value })}
+            onChange={(val) => update({ node_key: val })}
             options={schema.attributes.map((a) => ({
               value: a.key,
               label: a.key || "(unnamed)",
@@ -182,11 +182,12 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
                   placeholder="key"
                   className="h-6 flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                 />
-                <SelectNative
+                <SelectCustom
                   value={attr.type}
-                  onChange={(e) => updateAttribute(i, { type: e.target.value })}
+                  onChange={(val) => updateAttribute(i, { type: val })}
                   options={ATTR_TYPES.map((t) => ({ value: t, label: t }))}
-                  className="h-6 w-[80px] shrink-0 text-[10px] font-mono border-0 bg-transparent pr-5"
+                  compact
+                  className="w-[80px] shrink-0"
                 />
                 <div className="flex items-center gap-1 shrink-0" title="Required">
                   <Switch
@@ -211,7 +212,11 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
 
       {/* Footer */}
       <div className="border-t border-border p-4">
-        {confirmDelete ? (
+        {schema.type === "Thing" ? (
+          <p className="text-[10px] text-muted-foreground/50 text-center">
+            Root type cannot be deleted
+          </p>
+        ) : confirmDelete ? (
           <div className="flex items-center justify-between">
             <span className="text-xs text-destructive">Delete this type?</span>
             <div className="flex gap-2">

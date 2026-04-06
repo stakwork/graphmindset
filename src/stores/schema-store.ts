@@ -3,6 +3,7 @@
 import { create } from "zustand"
 import type { SchemaNode, SchemaEdge } from "@/app/ontology/page"
 import { api } from "@/lib/api"
+import { useMocks } from "@/lib/mock-data"
 
 interface SchemaState {
   schemas: SchemaNode[]
@@ -11,9 +12,9 @@ interface SchemaState {
   setSchemas: (schemas: SchemaNode[]) => void
   setEdges: (edges: SchemaEdge[]) => void
   setLoading: (loading: boolean) => void
-  updateSchema: (updated: SchemaNode) => void
-  addSchema: (schema: SchemaNode) => void
-  removeSchema: (refId: string) => void
+  updateSchema: (updated: SchemaNode) => Promise<void>
+  addSchema: (schema: SchemaNode) => Promise<void>
+  removeSchema: (refId: string) => Promise<void>
   fetchAll: () => Promise<void>
 }
 
@@ -37,20 +38,80 @@ function serializeAttributes(attrs: SchemaNode["attributes"]): Record<string, st
   return result
 }
 
-export const useSchemaStore = create<SchemaState>((set, get) => ({
+export const useSchemaStore = create<SchemaState>((set) => ({
   schemas: [],
   edges: [],
   loading: false,
   setSchemas: (schemas) => set({ schemas }),
   setEdges: (edges) => set({ edges }),
   setLoading: (loading) => set({ loading }),
-  updateSchema: (updated) =>
+
+  updateSchema: async (updated) => {
+    // Optimistic update
     set((s) => ({
       schemas: s.schemas.map((x) => (x.ref_id === updated.ref_id ? updated : x)),
-    })),
-  addSchema: (schema) => set((s) => ({ schemas: [...s.schemas, schema] })),
-  removeSchema: (refId) =>
-    set((s) => ({ schemas: s.schemas.filter((x) => x.ref_id !== refId) })),
+    }))
+
+    if (useMocks()) return
+
+    try {
+      await api.put(`/schema/${updated.ref_id}`, {
+        type: updated.type,
+        parent: updated.parent,
+        primary_color: updated.color,
+        node_key: updated.node_key,
+        attributes: serializeAttributes(updated.attributes),
+      })
+    } catch (err) {
+      console.error("Failed to update schema:", err)
+    }
+  },
+
+  addSchema: async (schema) => {
+    // Optimistic add
+    set((s) => ({ schemas: [...s.schemas, schema] }))
+
+    if (useMocks()) return
+
+    try {
+      const res = await api.post<{ ref_id?: string }>("/schema", {
+        type: schema.type,
+        parent: schema.parent,
+        primary_color: schema.color,
+        node_key: schema.node_key,
+        attributes: serializeAttributes(schema.attributes),
+      })
+
+      // Update with real ref_id from server
+      if (res.ref_id) {
+        set((s) => ({
+          schemas: s.schemas.map((x) =>
+            x.ref_id === schema.ref_id ? { ...x, ref_id: res.ref_id! } : x
+          ),
+        }))
+      }
+    } catch (err) {
+      console.error("Failed to create schema:", err)
+      // Rollback
+      set((s) => ({ schemas: s.schemas.filter((x) => x.ref_id !== schema.ref_id) }))
+    }
+  },
+
+  removeSchema: async (refId) => {
+    const prev = useSchemaStore.getState().schemas
+    // Optimistic remove
+    set((s) => ({ schemas: s.schemas.filter((x) => x.ref_id !== refId) }))
+
+    if (useMocks()) return
+
+    try {
+      await api.delete(`/schema/${refId}`)
+    } catch (err) {
+      console.error("Failed to delete schema:", err)
+      // Rollback
+      set({ schemas: prev })
+    }
+  },
 
   fetchAll: async () => {
     set({ loading: true })
