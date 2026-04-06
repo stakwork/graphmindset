@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { X, Plus, Trash2, GripVertical } from "lucide-react"
+import { X, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -175,7 +175,6 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
                 key={i}
                 className="flex items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 p-2"
               >
-                <GripVertical className="h-3 w-3 text-muted-foreground/30 shrink-0" />
                 <input
                   value={attr.key}
                   onChange={(e) => updateAttribute(i, { key: e.target.value })}
