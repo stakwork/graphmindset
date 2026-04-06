@@ -1,11 +1,13 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import {
   Layers,
   Plus,
   Settings,
   Zap,
   CircleDot,
+  Network,
 } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { useUserStore } from "@/stores/user-store"
@@ -43,6 +45,7 @@ export function AppSidebar({
   sourcesOpen: boolean
   onToggleSources: () => void
 }) {
+  const router = useRouter()
   const { isAdmin, budget } = useUserStore()
   const { graphName } = useAppStore()
   const openModal = useModalStore((s) => s.open)
@@ -123,8 +126,15 @@ export function AppSidebar({
 
       </nav>
 
-      {/* Footer — Settings at the bottom */}
-      <div className="relative z-10 border-t border-sidebar-border p-3">
+      {/* Footer */}
+      <div className="relative z-10 border-t border-sidebar-border p-3 space-y-1">
+        {isAdmin && (
+          <NavItem
+            icon={Network}
+            label="Ontology"
+            onClick={() => router.push("/ontology")}
+          />
+        )}
         {isAdmin && (
           <NavItem
             icon={Settings}
