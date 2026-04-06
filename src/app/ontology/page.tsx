@@ -57,10 +57,15 @@ export default function OntologyPage() {
   )
 
   const handleAddType = useCallback(() => {
+    // Find next available name
+    const existing = new Set(store.schemas.map((s) => s.type))
+    let n = 1
+    while (existing.has(`NewType${n}`)) n++
+
     const id = `s-${Date.now()}`
     const newSchema: SchemaNode = {
       ref_id: id,
-      type: "NewType",
+      type: `NewType${n}`,
       parent: "Thing",
       color: "#64748b",
       node_key: "name",
