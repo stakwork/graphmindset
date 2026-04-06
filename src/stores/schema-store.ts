@@ -65,7 +65,7 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
           attributes?: Record<string, string>
         }>
         edges: SchemaEdge[]
-      }>("/v2/schema")
+      }>("/schema/all")
 
       const schemas: SchemaNode[] = (res.schemas ?? []).map((s) => ({
         ref_id: s.ref_id,

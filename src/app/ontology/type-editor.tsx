@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
+import { SelectNative } from "@/components/ui/select-native"
 import type { SchemaNode, SchemaAttribute } from "./page"
 
 const COLORS = [
@@ -103,18 +104,14 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
           <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
             Parent Type
           </Label>
-          <select
+          <SelectNative
             value={schema.parent}
             onChange={(e) => update({ parent: e.target.value })}
-            className="h-8 w-full rounded-md border border-border/50 bg-muted/50 px-2 text-sm text-foreground focus:border-primary/40 focus:outline-none"
-          >
-            <option value="">None (root)</option>
-            {parentOptions.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "", label: "None (root)" },
+              ...parentOptions.map((t) => ({ value: t, label: t })),
+            ]}
+          />
         </div>
 
         {/* Color */}
@@ -143,17 +140,14 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
           <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
             Display Key
           </Label>
-          <select
+          <SelectNative
             value={schema.node_key}
             onChange={(e) => update({ node_key: e.target.value })}
-            className="h-8 w-full rounded-md border border-border/50 bg-muted/50 px-2 text-sm text-foreground focus:border-primary/40 focus:outline-none"
-          >
-            {schema.attributes.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.key || "(unnamed)"}
-              </option>
-            ))}
-          </select>
+            options={schema.attributes.map((a) => ({
+              value: a.key,
+              label: a.key || "(unnamed)",
+            }))}
+          />
         </div>
 
         <Separator className="bg-border/30" />
@@ -188,17 +182,12 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
                   placeholder="key"
                   className="h-6 flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                 />
-                <select
+                <SelectNative
                   value={attr.type}
                   onChange={(e) => updateAttribute(i, { type: e.target.value })}
-                  className="h-6 w-[70px] shrink-0 rounded border-0 bg-transparent text-[10px] font-mono text-muted-foreground focus:outline-none"
-                >
-                  {ATTR_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
+                  options={ATTR_TYPES.map((t) => ({ value: t, label: t }))}
+                  className="h-6 w-[80px] shrink-0 text-[10px] font-mono border-0 bg-transparent pr-5"
+                />
                 <div className="flex items-center gap-1 shrink-0" title="Required">
                   <Switch
                     checked={attr.required}

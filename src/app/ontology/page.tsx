@@ -8,7 +8,7 @@ import { Plus, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useMocks } from "@/lib/mock-data"
-import { LARGE_SCHEMAS, LARGE_EDGES } from "./mock-large"
+import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
 
 export interface SchemaAttribute {
   key: string
@@ -39,8 +39,8 @@ export default function OntologyPage() {
 
   useEffect(() => {
     if (useMocks()) {
-      store.setSchemas(LARGE_SCHEMAS)
-      store.setEdges(LARGE_EDGES)
+      store.setSchemas(SMALL_SCHEMAS)
+      store.setEdges(SMALL_EDGES)
     } else {
       store.fetchAll()
     }
