@@ -40,7 +40,7 @@ export function SearchBar() {
         if (useMocks()) {
           const q = trimmed.toLowerCase()
           const filtered = MOCK_NODES.filter(
-            (n) => n.name?.toLowerCase().includes(q) || n.node_type.toLowerCase().includes(q)
+            (n) => (n.properties?.name as string)?.toLowerCase().includes(q) || n.node_type.toLowerCase().includes(q)
           )
           setGraphData(filtered, MOCK_EDGES)
         } else {

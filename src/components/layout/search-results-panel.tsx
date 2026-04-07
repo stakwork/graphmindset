@@ -10,7 +10,6 @@ import type { GraphNode } from "@/lib/graph-api"
 
 function NodeRow({ node }: { node: GraphNode }) {
   const name =
-    node.name ??
     (node.properties?.name as string) ??
     node.ref_id
 

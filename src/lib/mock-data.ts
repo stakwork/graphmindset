@@ -5,49 +5,41 @@ export const MOCK_NODES: GraphNode[] = [
     ref_id: "n1",
     node_type: "Topic",
     properties: { name: "Bitcoin", description: "A peer-to-peer electronic cash system" },
-    name: "Bitcoin",
   },
   {
     ref_id: "n2",
     node_type: "Topic",
     properties: { name: "Lightning Network", description: "Layer 2 payment protocol" },
-    name: "Lightning Network",
   },
   {
     ref_id: "n3",
     node_type: "Person",
     properties: { name: "Satoshi Nakamoto", twitter_handle: "satoshi" },
-    name: "Satoshi Nakamoto",
   },
   {
     ref_id: "n4",
     node_type: "Topic",
     properties: { name: "Nostr", description: "Notes and Other Stuff Transmitted by Relays" },
-    name: "Nostr",
   },
   {
     ref_id: "n5",
     node_type: "Person",
     properties: { name: "Jack Dorsey", twitter_handle: "jack" },
-    name: "Jack Dorsey",
   },
   {
     ref_id: "n6",
     node_type: "Content",
     properties: { name: "Bitcoin Whitepaper", source_link: "https://bitcoin.org/bitcoin.pdf" },
-    name: "Bitcoin Whitepaper",
   },
   {
     ref_id: "n7",
     node_type: "Topic",
     properties: { name: "Sphinx Chat", description: "Decentralized messaging on Lightning" },
-    name: "Sphinx Chat",
   },
   {
     ref_id: "n8",
     node_type: "Person",
     properties: { name: "Elizabeth Stark", twitter_handle: "staborobot" },
-    name: "Elizabeth Stark",
   },
 ]
 

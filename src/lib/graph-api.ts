@@ -4,9 +4,10 @@ export interface GraphNode {
   ref_id: string
   node_type: string
   properties: Record<string, unknown>
-  name?: string
-  label?: string
-  image_url?: string
+  date_added_to_graph?: number
+  score?: number
+  match_type?: "exact" | "fuzzy" | "semantic"
+  weight?: number
 }
 
 export interface GraphEdge {

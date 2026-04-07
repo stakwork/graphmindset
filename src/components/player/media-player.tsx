@@ -33,7 +33,6 @@ export function MediaPlayer() {
     null
 
   const title =
-    playingNode?.name ??
     (playingNode?.properties?.name as string) ??
     "Unknown"
 
