@@ -1,0 +1,41 @@
+name: Docker Build and Push to DockerHub (main)
+env:
+  DOCKER_CLI_EXPERIMENTAL: enabled
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build and push graphmindset image
+    env:
+      ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+    steps:
+      - name: Check out from Git
+        uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        id: buildx
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        id: cache
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      - name: Run Docker buildx
+        run: |
+          docker buildx build \
+          --cache-to "type=local,dest=/tmp/.buildx-cache" \
+          --platform linux/amd64 \
+          --tag "${{ secrets.DOCKER_HUB_USER }}/graphmindset:master" \
+          --output "type=registry" ./
