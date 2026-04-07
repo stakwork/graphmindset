@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { MAX_LENGTHS } from "@/lib/input-limits"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
 import { api } from "@/lib/api"
@@ -153,6 +154,7 @@ export function AddContentModal() {
               value={sourceUrl}
               onChange={(e) => handleDetect(e.target.value)}
               placeholder="Paste URL, Twitter handle, RSS feed..."
+              maxLength={MAX_LENGTHS.SOURCE_URL}
               className="h-10 w-full rounded-md border border-border/50 bg-muted/50 pl-9 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
             />
             {detecting && (

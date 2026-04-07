@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { MAX_LENGTHS } from "@/lib/input-limits"
 import { useModalStore } from "@/stores/modal-store"
 import { useAppStore } from "@/stores/app-store"
 import { useUserStore } from "@/stores/user-store"
@@ -69,6 +70,7 @@ export function SettingsModal() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={!isAdmin}
+              maxLength={MAX_LENGTHS.GRAPH_NAME}
               className="bg-muted/50 border-border/50 focus:border-primary/40"
             />
           </div>
@@ -83,6 +85,7 @@ export function SettingsModal() {
               onChange={(e) => setDescription(e.target.value)}
               disabled={!isAdmin}
               rows={3}
+              maxLength={MAX_LENGTHS.GRAPH_DESCRIPTION}
               className="w-full rounded-md border border-border/50 bg-muted/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none disabled:opacity-50 resize-none"
             />
           </div>

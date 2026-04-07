@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { SelectCustom } from "@/components/ui/select-custom"
+import { MAX_LENGTHS } from "@/lib/input-limits"
 import type { SchemaNode, SchemaAttribute } from "./page"
 
 const COLORS = [
@@ -95,6 +96,7 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
           <Input
             value={schema.type}
             onChange={(e) => update({ type: e.target.value })}
+            maxLength={MAX_LENGTHS.SCHEMA_TYPE_NAME}
             className="h-8 text-sm bg-muted/50 border-border/50"
           />
         </div>
@@ -181,6 +183,7 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
                       value={attr.key}
                       onChange={(e) => updateAttribute(i, { key: e.target.value })}
                       placeholder="key"
+                      maxLength={MAX_LENGTHS.SCHEMA_ATTRIBUTE_KEY}
                       className="h-6 flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                     />
                     <SelectCustom

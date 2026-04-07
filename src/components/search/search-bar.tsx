@@ -2,6 +2,7 @@
 
 import { Search, X, Loader2 } from "lucide-react"
 import { useCallback, useRef, useState } from "react"
+import { MAX_LENGTHS } from "@/lib/input-limits"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useUserStore } from "@/stores/user-store"
@@ -102,6 +103,7 @@ export function SearchBar() {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder="Search the graph..."
+          maxLength={MAX_LENGTHS.SEARCH_QUERY}
           className="h-9 w-full bg-transparent pl-9 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         />
         {value && (
