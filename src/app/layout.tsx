@@ -24,6 +24,9 @@ const firaCode = Fira_Code({
 export const metadata: Metadata = {
   title: "GraphMindset",
   description: "Knowledge graph explorer",
+  icons: {
+    icon: "/favicon.svg",
+  },
 }
 
 export default function RootLayout({
