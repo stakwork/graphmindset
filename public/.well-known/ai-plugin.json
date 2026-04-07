@@ -1,0 +1,15 @@
+{
+  "schema_version": "v1",
+  "name": "GraphMindset",
+  "description": "Knowledge graph explorer with Lightning Network payments. Search nodes, manage sources, edit ontology schemas, boost content.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "/openapi.json"
+  },
+  "logo_url": "/logo.png",
+  "contact_email": "",
+  "legal_info_url": ""
+}
