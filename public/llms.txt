@@ -1,49 +1,13 @@
 # GraphMindset
 
-> Knowledge graph explorer and ontology editor built on Lightning Network
+> Knowledge graph explorer and ontology editor
 
-GraphMindset is a frontend for exploring, searching, and managing knowledge graphs. It connects to a Neo4j-backed graph database via jarvis-backend and authenticates via jarvis-boltwall using Lightning Network L402 payments.
+GraphMindset lets you explore, search, and build knowledge graphs. Define your own ontology with custom node types and relationships, add content from URLs, and visualize the connections between ideas, people, and things.
 
-## Core Features
+## Features
 
-- Search knowledge graph nodes by keyword
-- View and manage data sources (Twitter handles, YouTube channels, RSS feeds, GitHub repos)
-- Add content via URL with automatic source type detection
-- Visual ontology/schema editor for defining node types and relationships
-- Lightning Network payments for premium features (L402 protocol)
-- Boost nodes with Lightning keysend payments
-- Media playback for podcast episodes and audio content
-
-## Pages
-
-- `/` - Main app: sidebar with sources + search bar + graph viewport
-- `/ontology` - Schema/ontology editor with dagre-based hierarchy visualization
-
-## Authentication
-
-Authentication uses the Sphinx Bridge protocol (postMessage-based). Users authenticate via:
-1. Sphinx desktop/mobile app (Lightning wallet with message signing)
-2. WebLN browser extensions (e.g. Alby)
-
-API requests include signed message parameters (`sig`, `msg`) for identity verification.
-
-## API
-
-All API requests go through a boltwall gateway that handles auth and payments.
-
-### Key Endpoints
-- `GET /isAdmin` - Check auth status, admin role, feature flags
-- `GET /v2/nodes?q={query}` - Search graph nodes
-- `GET /schema/all` - Get full ontology (node types + relationships)
-- `POST /radar` - Add content source
-- `POST /boost` - Boost a node with Lightning payment
-- `GET /about` - Graph metadata (name, description)
-- `GET /balance` - L402 token balance
-
-## Tech Stack
-
-- Next.js 16, TypeScript, Tailwind v4, shadcn/ui
-- Zustand for state management
-- dagre for graph layout
-- sphinx-bridge for Lightning auth
-- lsat-js for L402 payment protocol
+- Search and explore knowledge graph nodes
+- Visual ontology/schema editor
+- Add content from Twitter, YouTube, RSS, GitHub, and web pages
+- Boost content with Lightning payments
+- Media playback for audio/video content
