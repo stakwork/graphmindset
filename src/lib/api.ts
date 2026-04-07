@@ -11,11 +11,17 @@ function resolveApiUrl(): string {
 
   const { host, origin } = window.location
 
-  // Swarm deployments: rewrite nav.*.swarm.* → boltwall.*.swarm.*
-  if (host.includes("swarm") && host.startsWith("nav")) {
+  // Swarm deployments: rewrite nav.*.swarm.* or graph.*.swarm.* → boltwall.*.swarm.*
+  if (host.includes("swarm") && (host.startsWith("nav") || host.startsWith("graph"))) {
     const parts = host.split(".")
     parts[0] = "boltwall"
     return `https://${parts.join(".")}/api`
+  }
+
+  // Port-based SSL: rewrite {host}:3100 or {host}:8000 → {host}:8444/api
+  if (host.includes(":3100") || host.includes(":8000")) {
+    const baseHost = host.split(":")[0]
+    return `https://${baseHost}:8444/api`
   }
 
   if (origin.includes("localhost")) {
