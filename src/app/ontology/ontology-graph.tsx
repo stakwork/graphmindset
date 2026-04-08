@@ -121,7 +121,7 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
   function getFitTransform(svgWidth: number, svgHeight: number): ZoomTransform {
     const scaleX = svgWidth / graphInfo.width
     const scaleY = svgHeight / graphInfo.height
-    const scale = Math.min(scaleX, scaleY, 1) // don't upscale beyond 1x
+    const scale = Math.max(Math.min(scaleX, scaleY, 1), 0.1) // don't upscale beyond 1x, clamp minimum to 0.1
     const tx = (svgWidth - graphInfo.width * scale) / 2
     const ty = (svgHeight - graphInfo.height * scale) / 2
     return zoomIdentity.translate(tx, ty).scale(scale)
@@ -136,7 +136,7 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
     const svgHeight = rect.height || 600
 
     const zoom = d3Zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.2, 4])
+      .scaleExtent([0.1, 10])
       .on("zoom", (event) => {
         if (containerRef.current) {
           d3Select(containerRef.current).attr("transform", event.transform.toString())
@@ -177,7 +177,7 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
     const svgHeight = rect.height || 600
 
     const currentTransform = (d3Select(svgRef.current).property("__zoom") as ZoomTransform | null) ?? zoomIdentity
-    const targetScale = Math.max(currentTransform.k, 1.5)
+    const targetScale = currentTransform.k < 2.0 ? 2.0 : currentTransform.k
 
     const tx = svgWidth / 2 - node.x * targetScale
     const ty = svgHeight / 2 - node.y * targetScale
@@ -214,7 +214,6 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
         ref={svgRef}
         width="100%"
         height="100%"
-        viewBox={`0 0 ${graphInfo.width} ${graphInfo.height}`}
       >
         <defs>
           <marker
