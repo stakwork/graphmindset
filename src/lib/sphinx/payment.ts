@@ -93,11 +93,17 @@ async function payViaWebLN(
   try {
     await api.post("/buy_lsat", { amount: budgetAmount })
   } catch (error: unknown) {
+    console.log("[payViaWebLN] caught error:", error instanceof Response, error instanceof Response && error.status)
+
     if (error instanceof Response && error.status === 402) {
       const header = error.headers.get("www-authenticate")
+      console.log("[payViaWebLN] www-authenticate header:", header ? `${header.slice(0, 80)}...` : null)
+
       if (!header) throw new Error("No www-authenticate header in 402")
 
       const lsat = Lsat.fromHeader(header)
+      console.log("[payViaWebLN] parsed invoice:", lsat.invoice ? `${lsat.invoice.slice(0, 40)}...` : null)
+
       const payment = await webln.sendPayment(lsat.invoice)
 
       if (payment?.preimage) {
