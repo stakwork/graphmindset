@@ -24,7 +24,7 @@ import {
 } from "@/lib/source-detection"
 
 export function AddContentModal() {
-  const { activeModal, close } = useModalStore()
+  const { activeModal, close, open: openModal } = useModalStore()
   const { budget, setBudget } = useUserStore()
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
@@ -112,7 +112,7 @@ export function AddContentModal() {
             close()
           }, 1200)
         } catch {
-          setError("Payment failed or was cancelled.")
+          openModal("budget")
         }
       } else {
         setError("Failed to add content. Try again.")
