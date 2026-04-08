@@ -1,12 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { Lock } from "lucide-react"
 import { enable, isAndroid, getL402 } from "@/lib/sphinx"
 import type { IsAdminResponse } from "@/lib/sphinx"
 import { api } from "@/lib/api"
 import { useUserStore } from "@/stores/user-store"
 import { useAppStore } from "@/stores/app-store"
 import { useMocks } from "@/lib/mock-data"
+import { Separator } from "@/components/ui/separator"
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [unauthorized, setUnauthorized] = useState(false)
@@ -106,9 +108,25 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   if (unauthorized) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background">
-        <p className="text-2xl font-semibold text-foreground text-center px-8">
-          This is a private Graph. Contact the admin for access.
-        </p>
+        <div className="relative bg-card border border-border/50 rounded-2xl p-10 flex flex-col items-center gap-5 max-w-xs w-full mx-4 noise-bg glow-border">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
+            <Lock className="h-5 w-5 text-primary" />
+          </div>
+
+          <div className="flex flex-col items-center gap-1">
+            <span className="font-heading font-semibold text-xl tracking-wide text-foreground">GraphMindset</span>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/50">Knowledge Graph Explorer</span>
+          </div>
+
+          <Separator className="bg-border/30" />
+
+          <div className="flex flex-col items-center gap-2">
+            <span className="font-heading font-semibold text-base text-foreground">Members Only</span>
+            <p className="text-sm text-muted-foreground text-center leading-relaxed">
+              This graph is private and only accessible to its members.
+            </p>
+          </div>
+        </div>
       </div>
     )
   }
