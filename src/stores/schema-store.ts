@@ -18,15 +18,19 @@ interface SchemaState {
   fetchAll: () => Promise<void>
 }
 
-function parseAttributes(attrs: Record<string, string> | undefined) {
+function parseAttributes(attrs: Record<string, unknown> | undefined) {
   if (!attrs) return [{ key: "name", type: "string", required: true }]
   return Object.entries(attrs)
     .filter(([k]) => !["type", "ref_id", "parent"].includes(k))
-    .map(([key, val]) => ({
-      key,
-      type: val.startsWith("?") ? val.slice(1) : val,
-      required: !val.startsWith("?"),
-    }))
+    .filter(([, val]) => typeof val === "string") // skip arrays and non-string values
+    .map(([key, val]) => {
+      const v = val as string
+      return {
+        key,
+        type: v.startsWith("?") ? v.slice(1) : v,
+        required: !v.startsWith("?"),
+      }
+    })
 }
 
 function serializeAttributes(attrs: SchemaNode["attributes"]): Record<string, string> {
@@ -123,7 +127,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
           parent?: string
           primary_color?: string
           node_key?: string
-          attributes?: Record<string, string>
+          attributes?: Record<string, unknown>
         }>
         edges: SchemaEdge[]
       }>("/schema/all")

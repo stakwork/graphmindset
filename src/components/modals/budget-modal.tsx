@@ -13,8 +13,8 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, getL402, hasWebLN, payWithWebLN } from "@/lib/sphinx"
-import { api, API_URL } from "@/lib/api"
+import { isSphinx, getL402, hasWebLN, payWithWebLN, payL402 } from "@/lib/sphinx"
+import { api } from "@/lib/api"
 
 export function BudgetModal() {
   const { activeModal, close } = useModalStore()

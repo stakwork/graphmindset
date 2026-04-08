@@ -30,20 +30,23 @@ function buildLayout(schemas: SchemaNode[], edges: SchemaEdge[]) {
     g.setNode(s.ref_id, { width: NODE_WIDTH, height: NODE_HEIGHT })
   }
 
-  // Parent/child edges (hierarchy)
-  for (const s of schemas) {
-    if (s.parent) {
-      const parentNode = schemas.find((p) => p.type === s.parent)
-      if (parentNode) {
-        g.setEdge(parentNode.ref_id, s.ref_id)
-      }
-    }
-  }
-
-  // Schema relationship edges
+  // Add all edges — CHILD_OF edges form the hierarchy, rest are relationships
   for (const e of edges) {
     if (g.hasNode(e.source) && g.hasNode(e.target)) {
       g.setEdge(e.source, e.target, { label: e.edge_type })
+    }
+  }
+
+  // Fallback: if no CHILD_OF edges, build hierarchy from parent field
+  const hasChildOfEdges = edges.some((e) => e.edge_type === "CHILD_OF")
+  if (!hasChildOfEdges) {
+    for (const s of schemas) {
+      if (s.parent) {
+        const parentNode = schemas.find((p) => p.type === s.parent)
+        if (parentNode) {
+          g.setEdge(parentNode.ref_id, s.ref_id)
+        }
+      }
     }
   }
 
@@ -90,14 +93,22 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
   // Build hierarchy set for distinguishing edge types
   const hierarchyEdges = useMemo(() => {
     const set = new Set<string>()
-    for (const s of schemas) {
-      if (s.parent) {
-        const parent = schemas.find((p) => p.type === s.parent)
-        if (parent) set.add(`${parent.ref_id}→${s.ref_id}`)
+    for (const e of edges) {
+      if (e.edge_type === "CHILD_OF") {
+        set.add(`${e.source}→${e.target}`)
+      }
+    }
+    // Fallback from parent field if no CHILD_OF edges
+    if (set.size === 0) {
+      for (const s of schemas) {
+        if (s.parent) {
+          const parent = schemas.find((p) => p.type === s.parent)
+          if (parent) set.add(`${parent.ref_id}→${s.ref_id}`)
+        }
       }
     }
     return set
-  }, [schemas])
+  }, [schemas, edges])
 
   // Auto-fit viewBox
   useEffect(() => {
@@ -160,15 +171,12 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
         </pattern>
         <rect width="100%" height="100%" fill="url(#grid)" />
 
-        {/* Hierarchy edges (parent → child) */}
-        {schemas.map((s) => {
-          if (!s.parent) return null
-          const parent = schemas.find((p) => p.type === s.parent)
-          if (!parent) return null
-          const d = edgePath(g, parent.ref_id, s.ref_id, true)
+        {/* Hierarchy edges (CHILD_OF) */}
+        {edges.filter((e) => e.edge_type === "CHILD_OF").map((e) => {
+          const d = edgePath(g, e.target, e.source, true)
           return (
             <path
-              key={`h-${parent.ref_id}-${s.ref_id}`}
+              key={`h-${e.ref_id}`}
               d={d}
               fill="none"
               stroke="oklch(0.3 0.02 260)"
