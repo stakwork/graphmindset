@@ -25,7 +25,7 @@ import {
 
 export function AddContentModal() {
   const { activeModal, close } = useModalStore()
-  const { budget, setBudget } = useUserStore()
+  const { budget, setBudget, isAdmin } = useUserStore()
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
   const [detecting, setDetecting] = useState(false)
@@ -36,11 +36,11 @@ export function AddContentModal() {
 
   // Fetch price based on detected type
   useEffect(() => {
-    if (activeModal === "addContent" && detectedType) {
+    if (activeModal === "addContent" && detectedType && !isAdmin) {
       const endpoint = isSubscriptionSource(detectedType) ? "radar" : "v2/content"
       getPrice(endpoint).then(setPrice)
     }
-  }, [activeModal, detectedType])
+  }, [activeModal, detectedType, isAdmin])
 
   const handleDetect = useCallback(async (value: string) => {
     setSourceUrl(value)
@@ -177,7 +177,7 @@ export function AddContentModal() {
           )}
 
           {/* Cost & Budget */}
-          {detectedType && price !== null && price > 0 && (
+          {detectedType && price !== null && price > 0 && !isAdmin && (
             <>
               <Separator className="bg-border/30" />
               <div className="flex items-center justify-between text-xs">
@@ -226,7 +226,7 @@ export function AddContentModal() {
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   Adding...
                 </>
-              ) : price && price > 0 ? (
+              ) : price && price > 0 && !isAdmin ? (
                 <>
                   <Zap className="mr-1.5 h-3.5 w-3.5" />
                   Pay & Add
