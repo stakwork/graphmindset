@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, getL402, hasWebLN, payWithWebLN, payL402 } from "@/lib/sphinx"
+import { isSphinx, getL402, hasWebLN, payL402 } from "@/lib/sphinx"
 import { api } from "@/lib/api"
 
 export function BudgetModal() {
@@ -57,43 +57,18 @@ export function BudgetModal() {
     setLoading(true)
     setError("")
     try {
-      // Request an invoice from boltwall
-      const invoiceRes = await api.post<{
-        invoice: string
-        macaroon: string
-        identifier: string
-      }>("/buy_lsat", {})
+      await payL402(setBudget)
 
-      if (!invoiceRes.invoice) {
-        setError("Failed to get invoice from server.")
-        return
-      }
-
-      // Pay via WebLN
-      const payment = await payWithWebLN(invoiceRes.invoice)
-      if (!payment) {
-        setError("Payment was cancelled or failed.")
-        return
-      }
-
-      // Store the L402 token
-      localStorage.setItem(
-        "l402",
-        JSON.stringify({
-          macaroon: invoiceRes.macaroon,
-          identifier: invoiceRes.identifier,
-          preimage: payment.preimage,
+      // Refresh balance after successful payment
+      const l402 = await getL402()
+      if (l402) {
+        const balance = await api.get<{ balance: number }>("/balance", {
+          Authorization: l402,
         })
-      )
-
-      // Fetch updated balance
-      const l402Token = `L402 ${invoiceRes.macaroon}:${payment.preimage}`
-      const balance = await api.get<{ balance: number }>("/balance", {
-        Authorization: l402Token,
-      })
-      setBudget(balance.balance)
+        setBudget(balance.balance)
+      }
     } catch {
-      setError("Failed to process payment. Try again.")
+      setError("Payment was cancelled or failed.")
     } finally {
       setLoading(false)
     }
