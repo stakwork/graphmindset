@@ -135,6 +135,13 @@ export function AddContentModal() {
         } catch {
           openModal("budget")
         }
+      } else if (err instanceof Response) {
+        try {
+          const body = await err.json()
+          setError(body?.message || "Failed to add content. Try again.")
+        } catch {
+          setError("Failed to add content. Try again.")
+        }
       } else {
         setError("Failed to add content. Try again.")
       }
