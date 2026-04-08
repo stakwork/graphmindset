@@ -5,7 +5,6 @@ import { enable, isAndroid, getL402 } from "@/lib/sphinx"
 import type { IsAdminResponse } from "@/lib/sphinx"
 import { api } from "@/lib/api"
 import { useUserStore } from "@/stores/user-store"
-import { useFeatureFlagStore } from "@/stores/feature-flag-store"
 import { useAppStore } from "@/stores/app-store"
 import { useMocks } from "@/lib/mock-data"
 
@@ -13,7 +12,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [unauthorized, setUnauthorized] = useState(false)
   const [loading, setLoading] = useState(true)
   const { setBudget, setIsAdmin, setPubKey, setIsAuthenticated } = useUserStore()
-  const setFlags = useFeatureFlagStore((s) => s.setFlags)
   const setGraphMeta = useAppStore((s) => s.setGraphMeta)
 
   const handleAuth = useCallback(async () => {
@@ -25,7 +23,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         await new Promise((r) => setTimeout(r, 5000))
       }
 
-      // sphinx-bridge uses postMessage — works in Sphinx webview, no-ops in browser
       const result = await enable()
       if (result?.pubkey) {
         setPubKey(result.pubkey)
@@ -34,7 +31,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       setPubKey("")
     }
 
-    // Update budget from L402 balance
     const l402 = await getL402()
     if (!l402) {
       setBudget(0)
@@ -53,29 +49,21 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   const handleIsAdmin = useCallback(async () => {
     try {
-      const res = await api.get<IsAdminResponse>("/isAdmin")
+      const res = await api.get<{ data: IsAdminResponse }>("/isAdmin")
+      const d = res.data
 
-      if (!res.isPublic && !res.isAdmin && !res.isMember) {
+      if (!d.isPublic && !d.isAdmin && !d.isMember) {
         setUnauthorized(true)
         return
       }
 
-      setIsAdmin(!!res.isAdmin)
-      localStorage.setItem("admin", JSON.stringify({ isAdmin: res.isAdmin }))
-
-      setFlags({
-        trendingTopics: res.trendingTopics,
-        queuedSources: res.queuedSources,
-        customSchema: res.customSchema,
-        realtimeGraph: res.realtimeGraph ?? false,
-        chatInterface: res.chatInterface ?? false,
-      })
-
+      setIsAdmin(!!d.isAdmin)
+      localStorage.setItem("admin", JSON.stringify({ isAdmin: d.isAdmin }))
       setIsAuthenticated(true)
     } catch {
       setIsAuthenticated(true)
     }
-  }, [setIsAdmin, setFlags, setIsAuthenticated])
+  }, [setIsAdmin, setIsAuthenticated])
 
   const fetchGraphMeta = useCallback(async () => {
     try {
@@ -92,34 +80,20 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const init = async () => {
       if (useMocks()) {
-        // Dev mode: skip real auth, set admin + all flags
         setIsAdmin(true)
         setIsAuthenticated(true)
         setBudget(5000)
-        setFlags({
-          trendingTopics: true,
-          queuedSources: true,
-          customSchema: true,
-          realtimeGraph: true,
-          chatInterface: true,
-          addItem: true,
-          addContent: true,
-          settings: true,
-        })
         setGraphMeta("Dev Graph", "Local development instance")
         setLoading(false)
         return
       }
 
-      // Always try sphinx-bridge enable — it uses postMessage internally.
-      // In Sphinx webview: succeeds and sets isSphinx=true
-      // In plain browser: times out silently and sets isSphinx=false
       await handleAuth()
       await Promise.all([handleIsAdmin(), fetchGraphMeta()])
       setLoading(false)
     }
     init()
-  }, [handleAuth, handleIsAdmin, fetchGraphMeta, setIsAdmin, setIsAuthenticated, setBudget, setFlags, setGraphMeta])
+  }, [handleAuth, handleIsAdmin, fetchGraphMeta, setIsAdmin, setIsAuthenticated, setBudget, setGraphMeta])
 
   if (loading) {
     return (
