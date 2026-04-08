@@ -76,6 +76,11 @@ export function extractNameFromSource(source: string, type: SourceType): string 
   return source
 }
 
+export function extractTweetId(source: string): string | null {
+  const match = tweetUrlRegex.exec(source)
+  return match ? match[2] : null
+}
+
 export const SOURCE_TYPE_LABELS: Record<string, string> = {
   [SOURCE_TYPES.TWITTER_HANDLE]: "Twitter Handle",
   [SOURCE_TYPES.YOUTUBE_CHANNEL]: "YouTube Channel",
