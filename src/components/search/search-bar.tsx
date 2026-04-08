@@ -15,7 +15,6 @@ export function SearchBar() {
   const setSearchTerm = useAppStore((s) => s.setSearchTerm)
   const { setGraphData, setLoading } = useGraphStore()
   const setBudget = useUserStore((s) => s.setBudget)
-  const isAdmin = useUserStore((s) => s.isAdmin)
   const openModal = useModalStore((s) => s.open)
   const [value, setValue] = useState("")
   const [focused, setFocused] = useState(false)
@@ -51,8 +50,8 @@ export function SearchBar() {
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return
 
-        // Handle 402 — need payment to search (admins skip payment)
-        if (err instanceof Response && err.status === 402 && !isAdmin) {
+        // Handle 402 — need payment to search
+        if (err instanceof Response && err.status === 402) {
           try {
             await payL402(setBudget)
             // Retry search after payment
