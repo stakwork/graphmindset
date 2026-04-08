@@ -18,7 +18,9 @@ import { api } from "@/lib/api"
 import { getL402, payL402, getPrice } from "@/lib/sphinx"
 import {
   detectSourceType,
+  extractTweetId,
   SOURCE_TYPE_LABELS,
+  SOURCE_TYPES,
   isSubscriptionSource,
   type SourceType,
 } from "@/lib/source-detection"
@@ -69,12 +71,28 @@ export function AddContentModal() {
       if (l402) headers["Authorization"] = l402
 
       if (isSubscriptionSource(sourceType)) {
-        // Subscription sources (twitter handle, youtube channel, RSS, github) → /radar
         await api.post("/radar", { source, source_type: sourceType }, headers)
-      } else {
-        // One-off content (tweet, video, web page, document, etc.) → /v2/content
-        await api.post("/v2/content", { source, source_type: sourceType }, headers)
+        return
       }
+
+      // Build v2/content body matching nav-fiber's format
+      const body: Record<string, unknown> = {}
+
+      if (sourceType === SOURCE_TYPES.TWEET) {
+        body.content_type = "tweet"
+        body.tweet_id = extractTweetId(source) ?? source
+      } else if (sourceType === SOURCE_TYPES.LINK) {
+        body.content_type = "audio_video"
+        body.media_url = source
+      } else if (sourceType === SOURCE_TYPES.WEB_PAGE) {
+        body.content_type = "webpage"
+        body.web_page = source
+      } else if (sourceType === SOURCE_TYPES.DOCUMENT) {
+        body.content_type = "document"
+        body.text = source
+      }
+
+      await api.post("/v2/content", body, headers)
     },
     []
   )
