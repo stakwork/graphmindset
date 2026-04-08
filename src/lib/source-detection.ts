@@ -55,8 +55,8 @@ export async function detectSourceType(source: string): Promise<SourceType> {
 
   if (linkPatterns.some((p) => p.test(source))) return SOURCE_TYPES.LINK
   if (youtubeChannelPattern.test(source)) return SOURCE_TYPES.YOUTUBE_CHANNEL
-  if (twitterHandlePattern.test(source)) return SOURCE_TYPES.TWITTER_HANDLE
   if (tweetUrlRegex.test(source)) return SOURCE_TYPES.TWEET
+  if (twitterHandlePattern.test(source)) return SOURCE_TYPES.TWITTER_HANDLE
   if (rssRegex.test(source)) return SOURCE_TYPES.RSS
   if (githubRepoPattern.test(source)) return SOURCE_TYPES.GITHUB_REPOSITORY
 
