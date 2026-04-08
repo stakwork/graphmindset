@@ -19,6 +19,7 @@ import { getL402, payL402, getPrice } from "@/lib/sphinx"
 import {
   detectSourceType,
   SOURCE_TYPE_LABELS,
+  isSubscriptionSource,
   type SourceType,
 } from "@/lib/source-detection"
 
@@ -33,12 +34,13 @@ export function AddContentModal() {
   const [error, setError] = useState("")
   const [price, setPrice] = useState<number | null>(null)
 
-  // Fetch price when modal opens
+  // Fetch price based on detected type
   useEffect(() => {
-    if (activeModal === "addContent") {
-      getPrice("add_node").then(setPrice)
+    if (activeModal === "addContent" && detectedType) {
+      const endpoint = isSubscriptionSource(detectedType) ? "radar" : "v2/content"
+      getPrice(endpoint).then(setPrice)
     }
-  }, [activeModal])
+  }, [activeModal, detectedType])
 
   const handleDetect = useCallback(async (value: string) => {
     setSourceUrl(value)
@@ -66,11 +68,13 @@ export function AddContentModal() {
       const headers: Record<string, string> = {}
       if (l402) headers["Authorization"] = l402
 
-      await api.post(
-        "/radar",
-        { source, source_type: sourceType },
-        headers
-      )
+      if (isSubscriptionSource(sourceType)) {
+        // Subscription sources (twitter handle, youtube channel, RSS, github) → /radar
+        await api.post("/radar", { source, source_type: sourceType }, headers)
+      } else {
+        // One-off content (tweet, video, web page, document, etc.) → /v2/content
+        await api.post("/v2/content", { source, source_type: sourceType }, headers)
+      }
     },
     []
   )
