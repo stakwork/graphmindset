@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AppSidebar } from "./app-sidebar"
 import { SourcesPanel } from "./sources-panel"
 import { SearchResultsPanel } from "./search-results-panel"
@@ -19,6 +19,18 @@ export function AppLayout() {
 
   const searchPanelOpen = !!searchTerm && hasResults
 
+  // Auto-close sources when search results appear
+  useEffect(() => {
+    if (searchPanelOpen) setSourcesOpen(false)
+  }, [searchPanelOpen])
+
+  function closeSearchResults(): void {
+    useAppStore.getState().setSearchTerm("")
+    useGraphStore.getState().setGraphData([], [])
+  }
+
+  const panelOverlay = "absolute left-0 top-0 z-10 h-full"
+
   return (
     <>
       <div className="flex h-screen w-screen overflow-hidden">
@@ -27,22 +39,7 @@ export function AppLayout() {
           onToggleSources={() => setSourcesOpen((o) => !o)}
         />
 
-        {/* Sources slide-out panel */}
-        {sourcesOpen && (
-          <SourcesPanel onClose={() => setSourcesOpen(false)} />
-        )}
-
-        {/* Search results slide-out panel */}
-        {searchPanelOpen && !sourcesOpen && (
-          <SearchResultsPanel
-            onClose={() => {
-              useAppStore.getState().setSearchTerm("")
-              useGraphStore.getState().setGraphData([], [])
-            }}
-          />
-        )}
-
-        <div className="flex flex-1 flex-col min-w-0">
+        <div className="relative flex flex-1 flex-col min-w-0">
           {/* Top bar */}
           <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/50 bg-background/80 backdrop-blur-sm px-5">
             <SearchBar />
@@ -53,10 +50,24 @@ export function AppLayout() {
             </div>
           </header>
 
-          {/* Main viewport */}
-          <main className="flex-1 overflow-hidden">
-            <Universe />
-          </main>
+          {/* Content area — panels overlay here */}
+          <div className="relative flex-1 overflow-hidden">
+            {sourcesOpen && (
+              <div className={panelOverlay}>
+                <SourcesPanel onClose={() => setSourcesOpen(false)} />
+              </div>
+            )}
+
+            {searchPanelOpen && (
+              <div className={panelOverlay}>
+                <SearchResultsPanel onClose={closeSearchResults} />
+              </div>
+            )}
+
+            <main className="h-full">
+              <Universe />
+            </main>
+          </div>
         </div>
       </div>
 
