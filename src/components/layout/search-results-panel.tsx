@@ -16,7 +16,7 @@ function NodeRow({ node }: { node: GraphNode }) {
   const nodeType = node.node_type ?? "Unknown"
 
   return (
-    <button className="flex items-center gap-3 px-4 py-3 w-full text-left hover:bg-muted/30 transition-colors group">
+    <button className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 border border-primary/15">
         <CircleDot className="h-3 w-3 text-primary/70" />
       </div>
@@ -40,7 +40,7 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
   if (!searchTerm) return null
 
   return (
-    <div className="flex h-full flex-col bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
+    <div className="flex h-full flex-col overflow-hidden bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
       <div className="relative z-10 flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
         <div>
           <h3 className="text-sm font-heading font-semibold tracking-wide text-sidebar-foreground">
