@@ -6,14 +6,15 @@ import { api } from "../api"
 const sphinx = require("sphinx-bridge")
 
 export async function payL402(
-  setBudget: (value: number | null) => void
+  setBudget: (value: number | null) => void,
+  amount?: number
 ): Promise<void> {
   if (isSphinx()) {
     await payViaSphinx(setBudget)
     return
   }
 
-  await payViaWebLN(setBudget)
+  await payViaWebLN(setBudget, amount)
 }
 
 async function payViaSphinx(
@@ -79,7 +80,8 @@ async function payViaSphinx(
 }
 
 async function payViaWebLN(
-  setBudget: (value: number | null) => void
+  setBudget: (value: number | null) => void,
+  amount?: number
 ): Promise<void> {
   localStorage.removeItem("l402")
 
@@ -88,22 +90,16 @@ async function payViaWebLN(
   if (!webln) throw new Error("No WebLN provider available")
   await webln.enable()
 
-  const budgetAmount = 50
+  const budgetAmount = amount ?? 50
 
   try {
     await api.post("/buy_lsat", { amount: budgetAmount })
   } catch (error: unknown) {
-    console.log("[payViaWebLN] caught error:", error instanceof Response, error instanceof Response && error.status)
-
     if (error instanceof Response && error.status === 402) {
       const header = error.headers.get("www-authenticate")
-      console.log("[payViaWebLN] www-authenticate header:", header ? `${header.slice(0, 80)}...` : null)
-
       if (!header) throw new Error("No www-authenticate header in 402")
 
       const lsat = Lsat.fromHeader(header)
-      console.log("[payViaWebLN] parsed invoice:", lsat.invoice ? `${lsat.invoice.slice(0, 40)}...` : null)
-
       const payment = await webln.sendPayment(lsat.invoice)
 
       if (payment?.preimage) {
@@ -121,6 +117,26 @@ async function payViaWebLN(
     }
     throw error
   }
+}
+
+export type TopUpResponse = {
+  success: boolean
+  payment_request: string
+  payment_hash: string
+}
+
+export async function topUpLsat(
+  macaroon: string,
+  amount: number
+): Promise<TopUpResponse> {
+  return api.post<TopUpResponse>("/top_up_lsat", { macaroon, amount })
+}
+
+export async function topUpConfirm(
+  paymentHash: string,
+  macaroon: string
+): Promise<void> {
+  await api.post("/top_up_confirm", { payment_hash: paymentHash, macaroon })
 }
 
 export async function getPrice(endpoint: string): Promise<number> {
