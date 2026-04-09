@@ -1,10 +1,16 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { TypeEditor } from "./type-editor"
-import { Plus, ArrowLeft } from "lucide-react"
+import { Plus, ArrowLeft, Box, Grid2x2 } from "lucide-react"
+
+const OntologyGraph3D = dynamic(
+  () => import("./ontology-graph-3d").then((m) => ({ default: m.OntologyGraph3D })),
+  { ssr: false, loading: () => <div className="flex h-full items-center justify-center"><p className="text-muted-foreground animate-pulse">Loading 3D...</p></div> }
+)
 import { Button } from "@/components/ui/button"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useMocks } from "@/lib/mock-data"
@@ -36,6 +42,7 @@ export default function OntologyPage() {
   const router = useRouter()
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [view3D, setView3D] = useState(false)
 
   useEffect(() => {
     if (useMocks()) {
@@ -102,6 +109,15 @@ export default function OntologyPage() {
           <Button
             size="sm"
             variant="ghost"
+            onClick={() => setView3D(!view3D)}
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            title={view3D ? "Switch to 2D" : "Switch to 3D"}
+          >
+            {view3D ? <Grid2x2 className="h-4 w-4" /> : <Box className="h-4 w-4" />}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={handleAddType}
             className="h-7 w-7 p-0"
           >
@@ -141,12 +157,21 @@ export default function OntologyPage() {
 
       {/* Center: Ontology graph */}
       <div className="flex-1 min-w-0">
-        <OntologyGraph
-          schemas={store.schemas}
-          edges={store.edges}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
+        {view3D ? (
+          <OntologyGraph3D
+            schemas={store.schemas}
+            edges={store.edges}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        ) : (
+          <OntologyGraph
+            schemas={store.schemas}
+            edges={store.edges}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        )}
       </div>
 
       {/* Right: Type editor */}
