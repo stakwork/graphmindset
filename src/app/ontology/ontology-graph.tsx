@@ -35,10 +35,15 @@ function buildLayout(schemas: SchemaNode[], edges: SchemaEdge[]) {
     g.setNode(s.ref_id, { width: NODE_WIDTH, height: NODE_HEIGHT })
   }
 
-  // Add all edges — CHILD_OF edges form the hierarchy, rest are relationships
+  // Add all edges — CHILD_OF edges are reversed so dagre places parent (Thing) at top
   for (const e of edges) {
     if (g.hasNode(e.source) && g.hasNode(e.target)) {
-      g.setEdge(e.source, e.target, { label: e.edge_type })
+      if (e.edge_type === "CHILD_OF") {
+        // Reverse: dagre sees parent→child so parent ranks higher (top)
+        g.setEdge(e.target, e.source, { label: e.edge_type })
+      } else {
+        g.setEdge(e.source, e.target, { label: e.edge_type })
+      }
     }
   }
 
