@@ -29,6 +29,11 @@ export interface SchemaNode {
   color: string
   node_key: string
   attributes: SchemaAttribute[]
+  title_key?: string
+  index?: string
+  description_key?: string
+  icon?: string
+  secondary_color?: string
 }
 
 export interface SchemaEdge {

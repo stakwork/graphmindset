@@ -126,7 +126,12 @@ export const useSchemaStore = create<SchemaState>((set) => ({
           type: string
           parent?: string
           primary_color?: string
+          secondary_color?: string
           node_key?: string
+          title_key?: string
+          index?: string
+          description_key?: string
+          icon?: string
           attributes?: Record<string, unknown>
         }>
         edges: SchemaEdge[]
@@ -137,7 +142,12 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         type: s.type ?? "",
         parent: s.parent ?? "",
         color: s.primary_color ?? "#64748b",
+        secondary_color: s.secondary_color,
         node_key: s.node_key ?? "name",
+        title_key: s.title_key,
+        index: s.index,
+        description_key: s.description_key,
+        icon: s.icon,
         attributes: parseAttributes(s.attributes),
       }))
 
