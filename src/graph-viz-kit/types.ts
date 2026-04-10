@@ -31,6 +31,8 @@ export interface GraphEdge {
   dst: number;
   label?: string;
   type?: string;
+  /** When true, the label's semantic direction is dst→src (e.g. flipped for layout). */
+  displayReverse?: boolean;
 }
 
 export const UNSTRUCTURED_EDGE_TYPES = new Set(["references", "mentions", "relates"]);

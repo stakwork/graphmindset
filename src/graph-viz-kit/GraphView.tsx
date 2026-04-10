@@ -28,6 +28,7 @@ interface GraphViewProps {
   graph: Graph;
   viewState: ViewState;
   onNodeClick: (id: number) => void;
+  onHoverChange?: (id: number | null) => void;
   minimap?: boolean;
   whiteboardNodeId?: number | null;
   onEnterWhiteboard?: (id: number) => void;
@@ -198,7 +199,80 @@ const _hitPoint = new THREE.Vector3();
 
 const SHOW_HELPERS = false;
 
-export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId }: GraphViewProps) {
+interface LaneInfo {
+  lane: number;
+  total: number;
+}
+
+/** Assign each edge a lane index in [-(N-1)/2 .. (N-1)/2] within its node-pair group. */
+function computeLaneInfo(edges: GraphEdge[]): Map<GraphEdge, LaneInfo> {
+  const counts = new Map<string, number>();
+  for (const e of edges) {
+    const k = edgeKey(e.src, e.dst);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  const result = new Map<GraphEdge, LaneInfo>();
+  for (const e of edges) {
+    const k = edgeKey(e.src, e.dst);
+    const total = counts.get(k) ?? 1;
+    const idx = seen.get(k) ?? 0;
+    seen.set(k, idx + 1);
+    result.set(e, { lane: idx - (total - 1) / 2, total });
+  }
+  return result;
+}
+
+/** Quadratic Bézier control point for a cross-edge, including lane offset. */
+function computeBezierControl(
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  lane: number
+): { cx: number; cy: number; cz: number; edgeLen: number; perpX: number; perpZ: number } {
+  const mx = (ax + bx) * 0.5;
+  const my = (ay + by) * 0.5;
+  const mz = (az + bz) * 0.5;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dz = bz - az;
+  const edgeLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const midDist = Math.sqrt(mx * mx + mz * mz);
+  const curveFactor = midDist > 0.01 ? Math.min(0.3, edgeLen / (midDist * 3)) : 0;
+
+  // Perpendicular to the chord in the XZ plane (Y-up world).
+  const chordXZ = Math.sqrt(dx * dx + dz * dz);
+  let perpX = 0, perpZ = 0;
+  if (chordXZ > 0.001) {
+    perpX = -dz / chordXZ;
+    perpZ = dx / chordXZ;
+  }
+  // Spread amount: stays subtle, scales with edge length so close pairs separate cleanly.
+  const laneSpread = Math.min(2.5, 0.6 + edgeLen * 0.12);
+  const offsetMag = lane * laneSpread;
+
+  const cx = mx * (1 - curveFactor) + perpX * offsetMag;
+  const cy = my + Math.min(3, edgeLen * 0.1);
+  const cz = mz * (1 - curveFactor) + perpZ * offsetMag;
+  return { cx, cy, cz, edgeLen, perpX, perpZ };
+}
+
+/** Sample a quadratic Bézier at parameter t. */
+function sampleBezier(
+  ax: number, ay: number, az: number,
+  cx: number, cy: number, cz: number,
+  bx: number, by: number, bz: number,
+  t: number
+): { x: number; y: number; z: number } {
+  const omt = 1 - t;
+  return {
+    x: omt * omt * ax + 2 * omt * t * cx + t * t * bx,
+    y: omt * omt * ay + 2 * omt * t * cy + t * t * by,
+    z: omt * omt * az + 2 * omt * t * cz + t * t * bz,
+  };
+}
+
+
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -208,6 +282,7 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
   const [hovered, setHovered] = useState<number | null>(null);
   const detailPanelOpacity = useRef(0);
   const wbNodeId = whiteboardNodeId ?? null;
+
 
   // Approach indicator state (node id + 0-1 progress for "zoom to inspect" hint)
   const approachRef = useRef<{ nodeId: number; progress: number }>({ nodeId: -1, progress: 0 });
@@ -229,6 +304,10 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
     if (hovered === null) return null;
     return new Set(graph.adj[hovered]);
   }, [hovered, graph.adj]);
+
+  useEffect(() => {
+    onHoverChange?.(hovered);
+  }, [hovered, onHoverChange]);
 
 
   // Current animated state — grow buffers when nodeCount increases
@@ -472,7 +551,7 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
     return { positions, scales, colors, alphas };
   }, [graph, viewState, nodeCount, expandedClusterId]);
 
-  const { treeEdges, crossEdges, targetEdges } = useMemo(() => {
+  const { treeEdges, crossEdges, targetEdges, edgeLaneInfo } = useMemo(() => {
     // Hide edges touching cloud members of COLLAPSED clusters.
     // Expanded cluster's members get their edges shown.
     const cloudSet = new Set<number>();
@@ -504,8 +583,10 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
     }
 
     const tes = graph.treeEdgeSet;
+
     if (!tes || tes.size === 0) {
-      return { treeEdges: allEdges, crossEdges: [] as GraphEdge[], targetEdges: allEdges };
+      const lanes = computeLaneInfo(allEdges);
+      return { treeEdges: allEdges, crossEdges: [] as GraphEdge[], targetEdges: allEdges, edgeLaneInfo: lanes };
     }
 
     const tree: GraphEdge[] = [];
@@ -525,7 +606,9 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
         tree.push(e);
       }
     }
-    return { treeEdges: tree, crossEdges: cross, targetEdges: allEdges };
+    // Only compute lanes for cross-edges — straight tree edges don't curve.
+    const lanes = computeLaneInfo(cross);
+    return { treeEdges: tree, crossEdges: cross, targetEdges: allEdges, edgeLaneInfo: lanes };
   }, [graph, viewState, expandedClusterId]);
 
   const selectedId = viewState.mode === "subgraph" ? viewState.selectedNodeId : null;
@@ -534,17 +617,13 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
 
 
   const highlightedEdges = useMemo(() => {
-    const ids = new Set<number>();
-    if (hovered !== null) {
-      ids.add(hovered);
-      if (hoveredRelated) {
-        for (const id of hoveredRelated) ids.add(id);
-      }
-    }
-    if (selectedId !== null) ids.add(selectedId);
-    if (ids.size === 0) return [];
-    return targetEdges.filter((e) => ids.has(e.src) && ids.has(e.dst));
-  }, [hovered, hoveredRelated, selectedId, targetEdges]);
+    if (hovered === null && selectedId === null) return [];
+    return targetEdges.filter(
+      (e) =>
+        e.src === hovered || e.dst === hovered ||
+        e.src === selectedId || e.dst === selectedId
+    );
+  }, [hovered, selectedId, targetEdges]);
 
   // Transition
   const transitionProgress = useRef(1);
@@ -1025,19 +1104,10 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
         const ax = currentPos.current[s3], ay = currentPos.current[s3 + 1], az = currentPos.current[s3 + 2];
         const bx = currentPos.current[d3], by = currentPos.current[d3 + 1], bz = currentPos.current[d3 + 2];
 
-        // Control point: midpoint with curvature proportional to edge length.
-        // Short edges (within clusters) are nearly straight.
-        // Long edges get a visible arc toward the origin.
-        const mx = (ax + bx) * 0.5;
-        const my = (ay + by) * 0.5;
-        const mz = (az + bz) * 0.5;
-        const edgeLen = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
-        const midDist = Math.sqrt(mx * mx + mz * mz);
-        // Curve factor: 0 for short edges, up to 0.3 for long ones
-        const curveFactor = midDist > 0.01 ? Math.min(0.3, edgeLen / (midDist * 3)) : 0;
-        const cx = mx * (1 - curveFactor);
-        const cy = my + Math.min(3, edgeLen * 0.1);
-        const cz = mz * (1 - curveFactor);
+        // Control point: midpoint with curvature proportional to edge length, plus
+        // a perpendicular lane offset so parallel edges fan out into distinct curves.
+        const lane = edgeLaneInfo.get(e)?.lane ?? 0;
+        const { cx, cy, cz, edgeLen } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
 
         // Progressive disclosure: bright on hover, dim otherwise
         const nodeAlpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
@@ -1124,14 +1194,10 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
             hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
             segIdx++;
           } else {
-            // Bézier curve — same control point logic as cross-edge rendering
-            const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz = (az + bz) * 0.5;
-            const edgeLen = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
-            const midDist = Math.sqrt(mx * mx + mz * mz);
-            const curveFactor = midDist > 0.01 ? Math.min(0.3, edgeLen / (midDist * 3)) : 0;
-            const cx = mx * (1 - curveFactor);
-            const cy = my + Math.min(3, edgeLen * 0.1);
-            const cz = mz * (1 - curveFactor);
+            // Bézier curve — match the cross-edge control point exactly so the
+            // highlight overlay tracks the dim curve and its lane offset.
+            const lane = edgeLaneInfo.get(e)?.lane ?? 0;
+            const { cx, cy, cz } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
 
             for (let s = 0; s < HL_SUBDIVS; s++) {
               const t0 = s / HL_SUBDIVS, t1 = (s + 1) / HL_SUBDIVS;
@@ -1492,6 +1558,7 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
         <PulseLayer pulses={pulses} positionsRef={currentPos} />
       )}
 
+
       {/* Limit hover-neighbor labels to avoid overlap in dense areas */}
       {!minimap && (() => {
         // Build set of hover-neighbor labels to show (capped, closest first)
@@ -1725,66 +1792,121 @@ export function GraphView({ graph, viewState, onNodeClick, minimap, whiteboardNo
         );
       })()}
 
-      {/* Edge labels on hover — grouped by node pair to avoid overlap */}
-      {hovered !== null && (() => {
-        const hoveredEdges = graph.edges.filter((e) => e.label && (e.src === hovered || e.dst === hovered));
-        // Group by node pair so overlapping edges get a single combined label
-        const pairMap = new Map<string, { label: string; srcName: string; dstName: string }[]>();
-        const pairPos = new Map<string, [number, number, number]>();
-        for (const e of hoveredEdges) {
-          const key = e.src < e.dst ? `${e.src}-${e.dst}` : `${e.dst}-${e.src}`;
-          if (!pairMap.has(key)) {
-            pairMap.set(key, []);
-            const sp = graph.nodes[e.src]?.position;
-            const dp = graph.nodes[e.dst]?.position;
-            if (sp && dp) {
-              pairPos.set(key, [(sp.x + dp.x) / 2, (sp.y + dp.y) / 2 + 0.5, (sp.z + dp.z) / 2]);
-            }
+      {/* Relation chips at edge midpoints — relation type only, no node names. */}
+      {!minimap && (() => {
+        if (highlightedEdges.length === 0) return null;
+
+        // Place each chip at the curve midpoint (semantic 50%) using static node
+        // positions so chips don't shift during view transitions. Lane offsets
+        // already separate parallel edges; for everything else we apply a small
+        // screen-space jitter via the precomputed control point.
+        const tes = graph.treeEdgeSet;
+
+        // Pre-compute screen-space anchors for collision avoidance: for each chip,
+        // we know its 3D anchor and the in-plane perpendicular direction. We then
+        // offset overlapping chips along their perpendicular by half the overlap.
+        type Chip = {
+          key: string;
+          label: string;
+          pos: [number, number, number];
+          perp: { x: number; y: number; z: number };
+        };
+        const chips: Chip[] = [];
+
+        for (let i = 0; i < highlightedEdges.length; i++) {
+          const e = highlightedEdges[i];
+          if (!e.label) continue;
+
+          const a = graph.nodes[e.src]?.position;
+          const b = graph.nodes[e.dst]?.position;
+          if (!a || !b) continue;
+
+          const isCross = tes ? !tes.has(edgeKey(e.src, e.dst)) : false;
+          const lane = isCross ? (edgeLaneInfo.get(e)?.lane ?? 0) : 0;
+
+          let cx: number, cy: number, cz: number;
+          if (isCross) {
+            const ctrl = computeBezierControl(a.x, a.y, a.z, b.x, b.y, b.z, lane);
+            cx = ctrl.cx; cy = ctrl.cy; cz = ctrl.cz;
+          } else {
+            cx = (a.x + b.x) * 0.5;
+            cy = (a.y + b.y) * 0.5;
+            cz = (a.z + b.z) * 0.5;
           }
-          pairMap.get(key)!.push({
-            label: e.label!,
-            srcName: graph.nodes[e.src]?.label ?? "",
-            dstName: graph.nodes[e.dst]?.label ?? "",
+
+          // Midpoint at t=0.5 — independent of semantic direction (chip text is
+          // direction-agnostic; pulses + chevrons carry the direction).
+          const mid = sampleBezier(a.x, a.y, a.z, cx, cy, cz, b.x, b.y, b.z, 0.5);
+
+          // Perpendicular to chord in XZ — used for collision spreading.
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          const plen = Math.sqrt(dx * dx + dz * dz) || 1;
+          const perp = { x: -dz / plen, y: 0, z: dx / plen };
+
+          chips.push({
+            key: `chip-${e.src}-${e.dst}-${i}`,
+            label: e.label,
+            pos: [mid.x, mid.y + 0.4, mid.z],
+            perp,
           });
         }
-        return Array.from(pairMap.entries()).map(([key, edges]) => {
-          const pos = pairPos.get(key);
-          if (!pos) return null;
-          return (
-            <Html key={`el-${key}`} position={pos} center style={{ pointerEvents: "none" }}>
-              <div style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "3px",
-              }}>
-                {edges.map((e, j) => (
-                  <div key={j} style={{
-                    fontSize: "10px",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: "rgba(77, 217, 232, 0.9)",
-                    background: "rgba(5, 5, 15, 0.85)",
-                    padding: "3px 8px",
-                    borderRadius: "4px",
-                    border: "1px solid rgba(77, 217, 232, 0.25)",
-                    whiteSpace: "nowrap",
-                    textShadow: "0 0 6px rgba(77, 217, 232, 0.4)",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
-                  }}>
-                    <span style={{ color: "rgba(200, 220, 255, 0.6)", fontSize: "9px" }}>{e.srcName}</span>
-                    <span style={{ color: "rgba(77, 217, 232, 0.5)" }}>→</span>
-                    <span style={{ color: "rgba(255, 255, 255, 0.95)" }}>{e.label}</span>
-                    <span style={{ color: "rgba(77, 217, 232, 0.5)" }}>→</span>
-                    <span style={{ color: "rgba(200, 220, 255, 0.6)", fontSize: "9px" }}>{e.dstName}</span>
-                  </div>
-                ))}
-              </div>
-            </Html>
-          );
-        });
+
+        // Simple O(n²) collision pass: any two chips closer than `MIN_DIST`
+        // in XZ get pushed apart along their perpendicular axes.
+        const MIN_DIST = 1.6;
+        for (let pass = 0; pass < 3; pass++) {
+          for (let i = 0; i < chips.length; i++) {
+            for (let j = i + 1; j < chips.length; j++) {
+              const a = chips[i].pos, b = chips[j].pos;
+              const dx = b[0] - a[0];
+              const dz = b[2] - a[2];
+              const d = Math.sqrt(dx * dx + dz * dz);
+              if (d >= MIN_DIST) continue;
+              const overlap = (MIN_DIST - d) * 0.5;
+              chips[i].pos = [
+                a[0] - chips[i].perp.x * overlap,
+                a[1],
+                a[2] - chips[i].perp.z * overlap,
+              ];
+              chips[j].pos = [
+                b[0] + chips[j].perp.x * overlap,
+                b[1],
+                b[2] + chips[j].perp.z * overlap,
+              ];
+            }
+          }
+        }
+
+        return chips.map((c) => (
+          <Html
+            key={c.key}
+            position={c.pos}
+            center
+            style={{ pointerEvents: "none" }}
+          >
+            <div
+              style={{
+                fontSize: 9,
+                fontFamily: "'JetBrains Mono', monospace",
+                color: "rgba(190, 240, 255, 0.95)",
+                background: "rgba(5, 10, 22, 0.7)",
+                padding: "2px 6px",
+                borderRadius: 3,
+                border: "1px solid rgba(120, 200, 230, 0.25)",
+                letterSpacing: "0.6px",
+                whiteSpace: "nowrap",
+                textShadow: "0 0 6px rgba(0,0,0,0.9)",
+                boxShadow: "0 0 10px rgba(120, 200, 230, 0.08)",
+                userSelect: "none",
+              }}
+            >
+              {c.label}
+            </div>
+          </Html>
+        ));
       })()}
+
     </>
   );
 }

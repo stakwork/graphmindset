@@ -12,13 +12,16 @@ interface Props {
   graph: Graph;
   viewState: ViewState;
   onNodeClick: (id: number) => void;
+  hovered?: number | null;
 }
 
-export function OffscreenIndicators({ graph, viewState, onNodeClick }: Props) {
+export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = null }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const indicatorsRef = useRef<HTMLDivElement[]>([]);
   const onNodeClickRef = useRef(onNodeClick);
   onNodeClickRef.current = onNodeClick;
+  const hoveredRef = useRef(hovered);
+  hoveredRef.current = hovered;
   const { camera, size, gl } = useThree();
 
   useEffect(() => {
@@ -124,11 +127,22 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick }: Props) {
         letterSpacing: "0.5px",
         color: "rgba(77, 217, 232, 0.85)",
         whiteSpace: "nowrap",
-        maxWidth: "90px",
+        maxWidth: "120px",
         overflow: "hidden",
         textOverflow: "ellipsis",
         textShadow: "0 0 8px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,1)",
+        display: "flex",
+        flexDirection: "column",
       });
+      const nameSpan = document.createElement("span");
+      label.appendChild(nameSpan);
+      const edgeSpan = document.createElement("span");
+      Object.assign(edgeSpan.style, {
+        fontSize: "9px",
+        color: "rgba(77, 217, 232, 0.85)",
+        display: "none",
+      });
+      label.appendChild(edgeSpan);
       el.appendChild(label);
 
       container.appendChild(el);
@@ -216,7 +230,32 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick }: Props) {
 
       // Position label on the inward side (toward screen center)
       const labelEl = el.children[2] as HTMLElement;
-      labelEl.textContent = node.label;
+      const nameSpan = labelEl.children[0] as HTMLElement;
+      const edgeSpan = labelEl.children[1] as HTMLElement;
+      nameSpan.textContent = node.label;
+
+      // Relation type only — show the edge label from the anchor node
+      // (hovered takes priority, otherwise the selected node) to this offscreen node.
+      const anchor = hoveredRef.current ?? selectedId;
+      if (anchor !== null && anchor !== nodeId) {
+        const parts: string[] = [];
+        for (const e of graph.edges) {
+          if (!e.label) continue;
+          const involves = (e.src === anchor && e.dst === nodeId) || (e.dst === anchor && e.src === nodeId);
+          if (!involves) continue;
+          parts.push(e.label);
+        }
+        if (parts.length > 0) {
+          edgeSpan.textContent = parts.join("  ·  ");
+          edgeSpan.style.display = "block";
+        } else {
+          edgeSpan.textContent = "";
+          edgeSpan.style.display = "none";
+        }
+      } else {
+        edgeSpan.textContent = "";
+        edgeSpan.style.display = "none";
+      }
 
       // Determine which edge we're on and offset label inward
       const onRight = clampX > w - MARGIN - 5;
@@ -228,20 +267,24 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick }: Props) {
         labelEl.style.right = "14px";
         labelEl.style.left = "auto";
         labelEl.style.textAlign = "right";
+        labelEl.style.alignItems = "flex-end";
       } else if (onLeft) {
         labelEl.style.left = "14px";
         labelEl.style.right = "auto";
         labelEl.style.textAlign = "left";
+        labelEl.style.alignItems = "flex-start";
       } else {
         // Horizontal center — offset based on angle
         if (dx > 0) {
           labelEl.style.right = "14px";
           labelEl.style.left = "auto";
           labelEl.style.textAlign = "right";
+          labelEl.style.alignItems = "flex-end";
         } else {
           labelEl.style.left = "14px";
           labelEl.style.right = "auto";
           labelEl.style.textAlign = "left";
+          labelEl.style.alignItems = "flex-start";
         }
       }
 
