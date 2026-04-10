@@ -11,13 +11,25 @@ import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
+import { useSchemaStore } from "@/stores/schema-store"
+import { useMocks } from "@/lib/mock-data"
 
 export function AppLayout() {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const searchTerm = useAppStore((s) => s.searchTerm)
   const hasResults = useGraphStore((s) => s.nodes.length > 0)
+  const schemas = useSchemaStore((s) => s.schemas)
+  const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
   const searchPanelOpen = !!searchTerm && hasResults
+
+  // Schemas power display-name resolution (title_key / index) for search
+  // results and any other node chrome — load once on mount if not already
+  // populated (e.g. by the ontology page).
+  useEffect(() => {
+    if (useMocks() || schemas.length > 0) return
+    fetchSchemas()
+  }, [schemas.length, fetchSchemas])
 
   // Auto-close sources when search results appear
   useEffect(() => {

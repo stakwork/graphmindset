@@ -6,14 +6,33 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
+import { useSchemaStore } from "@/stores/schema-store"
 import type { GraphNode } from "@/lib/graph-api"
+import type { SchemaNode } from "@/app/ontology/page"
 
-function NodeRow({ node }: { node: GraphNode }) {
-  const name =
-    (node.properties?.name as string) ??
-    node.ref_id
+const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
+function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
+  if (!props || !key) return undefined
+  const v = props[key]
+  return typeof v === "string" && v.length > 0 ? v : undefined
+}
+
+function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) {
   const nodeType = node.node_type ?? "Unknown"
+  const schema = schemas.find((s) => s.type === nodeType)
+  // Priority: title_key → index (sphinx convention) → common display-ish
+  // property names → ref_id. The last step catches nodes whose schema key
+  // isn't populated on this particular row.
+  const props = node.properties
+  let name = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
+  if (!name) {
+    for (const key of DISPLAY_KEY_FALLBACKS) {
+      name = pickString(props, key)
+      if (name) break
+    }
+  }
+  if (!name) name = node.ref_id
 
   return (
     <button className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
@@ -36,6 +55,7 @@ function NodeRow({ node }: { node: GraphNode }) {
 export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
   const { nodes, edges, loading } = useGraphStore()
   const searchTerm = useAppStore((s) => s.searchTerm)
+  const schemas = useSchemaStore((s) => s.schemas)
 
   if (!searchTerm) return null
 
@@ -64,7 +84,7 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
         </p>
       </div>
 
-      <ScrollArea className="relative z-10 flex-1">
+      <ScrollArea className="relative z-10 flex-1 min-h-0">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="h-5 w-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
@@ -80,7 +100,7 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
           <div className="py-1">
             {nodes.map((node, i) => (
               <div key={node.ref_id}>
-                <NodeRow node={node} />
+                <NodeRow node={node} schemas={schemas} />
                 {i < nodes.length - 1 && (
                   <Separator className="bg-sidebar-border/50" />
                 )}
