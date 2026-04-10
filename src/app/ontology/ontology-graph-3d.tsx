@@ -41,10 +41,12 @@ function schemasToGraph(
     const key = `${e.source}-${e.target}`
     if (!edgeSet.has(key)) {
       edgeSet.add(key)
+      const isChildOf = e.edge_type === "CHILD_OF"
       rawEdges.push({
-        source: e.edge_type === "CHILD_OF" ? e.target : e.source,
-        target: e.edge_type === "CHILD_OF" ? e.source : e.target,
+        source: isChildOf ? e.target : e.source,
+        target: isChildOf ? e.source : e.target,
         label: e.edge_type,
+        displayReverse: isChildOf,
       })
     }
   }
@@ -127,6 +129,7 @@ export function OntologyGraph3D({ schemas, edges, selectedId, onSelect }: Props)
 
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
   const [pinStack, setPinStack] = useState<number[]>([])
+  const [hoveredId, setHoveredId] = useState<number | null>(null)
   const pinnedNodeId = pinStack.length > 0 ? pinStack[pinStack.length - 1] : null
 
   // Pinned view: build a chain of radial layouts
@@ -314,11 +317,13 @@ export function OntologyGraph3D({ schemas, edges, selectedId, onSelect }: Props)
           graph={graph}
           viewState={viewState}
           onNodeClick={handleNodeClick}
+          onHoverChange={setHoveredId}
         />
         <OffscreenIndicators
           graph={graph}
           viewState={viewState}
           onNodeClick={handleNodeClick}
+          hovered={hoveredId}
         />
         <PrevNodeIndicator
           graph={graph}

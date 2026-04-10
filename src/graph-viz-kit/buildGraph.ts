@@ -14,6 +14,7 @@ export interface RawEdge {
   source: string;
   target: string;
   label?: string;
+  displayReverse?: boolean;
 }
 
 export function buildGraph(nodes: RawNode[], edges: RawEdge[]): Graph {
@@ -33,7 +34,7 @@ export function buildGraph(nodes: RawNode[], edges: RawEdge[]): Graph {
     const dst = idToIndex.get(e.target);
     if (src === undefined || dst === undefined) continue;
 
-    graphEdges.push({ src, dst, label: e.label });
+    graphEdges.push({ src, dst, label: e.label, displayReverse: e.displayReverse });
     adj[src].push(dst);
     adj[dst].push(src);
     outAdj[src].push(dst);
