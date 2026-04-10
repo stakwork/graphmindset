@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { Rajdhani, Plus_Jakarta_Sans, Fira_Code } from "next/font/google"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { Providers } from "@/components/providers"
 import "./globals.css"
 
 const rajdhani = Rajdhani({
@@ -40,7 +40,7 @@ export default function RootLayout({
       className={`${rajdhani.variable} ${jakarta.variable} ${firaCode.variable} h-full antialiased dark`}
     >
       <body className="h-full overflow-hidden">
-        <TooltipProvider>{children}</TooltipProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   )
