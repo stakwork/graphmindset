@@ -1,7 +1,25 @@
 "use client"
 
+import { useEffect, useState, useMemo, useRef } from "react"
+import dynamic from "next/dynamic"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
+import { useSchemaStore } from "@/stores/schema-store"
+import { listNodes, listEdges } from "@/lib/graph-api"
+import { apiNodesToRawNodes, apiEdgesToRawEdges } from "@/lib/graph-transform"
+
+const UniverseGraph = dynamic(
+  () => import("./UniverseGraph").then((m) => ({ default: m.UniverseGraph })),
+  { ssr: false }
+)
+
+function buildStarShadows(count: number, opacity: number): string {
+  return Array.from({ length: count }, () => {
+    const x = Math.floor(Math.random() * 2000)
+    const y = Math.floor(Math.random() * 2000)
+    return `${x}px ${y}px oklch(0.85 0.01 260 / ${opacity})`
+  }).join(", ")
+}
 
 function StarLayer({
   count,
@@ -14,11 +32,7 @@ function StarLayer({
   duration: number
   opacity: number
 }) {
-  const shadows = Array.from({ length: count }, () => {
-    const x = Math.floor(Math.random() * 2000)
-    const y = Math.floor(Math.random() * 2000)
-    return `${x}px ${y}px oklch(0.85 0.01 260 / ${opacity})`
-  }).join(", ")
+  const shadows = useMemo(() => buildStarShadows(count, opacity), [count, opacity])
 
   return (
     <div
@@ -36,9 +50,67 @@ function StarLayer({
 
 export function Universe() {
   const searchTerm = useAppStore((s) => s.searchTerm)
-  const { nodes, edges, loading } = useGraphStore()
+  const { nodes, edges, loading, setGraphData, setLoading } = useGraphStore()
+  const schemas = useSchemaStore((s) => s.schemas)
+  const [error, setError] = useState<string | null>(null)
+  const initialLoaded = useRef(false)
+
+  // Load initial graph on mount
+  useEffect(() => {
+    if (initialLoaded.current) return
+    initialLoaded.current = true
+
+    const controller = new AbortController()
+    setLoading(true)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setError(null)
+
+    Promise.all([
+      listNodes({ limit: 50 }, controller.signal),
+      listEdges({ limit: 200 }, controller.signal),
+    ])
+      .then(([nodesRes, edgesRes]) => {
+        setGraphData(nodesRes.nodes, edgesRes.edges ?? [])
+      })
+      .catch((err) => {
+        if (err?.name !== "AbortError") {
+          setError("Failed to load graph")
+        }
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+
+    return () => controller.abort()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rawNodes = useMemo(
+    () => apiNodesToRawNodes(nodes, schemas),
+    [nodes, schemas]
+  )
+  const rawEdges = useMemo(() => apiEdgesToRawEdges(edges), [edges])
 
   const hasResults = nodes.length > 0
+
+  // Show 3D graph when nodes are available
+  if (!loading && !error && hasResults) {
+    return (
+      <div className="relative h-full w-full">
+        {/* Corner decorations */}
+        <div className="absolute top-4 left-4 z-10 flex items-center gap-2 opacity-40 pointer-events-none">
+          <div className="h-px w-8 bg-primary/40" />
+          <span className="text-[9px] font-mono text-primary/60 uppercase">viewport</span>
+        </div>
+        <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2 opacity-40 pointer-events-none">
+          <span className="text-[9px] font-mono text-primary/60">
+            {nodes.length}n {edges.length}e
+          </span>
+          <div className="h-px w-8 bg-primary/40" />
+        </div>
+        <UniverseGraph rawNodes={rawNodes} rawEdges={rawEdges} />
+      </div>
+    )
+  }
 
   return (
     <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
@@ -64,25 +136,14 @@ export function Universe() {
           <div className="space-y-3">
             <div className="mx-auto h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
             <p className="text-xs font-heading font-semibold uppercase tracking-[0.2em] text-primary/60">
-              Searching
+              {searchTerm ? "Searching" : "Loading"}
             </p>
           </div>
-        ) : hasResults ? (
+        ) : error ? (
           <div className="space-y-3">
-            <p className="text-xs font-heading font-semibold uppercase tracking-[0.2em] text-primary/60">
-              Results
-            </p>
-            <p className="text-3xl font-heading font-bold text-foreground">
-              {nodes.length}
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                nodes
-              </span>
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {edges.length} edges &middot; &ldquo;{searchTerm}&rdquo;
-            </p>
-            <p className="text-xs text-muted-foreground/60 mt-4">
-              3D graph visualization will render here
+            <p className="text-sm text-destructive/80">{error}</p>
+            <p className="text-xs text-muted-foreground">
+              Check your connection and try again
             </p>
           </div>
         ) : (
