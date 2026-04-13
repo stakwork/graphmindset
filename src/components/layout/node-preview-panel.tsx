@@ -17,7 +17,7 @@ const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "node_type", "date_added_to_graph",
   // Fields rendered by rich widgets — hide from the fallback key/value list
   "name", "title", "description", "text", "transcript", "media_url", "link",
-  "image_url", "thumbnail", "source_link", "website", "tweet_id", "author",
+  "image_url", "thumbnail", "source_link", "tweet_id", "author",
   "twitter_handle", "like_count", "retweet_count", "verified", "date",
   "bio", "duration", "timestamp", "channel", "show", "episode_number",
 ])
@@ -156,7 +156,7 @@ function TranscriptBlock({ text }: { text: string }) {
 
 function ArticleCard({ props }: { props: Record<string, unknown> }) {
   const text = props.text as string | undefined
-  const sourceLink = (props.source_link ?? props.website) as string | undefined
+  const sourceLink = props.source_link as string | undefined
   const author = props.author as string | undefined
   const date = props.published_date as string | undefined
 
@@ -259,7 +259,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const hasTweet = fp && ("tweet_id" in fp || "twitter_handle" in fp) && "text" in fp
   const hasMedia = fp && ("media_url" in fp || "link" in fp)
   const hasTranscript = fp && typeof fp.transcript === "string"
-  const hasArticle = fp && ("source_link" in fp || "website" in fp || (typeof fp.text === "string" && !hasTweet))
+  const hasArticle = fp && ("source_link" in fp || (typeof fp.text === "string" && !hasTweet))
   const hasPerson = fp && ("bio" in fp || "twitter_handle" in fp) && !hasTweet
   // Remaining properties not handled by rich widgets
   const remainingProps = fp
