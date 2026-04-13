@@ -94,6 +94,12 @@ export async function payInvoice(invoice: string): Promise<{ preimage: string } 
 
   if (isSphinx()) {
     try {
+      // Ensure budget is approved before paying
+      const budget = await sphinx.setBudget()
+      if (!budget?.budget) {
+        const auth = await sphinx.authorize()
+        if (!auth?.budget) return null
+      }
       const result = await sphinx.sendPayment(invoice)
       return result?.preimage ? { preimage: result.preimage } : null
     } catch (error) {
