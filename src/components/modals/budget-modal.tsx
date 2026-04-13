@@ -135,7 +135,24 @@ export function BudgetModal() {
           setLoading(false)
           return
         }
-        await topUpConfirm(result.payment_hash, macaroon)
+        console.log("[topUp] payment succeeded, waiting for LN confirmation...")
+        // LN payment may take a moment to settle — poll topUpConfirm
+        let confirmed = false
+        for (let i = 0; i < 20; i++) {
+          try {
+            await topUpConfirm(result.payment_hash, macaroon)
+            confirmed = true
+            break
+          } catch {
+            await new Promise((r) => setTimeout(r, 2000))
+          }
+        }
+        if (!confirmed) {
+          setError("Payment sent but confirmation timed out. Try refreshing balance.")
+          setLoading(false)
+          return
+        }
+        console.log("[topUp] confirmed, refreshing balance...")
         await refreshBalance()
         setStep("success")
         return
@@ -164,7 +181,8 @@ export function BudgetModal() {
           // Invoice not paid yet — keep polling
         }
       }, 3000)
-    } catch {
+    } catch (err) {
+      console.error("[topUp] error:", err)
       setError("Failed to generate invoice. Try again.")
     } finally {
       setLoading(false)
