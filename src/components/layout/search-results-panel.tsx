@@ -4,6 +4,7 @@ import { X, CircleDot } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
+import { BoostButton } from "@/components/boost/boost-button"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -34,6 +35,8 @@ function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) 
   }
   if (!name) name = node.ref_id
 
+  const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
+
   return (
     <button className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 border border-primary/15">
@@ -48,6 +51,11 @@ function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) 
           {nodeType}
         </Badge>
       </div>
+      {pubkey && (
+        <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+          <BoostButton refId={node.ref_id} pubkey={pubkey} className="shrink-0" />
+        </div>
+      )}
     </button>
   )
 }
