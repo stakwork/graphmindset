@@ -103,7 +103,10 @@ export async function payInvoice(invoice: string): Promise<{ preimage: string } 
 
       const result = await sphinx.sendPayment(invoice)
       console.log("[payInvoice] sphinx.sendPayment result:", JSON.stringify(result))
-      return result?.preimage ? { preimage: result.preimage } : null
+      if (result?.success) {
+        return { preimage: result.preimage ?? "" }
+      }
+      return null
     } catch (error) {
       console.error("[payInvoice] Sphinx payment failed:", error)
       return null
