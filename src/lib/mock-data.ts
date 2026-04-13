@@ -8,28 +8,28 @@ export const MOCK_NODES: GraphNode[] = [
   },
   {
     ref_id: "n2",
-    node_type: "Topic",
-    properties: { name: "Lightning Network", description: "Layer 2 payment protocol" },
+    node_type: "Tweet",
+    properties: { name: "Bitcoin is freedom tech", description: "Tweet by @jack about Bitcoin adoption" },
   },
   {
     ref_id: "n3",
     node_type: "Person",
-    properties: { name: "Satoshi Nakamoto", twitter_handle: "satoshi" },
+    properties: { name: "Satoshi Nakamoto", description: "Creator of Bitcoin", twitter_handle: "satoshi" },
   },
   {
     ref_id: "n4",
-    node_type: "Topic",
-    properties: { name: "Nostr", description: "Notes and Other Stuff Transmitted by Relays" },
+    node_type: "Episode",
+    properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer about Bitcoin scaling" },
   },
   {
     ref_id: "n5",
-    node_type: "Person",
-    properties: { name: "Jack Dorsey", twitter_handle: "jack" },
+    node_type: "Video",
+    properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works and why it matters" },
   },
   {
     ref_id: "n6",
-    node_type: "Content",
-    properties: { name: "Bitcoin Whitepaper", source_link: "https://bitcoin.org/bitcoin.pdf" },
+    node_type: "Article",
+    properties: { name: "Bitcoin Whitepaper", description: "The original paper describing a peer-to-peer electronic cash system" },
   },
   {
     ref_id: "n7",
@@ -38,20 +38,118 @@ export const MOCK_NODES: GraphNode[] = [
   },
   {
     ref_id: "n8",
-    node_type: "Person",
-    properties: { name: "Elizabeth Stark", twitter_handle: "staborobot" },
+    node_type: "Clip",
+    properties: { name: "Bitcoin Mining Explained", description: "A 3-minute clip explaining proof-of-work mining" },
   },
 ]
 
+// Full node data returned after unlock (simulates GET /v2/nodes/:ref_id)
+export const MOCK_FULL_NODES: Record<string, GraphNode> = {
+  n1: {
+    ref_id: "n1",
+    node_type: "Topic",
+    properties: {
+      name: "Bitcoin",
+      description: "A peer-to-peer electronic cash system enabling online payments without a financial institution. Proposed by Satoshi Nakamoto in 2008 and launched in January 2009.",
+      source_link: "https://bitcoin.org",
+    },
+  },
+  n2: {
+    ref_id: "n2",
+    node_type: "Tweet",
+    properties: {
+      name: "Bitcoin is freedom tech",
+      text: "Bitcoin is freedom tech. It\u2019s the most important invention since the internet. Don\u2019t let anyone tell you otherwise. The separation of money and state is happening whether governments like it or not.",
+      author: "Jack Dorsey",
+      twitter_handle: "jack",
+      tweet_id: "1725483021849382912",
+      date: "2024-11-17",
+      like_count: 42800,
+      retweet_count: 12400,
+      verified: true,
+    },
+  },
+  n3: {
+    ref_id: "n3",
+    node_type: "Person",
+    properties: {
+      name: "Satoshi Nakamoto",
+      description: "Pseudonymous creator of Bitcoin and author of the original whitepaper. Identity remains unknown.",
+      twitter_handle: "satoshi",
+      image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Bitcoin_UV_front.jpg/320px-Bitcoin_UV_front.jpg",
+      bio: "Invented Bitcoin in 2008, mined the genesis block on January 3, 2009. Disappeared from public communication in 2011.",
+    },
+  },
+  n4: {
+    ref_id: "n4",
+    node_type: "Episode",
+    properties: {
+      name: "What Bitcoin Did #412",
+      description: "Peter McCormack interviews a Lightning developer about Bitcoin scaling, Layer 2 solutions, and the future of payments over the Lightning Network.",
+      media_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+      duration: 3840,
+      episode_number: 412,
+      show: "What Bitcoin Did",
+      transcript: "Peter: Welcome to What Bitcoin Did. Today we\u2019re talking about Lightning, the Layer 2 scaling solution that\u2019s changing how we think about Bitcoin payments.\n\nGuest: Thanks for having me, Peter. Lightning is really about making Bitcoin usable for everyday transactions. The base layer gives us security and settlement, but Lightning gives us speed and low fees.\n\nPeter: Can you explain how it works for someone who\u2019s new to this?\n\nGuest: Sure. Imagine you and I open a payment channel. We lock some Bitcoin on-chain, and then we can send payments back and forth instantly, off-chain. When we\u2019re done, we settle back on the main chain. The magic is that these channels connect into a network, so I can pay anyone, not just you.",
+    },
+  },
+  n5: {
+    ref_id: "n5",
+    node_type: "Video",
+    properties: {
+      name: "Bitcoin for Beginners",
+      description: "An introductory video explaining how Bitcoin works, covering mining, wallets, and the Lightning Network.",
+      media_url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+      duration: 596,
+      channel: "Bitcoin Magazine",
+      thumbnail: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/320px-Bitcoin.svg.png",
+    },
+  },
+  n6: {
+    ref_id: "n6",
+    node_type: "Article",
+    properties: {
+      name: "Bitcoin Whitepaper",
+      description: "The original paper describing a peer-to-peer electronic cash system.",
+      source_link: "https://bitcoin.org/bitcoin.pdf",
+      author: "Satoshi Nakamoto",
+      published_date: "2008-10-31",
+      text: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work.",
+    },
+  },
+  n7: {
+    ref_id: "n7",
+    node_type: "Topic",
+    properties: {
+      name: "Sphinx Chat",
+      description: "Decentralized messaging application built on the Lightning Network. Messages are transmitted as Lightning payments, ensuring censorship resistance and privacy.",
+      source_link: "https://sphinx.chat",
+    },
+  },
+  n8: {
+    ref_id: "n8",
+    node_type: "Clip",
+    properties: {
+      name: "Bitcoin Mining Explained",
+      description: "A 3-minute clip explaining proof-of-work mining, hash rates, and difficulty adjustments.",
+      media_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+      duration: 185,
+      timestamp: 1240,
+      show: "What Bitcoin Did",
+      episode_number: 412,
+      transcript: "So mining is essentially a competition. Miners around the world are racing to solve a mathematical puzzle. The first one to find the answer gets to add the next block of transactions to the blockchain and earns a reward \u2014 currently 3.125 Bitcoin. The puzzle is designed so that it takes about 10 minutes on average for the entire network to find a solution.",
+    },
+  },
+}
+
 export const MOCK_EDGES: GraphEdge[] = [
-  { source: "n1", target: "n2", edge_type: "RELATED_TO" },
-  { source: "n3", target: "n1", edge_type: "CREATED_BY" },
-  { source: "n3", target: "n6", edge_type: "CREATED_BY" },
-  { source: "n5", target: "n4", edge_type: "SUPPORTS" },
-  { source: "n5", target: "n1", edge_type: "SUPPORTS" },
-  { source: "n7", target: "n2", edge_type: "USES" },
-  { source: "n8", target: "n2", edge_type: "CREATED_BY" },
-  { source: "n4", target: "n1", edge_type: "RELATED_TO" },
+  { source: "n1", target: "n4", edge_type: "MENTIONED_IN" },
+  { source: "n3", target: "n1", edge_type: "CREATED" },
+  { source: "n3", target: "n6", edge_type: "AUTHORED" },
+  { source: "n2", target: "n1", edge_type: "ABOUT" },
+  { source: "n5", target: "n1", edge_type: "ABOUT" },
+  { source: "n7", target: "n1", edge_type: "RELATED_TO" },
+  { source: "n8", target: "n4", edge_type: "CLIP_OF" },
 ]
 
 export const MOCK_SOURCES = [
