@@ -14,7 +14,7 @@ import { useMocks, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 export function SearchBar() {
   const setSearchTerm = useAppStore((s) => s.setSearchTerm)
   const { setGraphData, setLoading } = useGraphStore()
-  const setBudget = useUserStore((s) => s.setBudget)
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
   const openModal = useModalStore((s) => s.open)
   const [value, setValue] = useState("")
   const [focused, setFocused] = useState(false)
@@ -46,6 +46,7 @@ export function SearchBar() {
         } else {
           const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
           setGraphData(result.nodes ?? [], result.edges ?? [])
+          refreshBalance()
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return
@@ -53,10 +54,11 @@ export function SearchBar() {
         // Handle 402 — need payment to search
         if (err instanceof Response && err.status === 402) {
           try {
-            await payL402(setBudget)
+            await payL402(() => {})
             // Retry search after payment
             const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
             setGraphData(result.nodes ?? [], result.edges ?? [])
+            refreshBalance()
           } catch {
             // Payment failed or cancelled — open budget modal
             openModal("budget")
@@ -69,7 +71,7 @@ export function SearchBar() {
         setLoading(false)
       }
     },
-    [value, setSearchTerm, setGraphData, setLoading]
+    [value, setSearchTerm, setGraphData, setLoading, refreshBalance]
   )
 
   const handleClear = useCallback(() => {
