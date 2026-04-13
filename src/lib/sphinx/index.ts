@@ -1,6 +1,6 @@
 export { isSphinx, isAndroid } from "./detect"
 export { adminKeysend } from "./keysend"
-export { enable, getSignedMessage, getL402, hasWebLN, payWithWebLN } from "./bridge"
+export { enable, getSignedMessage, getL402, hasWebLN, payInvoice } from "./bridge"
 export { payL402, getPrice, topUpLsat, topUpConfirm } from "./payment"
 export type { TopUpResponse } from "./payment"
 export type { IsAdminResponse, SignedMessage } from "./types"

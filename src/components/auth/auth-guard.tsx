@@ -45,6 +45,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       })
       setBudget(balance.balance)
     } catch {
+      // L402 is stale or invalid — clear it so top-up/buy flows start fresh
+      localStorage.removeItem("l402")
       setBudget(0)
     }
   }, [setBudget, setPubKey])
