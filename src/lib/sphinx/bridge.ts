@@ -89,24 +89,17 @@ export function hasWebLN(): boolean {
   return !!(window as any).webln
 }
 
-export async function payInvoice(invoice: string, macaroon?: string): Promise<{ preimage: string } | null> {
+export async function payInvoice(invoice: string): Promise<{ preimage: string } | null> {
   if (typeof window === "undefined") return null
 
   if (isSphinx()) {
     try {
-      // sphinx-bridge pays invoices via saveLsat (not sendPayment)
-      const result = await sphinx.saveLsat(
-        invoice,
-        macaroon ?? "",
-        window.location.host
-      )
-      if (result?.lsat) {
-        const preimage = result.lsat.split(":")[1]
-        return preimage ? { preimage } : null
-      }
-      return null
+      console.log("[payInvoice] calling sphinx.sendPayment...")
+      const result = await sphinx.sendPayment(invoice)
+      console.log("[payInvoice] sphinx.sendPayment result:", JSON.stringify(result))
+      return result?.preimage ? { preimage: result.preimage } : null
     } catch (error) {
-      console.error("Sphinx payment failed:", error)
+      console.error("[payInvoice] Sphinx payment failed:", error)
       return null
     }
   }
