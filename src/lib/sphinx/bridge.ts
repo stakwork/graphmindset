@@ -89,8 +89,19 @@ export function hasWebLN(): boolean {
   return !!(window as any).webln
 }
 
-export async function payWithWebLN(invoice: string): Promise<{ preimage: string } | null> {
+export async function payInvoice(invoice: string): Promise<{ preimage: string } | null> {
   if (typeof window === "undefined") return null
+
+  if (isSphinx()) {
+    try {
+      const result = await sphinx.sendPayment(invoice)
+      return result?.preimage ? { preimage: result.preimage } : null
+    } catch (error) {
+      console.error("Sphinx payment failed:", error)
+      return null
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webln = (window as any).webln
   if (!webln) return null
