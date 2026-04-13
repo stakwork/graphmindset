@@ -5,6 +5,8 @@ import { Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { useMocks } from "@/lib/mock-data"
+import { adminKeysend, isSphinx } from "@/lib/sphinx"
+import { useUserStore } from "@/stores/user-store"
 
 const DEFAULT_BOOST_AMOUNT = 10
 
@@ -19,14 +21,25 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
   const [count, setCount] = useState(boostCount)
   const [boosting, setBoosting] = useState(false)
   const [flash, setFlash] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const isAdmin = useUserStore((s) => s.isAdmin)
 
   const handleBoost = useCallback(async () => {
     if (boosting) return
     setBoosting(true)
+    setError(null)
 
     try {
       if (!useMocks()) {
-        await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+        if (isAdmin && isSphinx()) {
+          // Admin path: pay directly from Sphinx wallet, then record
+          await adminKeysend(pubkey, DEFAULT_BOOST_AMOUNT)
+          await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+        } else {
+          // Regular user path: L402-gated boost
+          await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+        }
       }
 
       setCount((c) => c + DEFAULT_BOOST_AMOUNT)
@@ -34,37 +47,43 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
       setTimeout(() => setFlash(false), 600)
     } catch (err) {
       console.error("Boost failed:", err)
+      setError("Boost failed. Please try again.")
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, boosting])
+  }, [refId, pubkey, boosting, isAdmin])
 
   return (
-    <button
-      onClick={handleBoost}
-      disabled={boosting}
-      className={cn(
-        "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-all",
-        flash
-          ? "border-amber/50 bg-amber/10 text-amber"
-          : "border-border/50 bg-muted/30 text-muted-foreground hover:border-amber/30 hover:text-amber",
-        boosting && "opacity-50 cursor-wait",
-        className
-      )}
-    >
-      <Zap
+    <div className="flex flex-col items-start gap-1">
+      <button
+        onClick={handleBoost}
+        disabled={boosting}
         className={cn(
-          "h-3 w-3 transition-transform",
-          flash && "scale-125",
-          count > 0 && "text-amber"
+          "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-all",
+          flash
+            ? "border-amber/50 bg-amber/10 text-amber"
+            : "border-border/50 bg-muted/30 text-muted-foreground hover:border-amber/30 hover:text-amber",
+          boosting && "opacity-50 cursor-wait",
+          className
         )}
-      />
-      <span className="font-mono">
-        {count > 0 ? count : DEFAULT_BOOST_AMOUNT}
-      </span>
-      <span className="text-[10px]">
-        {count > 0 ? "sats" : "boost"}
-      </span>
-    </button>
+      >
+        <Zap
+          className={cn(
+            "h-3 w-3 transition-transform",
+            flash && "scale-125",
+            count > 0 && "text-amber"
+          )}
+        />
+        <span className="font-mono">
+          {count > 0 ? count : DEFAULT_BOOST_AMOUNT}
+        </span>
+        <span className="text-[10px]">
+          {count > 0 ? "sats" : "boost"}
+        </span>
+      </button>
+      {error && (
+        <span className="text-[10px] text-red-400">{error}</span>
+      )}
+    </div>
   )
 }
