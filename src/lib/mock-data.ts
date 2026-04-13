@@ -51,7 +51,7 @@ export const MOCK_FULL_NODES: Record<string, GraphNode> = {
     properties: {
       name: "Bitcoin",
       description: "A peer-to-peer electronic cash system enabling online payments without a financial institution. Proposed by Satoshi Nakamoto in 2008 and launched in January 2009.",
-      website: "https://bitcoin.org",
+      source_link: "https://bitcoin.org",
     },
   },
   n2: {
@@ -123,7 +123,7 @@ export const MOCK_FULL_NODES: Record<string, GraphNode> = {
     properties: {
       name: "Sphinx Chat",
       description: "Decentralized messaging application built on the Lightning Network. Messages are transmitted as Lightning payments, ensuring censorship resistance and privacy.",
-      website: "https://sphinx.chat",
+      source_link: "https://sphinx.chat",
     },
   },
   n8: {
