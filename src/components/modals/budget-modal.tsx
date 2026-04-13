@@ -70,22 +70,20 @@ export function BudgetModal() {
   // Route "Top Up" to the right flow
   const handleTopUp = useCallback(async () => {
     if (sphinxConnected) {
-      // Sphinx: trigger directly
+      // Sphinx: buy L402 via setBudget → authorize → saveLsat flow
       setLoading(true)
       setError("")
       try {
-        localStorage.removeItem("l402")
+        await payL402(setBudget)
         const l402 = await getL402()
-        if (!l402) {
-          setError("Payment was not completed.")
-          return
+        if (l402) {
+          const balance = await api.get<{ balance: number }>("/balance", {
+            Authorization: l402,
+          })
+          setBudget(balance.balance)
         }
-        const balance = await api.get<{ balance: number }>("/balance", {
-          Authorization: l402,
-        })
-        setBudget(balance.balance)
       } catch {
-        setError("Failed to process payment. Try again.")
+        setError("Payment was cancelled or failed. Try again.")
       } finally {
         setLoading(false)
       }
