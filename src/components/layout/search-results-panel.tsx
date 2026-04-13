@@ -1,10 +1,12 @@
 "use client"
 
+import { useState } from "react"
 import { X, CircleDot } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
+import { NodePreviewPanel } from "./node-preview-panel"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -19,7 +21,7 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) {
+function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void }) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   // Priority: title_key → index (sphinx convention) → common display-ish
@@ -38,7 +40,7 @@ function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) 
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
 
   return (
-    <button className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
+    <button onClick={onClick} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 border border-primary/15">
         <CircleDot className="h-3 w-3 text-primary/70" />
       </div>
@@ -64,59 +66,70 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
   const { nodes, edges, loading } = useGraphStore()
   const searchTerm = useAppStore((s) => s.searchTerm)
   const schemas = useSchemaStore((s) => s.schemas)
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
 
   if (!searchTerm) return null
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
-      <div className="relative z-10 flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
-        <div>
-          <h3 className="text-sm font-heading font-semibold tracking-wide text-sidebar-foreground">
-            Results
-          </h3>
-          <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
-            {nodes.length} nodes &middot; {edges.length} edges
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="relative z-10 px-4 py-2 border-b border-sidebar-border/50">
-        <p className="text-xs text-muted-foreground">
-          Searching &ldquo;<span className="text-foreground">{searchTerm}</span>&rdquo;
-        </p>
-      </div>
-
-      <ScrollArea className="relative z-10 flex-1 min-h-0">
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="h-5 w-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+      {selectedNode ? (
+        <NodePreviewPanel
+          node={selectedNode}
+          onBack={() => setSelectedNode(null)}
+          schemas={schemas}
+        />
+      ) : (
+        <>
+          <div className="relative z-10 flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
+            <div>
+              <h3 className="text-sm font-heading font-semibold tracking-wide text-sidebar-foreground">
+                Results
+              </h3>
+              <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                {nodes.length} nodes &middot; {edges.length} edges
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-        ) : nodes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-            <p className="text-sm text-muted-foreground">No results found</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">
-              Try a different search term
+
+          <div className="relative z-10 px-4 py-2 border-b border-sidebar-border/50">
+            <p className="text-xs text-muted-foreground">
+              Searching &ldquo;<span className="text-foreground">{searchTerm}</span>&rdquo;
             </p>
           </div>
-        ) : (
-          <div className="py-1">
-            {nodes.map((node, i) => (
-              <div key={node.ref_id}>
-                <NodeRow node={node} schemas={schemas} />
-                {i < nodes.length - 1 && (
-                  <Separator className="bg-sidebar-border/50" />
-                )}
+
+          <ScrollArea className="relative z-10 flex-1 min-h-0">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="h-5 w-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
               </div>
-            ))}
-          </div>
-        )}
-      </ScrollArea>
+            ) : nodes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                <p className="text-sm text-muted-foreground">No results found</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">
+                  Try a different search term
+                </p>
+              </div>
+            ) : (
+              <div className="py-1">
+                {nodes.map((node, i) => (
+                  <div key={node.ref_id}>
+                    <NodeRow node={node} schemas={schemas} onClick={() => setSelectedNode(node)} />
+                    {i < nodes.length - 1 && (
+                      <Separator className="bg-sidebar-border/50" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </>
+      )}
     </div>
   )
 }
