@@ -34,7 +34,6 @@ export function BudgetModal() {
   const [paymentHash, setPaymentHash] = useState("")
   const [copied, setCopied] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const previousBalanceRef = useRef(0)
 
   const sphinxConnected = typeof window !== "undefined" && isSphinx()
   const weblnAvailable = typeof window !== "undefined" && hasWebLN()
@@ -142,13 +141,11 @@ export function BudgetModal() {
         return
       }
 
-      // Manual: show QR code and poll for payment
+      // Manual: show QR code and poll for payment confirmation
       setPaymentRequest(result.payment_request)
       setPaymentHash(result.payment_hash)
       setStep("invoice")
-      previousBalanceRef.current = budget ?? 0
 
-      const l402Token = await getL402()
       let attempts = 0
       intervalRef.current = setInterval(async () => {
         if (++attempts > 100) {
@@ -158,17 +155,13 @@ export function BudgetModal() {
           return
         }
         try {
-          const bal = await api.get<{ balance: number }>("/balance", {
-            Authorization: l402Token,
-          })
-          if (bal.balance > previousBalanceRef.current) {
-            if (intervalRef.current) clearInterval(intervalRef.current)
-            await topUpConfirm(result.payment_hash, macaroon)
-            setBudget(bal.balance)
-            setStep("success")
-          }
+          // topUpConfirm checks if the LN invoice is paid and increments balance
+          await topUpConfirm(result.payment_hash, macaroon)
+          if (intervalRef.current) clearInterval(intervalRef.current)
+          await refreshBalance()
+          setStep("success")
         } catch {
-          // ignore polling errors
+          // Invoice not paid yet — keep polling
         }
       }, 3000)
     } catch {
@@ -176,7 +169,7 @@ export function BudgetModal() {
     } finally {
       setLoading(false)
     }
-  }, [amount, sphinxConnected, weblnAvailable, budget, setBudget, refreshBalance])
+  }, [amount, sphinxConnected, weblnAvailable, refreshBalance])
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(paymentRequest)
