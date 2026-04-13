@@ -40,31 +40,22 @@ async function request<Res>(
     parsed.searchParams.append("msg", signed.message)
   }
 
+  // Attach L402 token upfront if available (unless caller set Authorization)
+  const existingHeaders = config?.headers as Record<string, string> | undefined
+  if (!existingHeaders?.Authorization) {
+    const l402 = await getL402()
+    if (l402) {
+      config = {
+        ...config,
+        headers: { ...existingHeaders, Authorization: l402 },
+      }
+    }
+  }
+
   const response = await fetch(parsed.toString(), {
     ...config,
     signal: signal ?? new AbortController().signal,
   })
-
-  // Handle 402 Payment Required — get L402 token and retry
-  if (response.status === 402) {
-    const l402 = await getL402()
-    if (l402) {
-      const retryResponse = await fetch(parsed.toString(), {
-        ...config,
-        headers: {
-          ...config?.headers,
-          Authorization: l402,
-        },
-        signal: signal ?? new AbortController().signal,
-      })
-
-      if (!retryResponse.ok) {
-        throw retryResponse
-      }
-
-      return retryResponse.json()
-    }
-  }
 
   if (!response.ok) {
     throw response
