@@ -8,10 +8,12 @@ interface GraphState {
   edges: GraphEdge[]
   selectedNode: GraphNode | null
   loading: boolean
+  purchasedNodeIds: Set<string>
   setGraphData: (nodes: GraphNode[], edges: GraphEdge[]) => void
   setSelectedNode: (node: GraphNode | null) => void
   setLoading: (loading: boolean) => void
   addNodes: (nodes: GraphNode[], edges: GraphEdge[]) => void
+  setPurchasedNodeIds: (ids: string[]) => void
 }
 
 export const useGraphStore = create<GraphState>((set) => ({
@@ -19,6 +21,7 @@ export const useGraphStore = create<GraphState>((set) => ({
   edges: [],
   selectedNode: null,
   loading: false,
+  purchasedNodeIds: new Set<string>(),
   setGraphData: (nodes, edges) => set({ nodes, edges }),
   setSelectedNode: (selectedNode) => set({ selectedNode }),
   setLoading: (loading) => set({ loading }),
@@ -27,4 +30,5 @@ export const useGraphStore = create<GraphState>((set) => ({
       nodes: [...s.nodes, ...newNodes],
       edges: [...s.edges, ...newEdges],
     })),
+  setPurchasedNodeIds: (ids) => set({ purchasedNodeIds: new Set(ids) }),
 }))

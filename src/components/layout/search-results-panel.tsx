@@ -1,10 +1,12 @@
 "use client"
 
+import { useState } from "react"
 import { X, CircleDot } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
+import { NodePreviewPanel } from "./node-preview-panel"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -19,7 +21,15 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) {
+function NodeRow({
+  node,
+  schemas,
+  onClick,
+}: {
+  node: GraphNode
+  schemas: SchemaNode[]
+  onClick: () => void
+}) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   // Priority: title_key → index (sphinx convention) → common display-ish
@@ -38,7 +48,7 @@ function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) 
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
 
   return (
-    <button className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
+    <button onClick={onClick} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 border border-primary/15">
         <CircleDot className="h-3 w-3 text-primary/70" />
       </div>
@@ -61,11 +71,24 @@ function NodeRow({ node, schemas }: { node: GraphNode; schemas: SchemaNode[] }) 
 }
 
 export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
-  const { nodes, edges, loading } = useGraphStore()
+  const { nodes, edges, loading, purchasedNodeIds } = useGraphStore()
   const searchTerm = useAppStore((s) => s.searchTerm)
   const schemas = useSchemaStore((s) => s.schemas)
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
 
   if (!searchTerm) return null
+
+  // Drill-down: show node detail panel
+  if (selectedNode) {
+    return (
+      <NodePreviewPanel
+        node={selectedNode}
+        onBack={() => setSelectedNode(null)}
+        schemas={schemas}
+        alreadyUnlocked={purchasedNodeIds.has(selectedNode.ref_id)}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
@@ -108,7 +131,11 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
           <div className="py-1">
             {nodes.map((node, i) => (
               <div key={node.ref_id}>
-                <NodeRow node={node} schemas={schemas} />
+                <NodeRow
+                  node={node}
+                  schemas={schemas}
+                  onClick={() => setSelectedNode(node)}
+                />
                 {i < nodes.length - 1 && (
                   <Separator className="bg-sidebar-border/50" />
                 )}

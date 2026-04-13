@@ -159,6 +159,11 @@ export async function getStats(signal?: AbortSignal): Promise<StatsResponse> {
   return api.get<StatsResponse>("/stats", undefined, signal)
 }
 
+// Get purchased node ref_ids for current LSAT
+export async function getPurchasedNodes(): Promise<{ ref_ids: string[] }> {
+  return api.get<{ ref_ids: string[] }>("/lsat/purchased-nodes")
+}
+
 // Add content via v2/content
 export async function addContent(
   data: { source: string; source_type: string },

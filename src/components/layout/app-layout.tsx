@@ -13,6 +13,7 @@ import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useMocks } from "@/lib/mock-data"
+import { getPurchasedNodes } from "@/lib/graph-api"
 
 export function AppLayout() {
   const [sourcesOpen, setSourcesOpen] = useState(false)
@@ -21,6 +22,7 @@ export function AppLayout() {
   const schemas = useSchemaStore((s) => s.schemas)
   const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
+  const setPurchasedNodeIds = useGraphStore((s) => s.setPurchasedNodeIds)
   const searchPanelOpen = !!searchTerm && hasResults
 
   // Schemas power display-name resolution (title_key / index) for search
@@ -30,6 +32,13 @@ export function AppLayout() {
     if (useMocks() || schemas.length > 0) return
     fetchSchemas()
   }, [schemas.length, fetchSchemas])
+
+  // Fire-and-forget: load already-purchased node ids from LSAT transaction history
+  useEffect(() => {
+    getPurchasedNodes()
+      .then(({ ref_ids }) => setPurchasedNodeIds(ref_ids))
+      .catch(() => {})
+  }, [setPurchasedNodeIds])
 
   // Auto-close sources when search results appear
   useEffect(() => {
