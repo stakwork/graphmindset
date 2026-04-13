@@ -64,7 +64,9 @@ export async function getL402(): Promise<string> {
   if (!isSphinx()) return ""
 
   try {
+    console.log("[getL402] calling sphinx.getLsat...")
     const token = await sphinx.getLsat(window.location.host)
+    console.log("[getL402] sphinx.getLsat result:", token ? "got token" : "no token")
     if (token?.macaroon) {
       localStorage.setItem(
         "l402",
