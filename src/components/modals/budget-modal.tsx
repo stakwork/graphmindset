@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, getL402, hasWebLN, payL402, topUpLsat, topUpConfirm } from "@/lib/sphinx"
+import { isSphinx, getL402, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm } from "@/lib/sphinx"
 import { api } from "@/lib/api"
 
 type Step = "balance" | "amount" | "invoice" | "success"
@@ -67,34 +67,45 @@ export function BudgetModal() {
     }
   }, [])
 
+  const refreshBalance = useCallback(async () => {
+    const l402 = await getL402()
+    if (l402) {
+      const bal = await api.get<{ balance: number }>("/balance", {
+        Authorization: l402,
+      })
+      setBudget(bal.balance)
+    }
+  }, [setBudget])
+
   // Route "Top Up" to the right flow
   const handleTopUp = useCallback(async () => {
-    if (sphinxConnected) {
-      // Sphinx: buy L402 via setBudget → authorize → saveLsat flow
-      setLoading(true)
-      setError("")
-      try {
-        await payL402(setBudget)
-        const l402 = await getL402()
-        if (l402) {
-          const balance = await api.get<{ balance: number }>("/balance", {
-            Authorization: l402,
-          })
-          setBudget(balance.balance)
-        }
-      } catch {
-        setError("Payment was cancelled or failed. Try again.")
-      } finally {
-        setLoading(false)
-      }
+    const stored = localStorage.getItem("l402")
+
+    if (stored) {
+      // Has existing L402 — go to amount step to top up
+      setStep("amount")
       return
     }
 
-    // WebLN or manual: go to amount step
-    setStep("amount")
-  }, [sphinxConnected, setBudget])
+    // No L402 — need to buy one first
+    if (!sphinxConnected && !weblnAvailable) {
+      setError("Connect a Lightning wallet to get started.")
+      return
+    }
 
-  // Pay with selected amount
+    setLoading(true)
+    setError("")
+    try {
+      await payL402(setBudget)
+      await refreshBalance()
+    } catch {
+      setError("Payment was cancelled or failed. Try again.")
+    } finally {
+      setLoading(false)
+    }
+  }, [sphinxConnected, weblnAvailable, setBudget, refreshBalance])
+
+  // Pay with selected amount — same flow for Sphinx, WebLN, and manual
   const handlePay = useCallback(async () => {
     if (!amount || amount < 1 || amount > 10000) {
       setError("Enter an amount between 1 and 10,000 sats.")
@@ -104,30 +115,10 @@ export function BudgetModal() {
     setError("")
     setLoading(true)
 
-    if (weblnAvailable) {
-      // WebLN: pay directly
-      try {
-        await payL402(setBudget, amount)
-        const l402 = await getL402()
-        if (l402) {
-          const balance = await api.get<{ balance: number }>("/balance", {
-            Authorization: l402,
-          })
-          setBudget(balance.balance)
-        }
-        setStep("success")
-      } catch {
-        setError("Payment was cancelled or failed.")
-      } finally {
-        setLoading(false)
-      }
-      return
-    }
-
-    // Manual: generate invoice
     const stored = localStorage.getItem("l402")
     if (!stored) {
-      setError("No existing L402 token. Connect a wallet first.")
+      // No L402 — shouldn't happen (handleTopUp guards this), but handle it
+      setError("No L402 token. Go back and connect a wallet first.")
       setLoading(false)
       return
     }
@@ -136,12 +127,27 @@ export function BudgetModal() {
 
     try {
       const result = await topUpLsat(macaroon, amount)
+
+      // Sphinx or WebLN: pay the invoice directly
+      if (sphinxConnected || weblnAvailable) {
+        const payment = await payInvoice(result.payment_request)
+        if (!payment) {
+          setError("Payment was cancelled or failed.")
+          setLoading(false)
+          return
+        }
+        await topUpConfirm(result.payment_hash, macaroon)
+        await refreshBalance()
+        setStep("success")
+        return
+      }
+
+      // Manual: show QR code and poll for payment
       setPaymentRequest(result.payment_request)
       setPaymentHash(result.payment_hash)
       setStep("invoice")
       previousBalanceRef.current = budget ?? 0
 
-      // Poll balance (timeout after 5 minutes)
       const l402Token = await getL402()
       let attempts = 0
       intervalRef.current = setInterval(async () => {
@@ -170,7 +176,7 @@ export function BudgetModal() {
     } finally {
       setLoading(false)
     }
-  }, [amount, weblnAvailable, budget, setBudget])
+  }, [amount, sphinxConnected, weblnAvailable, budget, setBudget, refreshBalance])
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(paymentRequest)
@@ -365,8 +371,8 @@ export function BudgetModal() {
                 )}
                 {loading
                   ? "Processing..."
-                  : weblnAvailable
-                    ? "Pay with WebLN"
+                  : sphinxConnected || weblnAvailable
+                    ? "Pay & Top Up"
                     : "Generate Invoice"}
               </Button>
             </>
