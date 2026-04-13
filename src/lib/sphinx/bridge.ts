@@ -6,6 +6,7 @@ import { isSphinx } from "./detect"
 const sphinx = require("sphinx-bridge")
 
 let signingPromise: Promise<SignedMessage> | null = null
+let l402Promise: Promise<string> | null = null
 
 export async function enable(): Promise<{ pubkey: string } | null> {
   try {
@@ -63,24 +64,33 @@ export async function getL402(): Promise<string> {
 
   if (!isSphinx()) return ""
 
-  try {
-    const token = await sphinx.getLsat(window.location.host)
-    if (token?.macaroon) {
-      localStorage.setItem(
-        "l402",
-        JSON.stringify({
-          macaroon: token.macaroon,
-          identifier: token.identifier,
-          preimage: token.preimage,
-        })
-      )
-      return `L402 ${token.macaroon}:${token.preimage}`
-    }
-    return ""
-  } catch (error) {
-    console.warn("Failed to get L402:", error)
-    return ""
+  // Queue — sphinx bridge handles only one request at a time
+  if (!l402Promise) {
+    l402Promise = (async () => {
+      try {
+        const token = await sphinx.getLsat(window.location.host)
+        if (token?.macaroon) {
+          localStorage.setItem(
+            "l402",
+            JSON.stringify({
+              macaroon: token.macaroon,
+              identifier: token.identifier,
+              preimage: token.preimage,
+            })
+          )
+          return `L402 ${token.macaroon}:${token.preimage}`
+        }
+        return ""
+      } catch (error) {
+        console.warn("Failed to get L402:", error)
+        return ""
+      } finally {
+        l402Promise = null
+      }
+    })()
   }
+
+  return l402Promise
 }
 
 export function hasWebLN(): boolean {
@@ -103,7 +113,10 @@ export async function payInvoice(invoice: string): Promise<{ preimage: string } 
 
       const result = await sphinx.sendPayment(invoice)
       console.log("[payInvoice] sphinx.sendPayment result:", JSON.stringify(result))
-      return result?.preimage ? { preimage: result.preimage } : null
+      if (result?.success) {
+        return { preimage: result.preimage ?? "" }
+      }
+      return null
     } catch (error) {
       console.error("[payInvoice] Sphinx payment failed:", error)
       return null

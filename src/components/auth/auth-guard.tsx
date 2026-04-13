@@ -92,9 +92,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         return
       }
 
-      await handleAuth()
-      await Promise.all([handleIsAdmin(), fetchGraphMeta()])
-      setLoading(false)
+      try {
+        console.log("[auth] starting handleAuth...")
+        await handleAuth()
+        console.log("[auth] handleAuth done, starting isAdmin + graphMeta...")
+        await Promise.all([handleIsAdmin(), fetchGraphMeta()])
+        console.log("[auth] all done")
+      } catch (err) {
+        console.error("[auth] init failed:", err)
+      } finally {
+        setLoading(false)
+      }
     }
     init()
   }, [handleAuth, handleIsAdmin, fetchGraphMeta, setIsAdmin, setIsAuthenticated, setBudget, setGraphMeta])
