@@ -5,7 +5,7 @@ import { Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { useMocks } from "@/lib/mock-data"
-import { adminKeysend, isSphinx } from "@/lib/sphinx"
+import { adminKeysend, isSphinx, payL402 } from "@/lib/sphinx"
 import { useUserStore } from "@/stores/user-store"
 
 const DEFAULT_BOOST_AMOUNT = 10
@@ -24,6 +24,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
   const [error, setError] = useState<string | null>(null)
 
   const isAdmin = useUserStore((s) => s.isAdmin)
+  const setBudget = useUserStore((s) => s.setBudget)
 
   const handleBoost = useCallback(async () => {
     if (boosting) return
@@ -38,7 +39,17 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
           await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
         } else {
           // Regular user path: L402-gated boost
-          await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+          try {
+            await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+          } catch (err) {
+            // 402 = insufficient LSAT balance — buy/top-up and retry
+            if (err instanceof Response && err.status === 402) {
+              await payL402(setBudget)
+              await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+            } else {
+              throw err
+            }
+          }
         }
       }
 
@@ -51,7 +62,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, boosting, isAdmin])
+  }, [refId, pubkey, boosting, isAdmin, setBudget])
 
   return (
     <div className="flex flex-col items-start gap-1">
