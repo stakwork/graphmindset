@@ -129,7 +129,7 @@ export function BudgetModal() {
 
       // Sphinx or WebLN: pay the invoice directly
       if (sphinxConnected || weblnAvailable) {
-        const payment = await payInvoice(result.payment_request)
+        const payment = await payInvoice(result.payment_request, macaroon)
         if (!payment) {
           setError("Payment was cancelled or failed.")
           setLoading(false)
