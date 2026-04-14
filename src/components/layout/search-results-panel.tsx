@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { X, CircleDot } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -14,6 +14,21 @@ import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
+
+function buildDepthMap(schemas: SchemaNode[]): Map<string, number> {
+  const parentMap = new Map(schemas.map((s) => [s.type, s.parent]))
+  const cache = new Map<string, number>()
+
+  function getDepth(type: string): number {
+    if (cache.has(type)) return cache.get(type)!
+    const parent = parentMap.get(type)
+    const depth = !parent || parent === "" ? 0 : getDepth(parent) + 1
+    cache.set(type, depth)
+    return depth
+  }
+  schemas.forEach((s) => getDepth(s.type))
+  return cache
+}
 
 function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
   if (!props || !key) return undefined
@@ -68,6 +83,23 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
   const schemas = useSchemaStore((s) => s.schemas)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
 
+  const depthMap = useMemo(() => buildDepthMap(schemas), [schemas])
+
+  const groups = useMemo(() => {
+    const map = new Map<string, GraphNode[]>()
+    for (const node of nodes) {
+      const t = node.node_type ?? "Unknown"
+      if (!map.has(t)) map.set(t, [])
+      map.get(t)!.push(node)
+    }
+    for (const group of map.values()) {
+      group.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    }
+    return [...map.entries()].sort(
+      ([a], [b]) => (depthMap.get(a) ?? 99) - (depthMap.get(b) ?? 99)
+    )
+  }, [nodes, depthMap])
+
   if (!searchTerm) return null
 
   return (
@@ -117,11 +149,23 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
               </div>
             ) : (
               <div className="py-1">
-                {nodes.map((node, i) => (
-                  <div key={node.ref_id}>
-                    <NodeRow node={node} schemas={schemas} onClick={() => setSelectedNode(node)} />
-                    {i < nodes.length - 1 && (
-                      <Separator className="bg-sidebar-border/50" />
+                {groups.map(([type, groupNodes], gi) => (
+                  <div key={type}>
+                    <div className="px-4 pt-3 pb-1">
+                      <span className="text-[10px] font-mono font-semibold uppercase tracking-widest text-muted-foreground">
+                        {type}
+                      </span>
+                    </div>
+                    {groupNodes.map((node, i) => (
+                      <div key={node.ref_id}>
+                        <NodeRow node={node} schemas={schemas} onClick={() => setSelectedNode(node)} />
+                        {i < groupNodes.length - 1 && (
+                          <Separator className="bg-sidebar-border/50" />
+                        )}
+                      </div>
+                    ))}
+                    {gi < groups.length - 1 && (
+                      <Separator className="bg-sidebar-border my-1" />
                     )}
                   </div>
                 ))}
