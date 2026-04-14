@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Zap, Loader2, CircleDot, Play, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Zap, Loader2, CircleDot, Play, Pause, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -96,13 +96,19 @@ function TweetCard({ props }: { props: Record<string, unknown> }) {
 }
 
 function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unknown> }) {
-  const setPlayingNode = usePlayerStore((s) => s.setPlayingNode)
+  const { setPlayingNode, setIsPlaying, isPlaying, playingNode } = usePlayerStore((s) => ({
+    setPlayingNode: s.setPlayingNode,
+    setIsPlaying: s.setIsPlaying,
+    isPlaying: s.isPlaying,
+    playingNode: s.playingNode,
+  }))
   const mediaUrl = (props.media_url ?? props.link) as string | undefined
   const duration = typeof props.duration === "number" ? props.duration : undefined
   const show = props.show as string | undefined
   const channel = props.channel as string | undefined
   const epNum = typeof props.episode_number === "number" ? props.episode_number : undefined
   const isVideo = typeof mediaUrl === "string" && /\.(mp4|webm|mov)/i.test(mediaUrl)
+  const isThisNodePlaying = isPlaying && playingNode?.ref_id === node.ref_id
 
   return (
     <div className="space-y-2">
@@ -118,11 +124,30 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
           size="sm"
           variant="outline"
           className="w-full"
-          onClick={() => setPlayingNode({ ...node, properties: props })}
+          onClick={() => {
+            if (isThisNodePlaying) {
+              setIsPlaying(false)
+            } else {
+              setPlayingNode({ ...node, properties: props })
+            }
+          }}
         >
-          <Play className="h-3.5 w-3.5 mr-1.5" />
-          Play Audio
-          {duration !== undefined && <span className="ml-auto text-muted-foreground font-mono text-[10px]">{formatDuration(duration)}</span>}
+          {isVideo ? (
+            <Film className="h-3.5 w-3.5 mr-1.5" />
+          ) : isThisNodePlaying ? (
+            <Pause className="h-3.5 w-3.5 mr-1.5" />
+          ) : (
+            <Play className="h-3.5 w-3.5 mr-1.5" />
+          )}
+          {isVideo
+            ? isThisNodePlaying ? "Pause Video" : "Play Video"
+            : isThisNodePlaying ? "Pause Audio" : "Play Audio"
+          }
+          {duration !== undefined && (
+            <span className="ml-auto text-muted-foreground font-mono text-[10px]">
+              {formatDuration(duration)}
+            </span>
+          )}
         </Button>
       ) : null}
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
