@@ -14,8 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, getL402, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm } from "@/lib/sphinx"
-import { api } from "@/lib/api"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm } from "@/lib/sphinx"
 
 type Step = "balance" | "amount" | "invoice" | "success"
 
@@ -24,6 +23,7 @@ const PRESET_AMOUNTS = [50, 100, 500, 1000]
 export function BudgetModal() {
   const { activeModal, close } = useModalStore()
   const { budget, setBudget } = useUserStore()
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [step, setStep] = useState<Step>("balance")
@@ -66,15 +66,7 @@ export function BudgetModal() {
     }
   }, [])
 
-  const refreshBalance = useCallback(async () => {
-    const l402 = await getL402()
-    if (l402) {
-      const bal = await api.get<{ balance: number }>("/balance", {
-        Authorization: l402,
-      })
-      setBudget(bal.balance)
-    }
-  }, [setBudget])
+
 
   // Route "Top Up" to the right flow
   const handleTopUp = useCallback(async () => {
@@ -198,21 +190,11 @@ export function BudgetModal() {
   const handleRefreshBalance = useCallback(async () => {
     setLoading(true)
     try {
-      const l402 = await getL402()
-      if (!l402) {
-        setBudget(0)
-        return
-      }
-      const balance = await api.get<{ balance: number }>("/balance", {
-        Authorization: l402,
-      })
-      setBudget(balance.balance)
-    } catch {
-      // keep existing budget
+      await refreshBalance()
     } finally {
       setLoading(false)
     }
-  }, [setBudget])
+  }, [refreshBalance])
 
   const canTopUp = sphinxConnected || weblnAvailable || hasExistingL402
 
