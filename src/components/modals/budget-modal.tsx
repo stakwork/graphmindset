@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Zap, Copy, Check, Loader2, ArrowLeft } from "lucide-react"
+import { Zap, Copy, Check, Loader2, ArrowLeft, History } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import {
   Dialog,
@@ -14,9 +14,9 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm } from "@/lib/sphinx"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetchTransactionHistory, TransactionRow } from "@/lib/sphinx"
 
-type Step = "balance" | "amount" | "invoice" | "success"
+type Step = "balance" | "amount" | "invoice" | "success" | "history"
 
 const PRESET_AMOUNTS = [50, 100, 500, 1000]
 
@@ -27,6 +27,11 @@ export function BudgetModal() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [step, setStep] = useState<Step>("balance")
+
+  // History state
+  const [transactions, setTransactions] = useState<TransactionRow[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyScope, setHistoryScope] = useState<'pubkey' | 'token' | null>(null)
 
   // Amount & invoice state
   const [amount, setAmount] = useState<number | null>(null)
@@ -54,6 +59,9 @@ export function BudgetModal() {
     setCopied(false)
     setError("")
     setLoading(false)
+    setTransactions([])
+    setHistoryLoading(false)
+    setHistoryScope(null)
   }, [])
 
   useEffect(() => {
@@ -67,6 +75,18 @@ export function BudgetModal() {
   }, [])
 
 
+
+  const handleShowHistory = useCallback(async () => {
+    setStep('history')
+    setHistoryLoading(true)
+    try {
+      const result = await fetchTransactionHistory()
+      setTransactions(result.transactions)
+      setHistoryScope(result.scope)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [])
 
   // Route "Top Up" to the right flow
   const handleTopUp = useCallback(async () => {
@@ -208,9 +228,13 @@ export function BudgetModal() {
                 onClick={() => {
                   if (step === "invoice" && intervalRef.current)
                     clearInterval(intervalRef.current)
-                  setStep(step === "invoice" ? "amount" : "balance")
-                  if (step === "amount") setAmount(null)
-                  if (step === "invoice") setPaymentRequest("")
+                  if (step === "history") {
+                    setStep("balance")
+                  } else {
+                    setStep(step === "invoice" ? "amount" : "balance")
+                    if (step === "amount") setAmount(null)
+                    if (step === "invoice") setPaymentRequest("")
+                  }
                   setError("")
                 }}
                 className="text-muted-foreground hover:text-foreground transition-colors"
@@ -222,12 +246,14 @@ export function BudgetModal() {
             {step === "amount" && "Top Up"}
             {step === "invoice" && "Pay Invoice"}
             {step === "success" && "Budget"}
+            {step === "history" && "History"}
           </DialogTitle>
           <DialogDescription>
             {step === "balance" && "Manage your Lightning L402 balance."}
             {step === "amount" && "Choose an amount to add."}
             {step === "invoice" && "Scan or copy the invoice to pay."}
             {step === "success" && "Your balance has been updated."}
+            {step === "history" && "Your payment activity."}
           </DialogDescription>
         </DialogHeader>
 
@@ -302,6 +328,16 @@ export function BudgetModal() {
                   className="w-full text-xs text-muted-foreground"
                 >
                   Refresh Balance
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  onClick={handleShowHistory}
+                  disabled={!hasExistingL402 || loading}
+                  className="w-full text-xs text-muted-foreground"
+                >
+                  <History className="mr-2 h-3.5 w-3.5" />
+                  History
                 </Button>
               </div>
             </>
@@ -408,6 +444,48 @@ export function BudgetModal() {
                   </span>
                 </div>
               </div>
+            </>
+          )}
+
+          {/* Step: History */}
+          {step === "history" && (
+            <>
+              {historyLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : transactions.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-8">No transactions yet.</p>
+              ) : (
+                <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
+                  {transactions.map((tx, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/20">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                          tx.label === 'Boost' ? 'bg-amber/10 text-amber' :
+                          tx.label === 'Search' ? 'bg-blue-500/10 text-blue-400' :
+                          tx.label === 'Top Up' ? 'bg-emerald-500/10 text-emerald-400' :
+                          tx.label === 'Purchase' ? 'bg-purple-500/10 text-purple-400' :
+                          'bg-muted/40 text-muted-foreground'
+                        }`}>{tx.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '—'}
+                        </span>
+                      </div>
+                      <span className={`text-xs font-mono font-medium ${
+                        tx.label === 'Top Up' ? 'text-emerald-400' : 'text-destructive'
+                      }`}>
+                        {tx.label === 'Top Up' ? '+' : '-'}{Math.abs(tx.amount)} sats
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {historyScope === 'token' && !historyLoading && (
+                <p className="text-[10px] text-muted-foreground/60 text-center">
+                  Showing current token only
+                </p>
+              )}
             </>
           )}
 

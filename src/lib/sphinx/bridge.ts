@@ -27,6 +27,29 @@ export async function getSignedMessage(): Promise<SignedMessage> {
   }
 
   if (!isSphinx()) {
+    const webln = typeof window !== 'undefined' ? (window as any).webln : null // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (webln) {
+      if (!signingPromise) {
+        signingPromise = (async () => {
+          try {
+            const message = btoa(`${crypto.randomUUID()}${Date.now()}`)
+            await webln.enable()
+            const result = await webln.signMessage(message)
+            if (result?.signature) {
+              const signed = { message, signature: result.signature }
+              localStorage.setItem("signature", JSON.stringify(signed))
+              return signed
+            }
+          } catch (error) {
+            console.error("WebLN signMessage failed:", error)
+          } finally {
+            signingPromise = null
+          }
+          return { message: "", signature: "" }
+        })()
+      }
+      return signingPromise!
+    }
     return { message: "", signature: "" }
   }
 
