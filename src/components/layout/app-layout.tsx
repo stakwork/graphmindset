@@ -63,21 +63,21 @@ export function AppLayout() {
             </div>
           </header>
 
-          {/* Content area — panels overlay here */}
-          <div className="relative flex-1 overflow-hidden">
+          {/* Content area — panels sit beside the graph, not over it */}
+          <div className="relative flex flex-1 overflow-hidden">
             {sourcesOpen && (
-              <div className={panelOverlay}>
+              <div className="shrink-0 h-full">
                 <SourcesPanel onClose={() => setSourcesOpen(false)} />
               </div>
             )}
 
             {searchPanelOpen && (
-              <div className={panelOverlay}>
+              <div className="shrink-0 h-full">
                 <SearchResultsPanel onClose={closeSearchResults} />
               </div>
             )}
 
-            <main className="h-full">
+            <main className="h-full flex-1 min-w-0">
               <Universe />
             </main>
           </div>
