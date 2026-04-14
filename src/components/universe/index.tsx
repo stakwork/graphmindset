@@ -1,7 +1,11 @@
 "use client"
 
+import { useCallback } from "react"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
+import { useSchemaStore } from "@/stores/schema-store"
+import { GraphCanvas } from "./graph-canvas"
+import type { GraphNode } from "@/lib/graph-api"
 
 function StarLayer({
   count,
@@ -36,9 +40,32 @@ function StarLayer({
 
 export function Universe() {
   const searchTerm = useAppStore((s) => s.searchTerm)
-  const { nodes, edges, loading } = useGraphStore()
+  const nodes = useGraphStore((s) => s.nodes)
+  const edges = useGraphStore((s) => s.edges)
+  const loading = useGraphStore((s) => s.loading)
+  const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
+  const schemas = useSchemaStore((s) => s.schemas)
 
   const hasResults = nodes.length > 0
+
+  const handleNodeSelect = useCallback(
+    (node: GraphNode) => {
+      setSelectedNode(node)
+    },
+    [setSelectedNode]
+  )
+
+  // Show 3D graph when we have search results
+  if (hasResults && !loading) {
+    return (
+      <GraphCanvas
+        nodes={nodes}
+        edges={edges}
+        schemas={schemas}
+        onNodeSelect={handleNodeSelect}
+      />
+    )
+  }
 
   return (
     <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
@@ -65,24 +92,6 @@ export function Universe() {
             <div className="mx-auto h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
             <p className="text-xs font-heading font-semibold uppercase tracking-[0.2em] text-primary/60">
               Searching
-            </p>
-          </div>
-        ) : hasResults ? (
-          <div className="space-y-3">
-            <p className="text-xs font-heading font-semibold uppercase tracking-[0.2em] text-primary/60">
-              Results
-            </p>
-            <p className="text-3xl font-heading font-bold text-foreground">
-              {nodes.length}
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                nodes
-              </span>
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {edges.length} edges &middot; &ldquo;{searchTerm}&rdquo;
-            </p>
-            <p className="text-xs text-muted-foreground/60 mt-4">
-              3D graph visualization will render here
             </p>
           </div>
         ) : (
@@ -116,7 +125,7 @@ export function Universe() {
                 Graph Viewport
               </p>
               <p className="text-sm text-muted-foreground max-w-xs mx-auto">
-                3D graph visualization will render here
+                Search to explore the knowledge graph
               </p>
             </div>
           </>
@@ -130,7 +139,7 @@ export function Universe() {
       </div>
       <div className="absolute bottom-4 right-4 flex items-center gap-2 opacity-40">
         <span className="text-[9px] font-mono text-primary/60">
-          {hasResults ? `${nodes.length}n ${edges.length}e` : "0,0,0"}
+          {searchTerm ? `"${searchTerm}"` : "0,0,0"}
         </span>
         <div className="h-px w-8 bg-primary/40" />
       </div>
