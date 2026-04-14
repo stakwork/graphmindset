@@ -24,6 +24,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
   const [error, setError] = useState<string | null>(null)
 
   const isAdmin = useUserStore((s) => s.isAdmin)
+  const routeHint = useUserStore((s) => s.routeHint)
   const setBudget = useUserStore((s) => s.setBudget)
   const refreshBalance = useUserStore((s) => s.refreshBalance)
 
@@ -37,16 +38,16 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
         if (isAdmin && isSphinx()) {
           // Admin path: pay directly from Sphinx wallet, then record
           await adminKeysend(pubkey, DEFAULT_BOOST_AMOUNT)
-          await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+          await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey, route_hint: routeHint || undefined })
         } else {
           // Regular user path: L402-gated boost
           try {
-            await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+            await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey, route_hint: routeHint || undefined })
           } catch (err) {
             // 402 = insufficient LSAT balance — buy/top-up and retry
             if (err instanceof Response && err.status === 402) {
               await payL402(setBudget)
-              await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey })
+              await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey, route_hint: routeHint || undefined })
             } else {
               throw err
             }
@@ -64,7 +65,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, boosting, isAdmin, setBudget, refreshBalance])
+  }, [refId, pubkey, boosting, isAdmin, routeHint, setBudget, refreshBalance])
 
   return (
     <div className="flex flex-col items-start gap-1">
