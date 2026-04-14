@@ -142,6 +142,43 @@ export async function topUpConfirm(
   await api.post("/top_up_confirm", { payment_hash: paymentHash, macaroon })
 }
 
+export interface TransactionRow {
+  endpoint: string
+  amount: number
+  created_at: string | null
+  label: string
+}
+
+export function getTransactionLabel(endpoint: string): string {
+  if (!endpoint) return 'Other'
+  const e = endpoint.toLowerCase()
+  if (e.includes('nodes/') || e === 'v2/nodes/:ref_id') return 'Purchase'
+  if (['search', 'v2/search', 'graph/search', 'graph/search/latest'].includes(e)) return 'Search'
+  if (e === 'boost') return 'Boost'
+  if (e === 'top_up_confirm' || e === 'buy_lsat') return 'Top Up'
+  if (e === 'v2/content' || e === 'add_node') return 'Add Content'
+  return 'Other'
+}
+
+export async function fetchTransactionHistory(): Promise<{
+  transactions: TransactionRow[]
+  scope: 'pubkey' | 'token'
+}> {
+  try {
+    const res = await api.get<{
+      success: boolean
+      scope: 'pubkey' | 'token'
+      transactions: Omit<TransactionRow, 'label'>[]
+    }>('/transactions')
+    return {
+      transactions: res.transactions.map(tx => ({ ...tx, label: getTransactionLabel(tx.endpoint) })),
+      scope: res.scope,
+    }
+  } catch {
+    return { transactions: [], scope: 'token' }
+  }
+}
+
 export async function getPrice(endpoint: string): Promise<number> {
   try {
     const res = await api.get<{
