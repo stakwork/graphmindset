@@ -61,18 +61,21 @@ async function payViaSphinx(
         lsat.baseMacaroon,
         window.location.host
       )
+      if (!result?.success) throw new Error("Sphinx saveLsat failed")
 
-      if (result?.lsat) {
-        localStorage.setItem(
-          "l402",
-          JSON.stringify({
-            macaroon: lsat.baseMacaroon,
-            identifier: lsat.id,
-            preimage: result.lsat.split(":")[1],
-          })
-        )
-        setBudget(budgetAmount)
-      }
+      // saveLsat does not return a preimage — fetch the stored LSAT to get it
+      const stored = await sphinx.getLsat(window.location.host)
+      if (!stored?.preimage) throw new Error("getLsat returned no preimage after saveLsat")
+
+      localStorage.setItem(
+        "l402",
+        JSON.stringify({
+          macaroon: lsat.baseMacaroon,
+          identifier: lsat.id,
+          preimage: stored.preimage,
+        })
+      )
+      setBudget(budgetAmount)
       return
     }
     throw error
