@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Zap, Loader2, CircleDot, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Zap, Loader2, CircleDot, Play, Pause, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -97,6 +97,10 @@ function TweetCard({ props }: { props: Record<string, unknown> }) {
 
 function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unknown> }) {
   const setPlayingNode = usePlayerStore((s) => s.setPlayingNode)
+  const setIsPlaying = usePlayerStore((s) => s.setIsPlaying)
+  const isThisNodePlaying = usePlayerStore(
+    (s) => s.isPlaying && s.playingNode?.ref_id === node.ref_id
+  )
   const mediaUrl = (props.media_url ?? props.link) as string | undefined
   const duration = typeof props.duration === "number" ? props.duration : undefined
   const show = props.show as string | undefined
@@ -111,15 +115,30 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
           size="sm"
           variant="outline"
           className="w-full"
-          onClick={() => setPlayingNode({ ...node, properties: props })}
+          onClick={() => {
+            if (isThisNodePlaying) {
+              setIsPlaying(false)
+            } else {
+              setPlayingNode({ ...node, properties: props })
+            }
+          }}
         >
           {isVideo ? (
             <Film className="h-3.5 w-3.5 mr-1.5" />
+          ) : isThisNodePlaying ? (
+            <Pause className="h-3.5 w-3.5 mr-1.5" />
           ) : (
             <Play className="h-3.5 w-3.5 mr-1.5" />
           )}
-          {isVideo ? "Play Video" : "Play Audio"}
-          {duration !== undefined && <span className="ml-auto text-muted-foreground font-mono text-[10px]">{formatDuration(duration)}</span>}
+          {isVideo
+            ? isThisNodePlaying ? "Pause Video" : "Play Video"
+            : isThisNodePlaying ? "Pause Audio" : "Play Audio"
+          }
+          {duration !== undefined && (
+            <span className="ml-auto text-muted-foreground font-mono text-[10px]">
+              {formatDuration(duration)}
+            </span>
+          )}
         </Button>
       ) : null}
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
