@@ -25,6 +25,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
 
   const isAdmin = useUserStore((s) => s.isAdmin)
   const setBudget = useUserStore((s) => s.setBudget)
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
 
   const handleBoost = useCallback(async () => {
     if (boosting) return
@@ -56,13 +57,14 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
       setCount((c) => c + DEFAULT_BOOST_AMOUNT)
       setFlash(true)
       setTimeout(() => setFlash(false), 600)
+      refreshBalance()
     } catch (err) {
       console.error("Boost failed:", err)
       setError("Boost failed. Please try again.")
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, boosting, isAdmin, setBudget])
+  }, [refId, pubkey, boosting, isAdmin, setBudget, refreshBalance])
 
   return (
     <div className="flex flex-col items-start gap-1">

@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import { useMocks, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
+import { useUserStore } from "@/stores/user-store"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
@@ -206,6 +207,7 @@ function PersonCard({ props }: { props: Record<string, unknown> }) {
 export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProps) {
   const [unlockState, setUnlockState] = useState<UnlockState>("preview")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
 
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
@@ -242,6 +244,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         setFullNode(result)
       }
       setUnlockState("unlocked")
+      refreshBalance()
     } catch {
       setUnlockState("error")
     }
