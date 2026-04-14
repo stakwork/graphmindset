@@ -96,19 +96,17 @@ function TweetCard({ props }: { props: Record<string, unknown> }) {
 }
 
 function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unknown> }) {
-  const { setPlayingNode, setIsPlaying, isPlaying, playingNode } = usePlayerStore((s) => ({
-    setPlayingNode: s.setPlayingNode,
-    setIsPlaying: s.setIsPlaying,
-    isPlaying: s.isPlaying,
-    playingNode: s.playingNode,
-  }))
+  const setPlayingNode = usePlayerStore((s) => s.setPlayingNode)
+  const setIsPlaying = usePlayerStore((s) => s.setIsPlaying)
+  const isThisNodePlaying = usePlayerStore(
+    (s) => s.isPlaying && s.playingNode?.ref_id === node.ref_id
+  )
   const mediaUrl = (props.media_url ?? props.link) as string | undefined
   const duration = typeof props.duration === "number" ? props.duration : undefined
   const show = props.show as string | undefined
   const channel = props.channel as string | undefined
   const epNum = typeof props.episode_number === "number" ? props.episode_number : undefined
   const isVideo = typeof mediaUrl === "string" && /\.(mp4|webm|mov)/i.test(mediaUrl)
-  const isThisNodePlaying = isPlaying && playingNode?.ref_id === node.ref_id
 
   return (
     <div className="space-y-2">
