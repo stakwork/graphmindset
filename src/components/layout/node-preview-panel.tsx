@@ -15,7 +15,7 @@ import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 const INTERNAL_FIELDS = new Set([
-  "ref_id", "pubkey", "node_type", "date_added_to_graph",
+  "ref_id", "pubkey", "route_hint", "node_type", "date_added_to_graph",
   // Fields rendered by rich widgets — hide from the fallback key/value list
   "name", "title", "description", "text", "transcript", "media_url", "link",
   "image_url", "thumbnail", "source_link", "tweet_id", "author",

@@ -22,11 +22,12 @@ function parsePubkeyWithHint(raw: string): { pubkey: string; route_hint?: string
 interface BoostButtonProps {
   refId: string
   pubkey: string
+  routeHint?: string
   boostCount?: number
   className?: string
 }
 
-export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostButtonProps) {
+export function BoostButton({ refId, pubkey, routeHint, boostCount = 0, className }: BoostButtonProps) {
   const [count, setCount] = useState(boostCount)
   const [boosting, setBoosting] = useState(false)
   const [flash, setFlash] = useState(false)
@@ -76,7 +77,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, boosting, isAdmin, setBudget, refreshBalance])
+  }, [refId, pubkey, routeHint, boosting, isAdmin, setBudget, refreshBalance])
 
   return (
     <div className="flex flex-col items-start gap-1">
