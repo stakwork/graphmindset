@@ -59,7 +59,7 @@ export async function getL402(): Promise<string> {
   const stored = localStorage.getItem("l402")
   if (stored) {
     const parsed = JSON.parse(stored)
-    return `L402 ${parsed.macaroon}:${parsed.preimage}`
+    return `LSAT ${parsed.macaroon}:${parsed.preimage}`
   }
 
   if (!isSphinx()) return ""
@@ -78,7 +78,7 @@ export async function getL402(): Promise<string> {
               preimage: token.preimage,
             })
           )
-          return `L402 ${token.macaroon}:${token.preimage}`
+          return `LSAT ${token.macaroon}:${token.preimage}`
         }
         return ""
       } catch (error) {
