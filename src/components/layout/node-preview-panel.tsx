@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Zap, Loader2, CircleDot, Play, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Zap, Loader2, CircleDot, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -106,22 +106,19 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
 
   return (
     <div className="space-y-2">
-      {isVideo && mediaUrl ? (
-        <video
-          src={mediaUrl}
-          controls
-          className="w-full rounded-md"
-          poster={props.thumbnail as string | undefined}
-        />
-      ) : mediaUrl ? (
+      {mediaUrl ? (
         <Button
           size="sm"
           variant="outline"
           className="w-full"
           onClick={() => setPlayingNode({ ...node, properties: props })}
         >
-          <Play className="h-3.5 w-3.5 mr-1.5" />
-          Play Audio
+          {isVideo ? (
+            <Film className="h-3.5 w-3.5 mr-1.5" />
+          ) : (
+            <Play className="h-3.5 w-3.5 mr-1.5" />
+          )}
+          {isVideo ? "Play Video" : "Play Audio"}
           {duration !== undefined && <span className="ml-auto text-muted-foreground font-mono text-[10px]">{formatDuration(duration)}</span>}
         </Button>
       ) : null}
