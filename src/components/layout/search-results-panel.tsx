@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect } from "react"
 import { X, CircleDot } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -63,14 +63,13 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
 }
 
 export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
-  const { nodes, edges, loading } = useGraphStore()
+  const { nodes, edges, loading, selectedNode, setSelectedNode } = useGraphStore()
   const searchTerm = useAppStore((s) => s.searchTerm)
   const schemas = useSchemaStore((s) => s.schemas)
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
 
   useEffect(() => {
     setSelectedNode(null)
-  }, [searchTerm])
+  }, [searchTerm, setSelectedNode])
 
   if (!searchTerm) return null
 
