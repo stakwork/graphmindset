@@ -10,6 +10,15 @@ import { useUserStore } from "@/stores/user-store"
 
 const DEFAULT_BOOST_AMOUNT = 10
 
+/** Parse "pubkey:routeHintPubkey:shortChannelId" into separate fields */
+function parsePubkeyWithHint(raw: string): { pubkey: string; route_hint?: string } {
+  const parts = raw.split(":")
+  if (parts.length === 3 && parts[0].length === 66) {
+    return { pubkey: parts[0], route_hint: `${parts[1]}:${parts[2]}` }
+  }
+  return { pubkey: raw }
+}
+
 interface BoostButtonProps {
   refId: string
   pubkey: string
@@ -24,7 +33,6 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
   const [error, setError] = useState<string | null>(null)
 
   const isAdmin = useUserStore((s) => s.isAdmin)
-  const routeHint = useUserStore((s) => s.routeHint)
   const setBudget = useUserStore((s) => s.setBudget)
   const refreshBalance = useUserStore((s) => s.refreshBalance)
 
@@ -33,21 +41,24 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
     setBoosting(true)
     setError(null)
 
+    const dest = parsePubkeyWithHint(pubkey)
+    console.log("[boost] parsed dest:", dest)
+
     try {
       if (!useMocks()) {
         if (isAdmin && isSphinx()) {
           // Admin path: pay directly from Sphinx wallet, then record
-          await adminKeysend(pubkey, DEFAULT_BOOST_AMOUNT)
-          await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey, route_hint: routeHint || undefined })
+          await adminKeysend(dest.pubkey, DEFAULT_BOOST_AMOUNT)
+          await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, ...dest })
         } else {
           // Regular user path: L402-gated boost
           try {
-            await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey, route_hint: routeHint || undefined })
+            await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, ...dest })
           } catch (err) {
             // 402 = insufficient LSAT balance — buy/top-up and retry
             if (err instanceof Response && err.status === 402) {
               await payL402(setBudget)
-              await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, pubkey, route_hint: routeHint || undefined })
+              await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, ...dest })
             } else {
               throw err
             }
@@ -65,7 +76,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, boosting, isAdmin, routeHint, setBudget, refreshBalance])
+  }, [refId, pubkey, boosting, isAdmin, setBudget, refreshBalance])
 
   return (
     <div className="flex flex-col items-start gap-1">
