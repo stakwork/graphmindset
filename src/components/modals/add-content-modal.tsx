@@ -28,6 +28,7 @@ import {
 export function AddContentModal() {
   const { activeModal, close, open: openModal } = useModalStore()
   const { budget, setBudget, pubKey } = useUserStore()
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
   const [detecting, setDetecting] = useState(false)
@@ -109,6 +110,7 @@ export function AddContentModal() {
     try {
       await submitWithAuth(trimmed, detectedType)
       setSuccess(true)
+      refreshBalance()
       setTimeout(() => {
         setSourceUrl("")
         setDetectedType(null)
@@ -125,6 +127,7 @@ export function AddContentModal() {
           // Retry after payment
           await submitWithAuth(trimmed, detectedType)
           setSuccess(true)
+          refreshBalance()
           setTimeout(() => {
             setSourceUrl("")
             setDetectedType(null)
@@ -148,7 +151,7 @@ export function AddContentModal() {
     } finally {
       setSubmitting(false)
     }
-  }, [sourceUrl, detectedType, close, setBudget, submitWithAuth])
+  }, [sourceUrl, detectedType, close, setBudget, submitWithAuth, refreshBalance])
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
