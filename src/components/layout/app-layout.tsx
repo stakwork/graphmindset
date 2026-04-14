@@ -9,6 +9,7 @@ import { Universe } from "@/components/universe"
 import { SettingsModal } from "@/components/modals/settings-modal"
 import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
+import { MediaPlayer } from "@/components/player/media-player"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -87,6 +88,7 @@ export function AppLayout() {
       <SettingsModal />
       <AddContentModal />
       <BudgetModal />
+      <MediaPlayer />
     </>
   )
 }

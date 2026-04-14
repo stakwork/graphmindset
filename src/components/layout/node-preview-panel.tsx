@@ -112,14 +112,7 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
 
   return (
     <div className="space-y-2">
-      {isVideo && mediaUrl ? (
-        <video
-          src={mediaUrl}
-          controls
-          className="w-full rounded-md"
-          poster={props.thumbnail as string | undefined}
-        />
-      ) : mediaUrl ? (
+      {mediaUrl ? (
         <Button
           size="sm"
           variant="outline"
