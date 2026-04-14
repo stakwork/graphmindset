@@ -74,6 +74,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       const res = await api.get<{
         title?: string
         description?: string
+        mission_statement?: string
+        search_term?: string
+        app_version?: string
+        seed_questions?: string
+        limit?: number
+        depth?: number
+        sort_by?: string
+        top_node_count?: number
       }>("/about")
       setGraphMeta(res.title ?? "Knowledge Graph", res.description ?? "")
     } catch {
