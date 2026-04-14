@@ -8,7 +8,7 @@ const sphinx = require("sphinx-bridge")
 let signingPromise: Promise<SignedMessage> | null = null
 let l402Promise: Promise<string> | null = null
 
-export async function enable(): Promise<{ pubkey: string } | null> {
+export async function enable(): Promise<{ pubkey: string; routeHint?: string } | null> {
   try {
     const result = await sphinx.enable()
     sessionStorage.setItem("isSphinx", result ? "true" : "false")

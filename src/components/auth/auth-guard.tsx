@@ -13,24 +13,24 @@ import { Separator } from "@/components/ui/separator"
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [unauthorized, setUnauthorized] = useState(false)
   const [loading, setLoading] = useState(true)
-  const { setBudget, setIsAdmin, setPubKey, setIsAuthenticated } = useUserStore()
+  const { setBudget, setIsAdmin, setPubKey, setRouteHint, setIsAuthenticated } = useUserStore()
   const setGraphMeta = useAppStore((s) => s.setGraphMeta)
 
   const handleAuth = useCallback(async () => {
-    localStorage.removeItem("admin")
-    localStorage.removeItem("signature")
-
     try {
       if (isAndroid()) {
         await new Promise((r) => setTimeout(r, 5000))
       }
 
       const result = await enable()
+
       if (result?.pubkey) {
         setPubKey(result.pubkey)
+        setRouteHint(result.routeHint ?? "")
       }
     } catch {
       setPubKey("")
+      setRouteHint("")
     }
 
     const l402 = await getL402()
@@ -49,9 +49,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("l402")
       setBudget(0)
     }
-  }, [setBudget, setPubKey])
+  }, [setBudget, setPubKey, setRouteHint])
 
   const handleIsAdmin = useCallback(async () => {
+    // Local dev: skip /isAdmin call, grant admin
+    if (process.env.NEXT_PUBLIC_DEV_ADMIN === "true") {
+      setIsAdmin(true)
+      setIsAuthenticated(true)
+      return
+    }
+
     try {
       const res = await api.get<{ data: IsAdminResponse }>("/isAdmin")
       const d = res.data
