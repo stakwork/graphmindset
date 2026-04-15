@@ -94,7 +94,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
           setTotalProcessing(MOCK_CONTENT.totalProcessing)
         } else if (pubKey) {
           const res = await api.get<ContentResponse>(
-            `/node/content/${pubKey}?only_content=true&sort_by=date&limit=100`
+            `/v2/content?pubkey=${pubKey}&only_content=true&sort_by=date&limit=100`
           )
           setNodes(res.nodes ?? [])
           setTotalProcessing(res.totalProcessing ?? 0)

@@ -103,7 +103,7 @@ describe("MyContentPanel", () => {
     })
 
     expect(mockApiGet).toHaveBeenCalledWith(
-      "/node/content/03abc123testkey?only_content=true&sort_by=date&limit=100"
+      "/v2/content?pubkey=03abc123testkey&only_content=true&sort_by=date&limit=100"
     )
   })
 })
