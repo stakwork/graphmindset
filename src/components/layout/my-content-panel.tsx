@@ -82,7 +82,7 @@ interface ContentResponse {
 }
 
 export function MyContentPanel({ onClose }: { onClose: () => void }) {
-  const { pubKey } = useUserStore()
+  const { pubKey, routeHint } = useUserStore()
   const schemas = useSchemaStore((s) => s.schemas)
   const openModal = useModalStore((s) => s.open)
   const [nodes, setNodes] = useState<GraphNode[]>([])
@@ -98,8 +98,9 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
           setNodes(MOCK_CONTENT.nodes as GraphNode[])
           setTotalProcessing(MOCK_CONTENT.totalProcessing)
         } else if (pubKey) {
+          const fullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
           const res = await api.get<ContentResponse>(
-            `/v2/content?pubkey=${pubKey}&only_content=true&sort_by=date&limit=100`
+            `/v2/content?pubkey=${fullPubkey}&only_content=true&sort_by=date&limit=100`
           )
           setNodes(res.nodes ?? [])
           setTotalProcessing(res.totalProcessing ?? 0)
