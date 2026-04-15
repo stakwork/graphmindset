@@ -14,11 +14,12 @@ const DEFAULT_BOOST_AMOUNT = 10
 interface BoostButtonProps {
   refId: string
   pubkey: string
+  routeHint?: string
   boostCount?: number
   className?: string
 }
 
-export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostButtonProps) {
+export function BoostButton({ refId, pubkey, routeHint, boostCount = 0, className }: BoostButtonProps) {
   const [count, setCount] = useState(boostCount)
   const [boosting, setBoosting] = useState(false)
   const [flash, setFlash] = useState(false)
@@ -33,7 +34,9 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
     setBoosting(true)
     setError(null)
 
-    const dest = parsePubkeyWithHint(pubkey)
+    // Prefer separate pubkey + route_hint props (new split storage);
+    // fall back to parsing a compound pubkey for legacy callers.
+    const dest = routeHint ? { pubkey, route_hint: routeHint } : parsePubkeyWithHint(pubkey)
     console.log("[boost] parsed dest:", dest)
 
     try {
@@ -68,7 +71,7 @@ export function BoostButton({ refId, pubkey, boostCount = 0, className }: BoostB
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, boosting, isAdmin, setBudget, refreshBalance])
+  }, [refId, pubkey, routeHint, boosting, isAdmin, setBudget, refreshBalance])
 
   return (
     <div className="flex flex-col items-start gap-1">

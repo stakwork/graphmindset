@@ -38,6 +38,7 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
   if (!name) name = node.ref_id
 
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
+  const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
 
   return (
     <button onClick={onClick} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
@@ -55,7 +56,7 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
       </div>
       {pubkey && (
         <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-          <BoostButton refId={node.ref_id} pubkey={pubkey} className="shrink-0" />
+          <BoostButton refId={node.ref_id} pubkey={pubkey} routeHint={routeHint} className="shrink-0" />
         </div>
       )}
     </button>
