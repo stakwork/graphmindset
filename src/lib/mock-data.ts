@@ -160,6 +160,38 @@ export const MOCK_SOURCES = [
   { ref_id: "s5", source: "https://github.com/nicksparks/sphinx-nav-fiber", source_type: "github_repository" },
 ]
 
+export const MOCK_CONTENT = {
+  nodes: [
+    {
+      node_type: "Tweet",
+      ref_id: "c1",
+      properties: { name: "Bitcoin is freedom tech", text: "Bitcoin is freedom tech. The separation of money and state.", status: "complete", date_added_to_graph: 1713100000 },
+    },
+    {
+      node_type: "Video",
+      ref_id: "c2",
+      properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works", status: "complete", date_added_to_graph: 1713000000 },
+    },
+    {
+      node_type: "Podcast",
+      ref_id: "c3",
+      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "processing", date_added_to_graph: 1712900000 },
+    },
+    {
+      node_type: "Document",
+      ref_id: "c4",
+      properties: { name: "Bitcoin Whitepaper", description: "A peer-to-peer electronic cash system", status: "complete", date_added_to_graph: 1712800000 },
+    },
+    {
+      node_type: "Tweet",
+      ref_id: "c5",
+      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", date_added_to_graph: 1712700000 },
+    },
+  ],
+  totalCount: 5,
+  totalProcessing: 2,
+}
+
 export function useMocks(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"
 }

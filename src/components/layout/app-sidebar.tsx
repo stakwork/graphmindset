@@ -42,9 +42,13 @@ function NavItem({
 export function AppSidebar({
   sourcesOpen,
   onToggleSources,
+  myContentOpen,
+  onToggleMyContent,
 }: {
   sourcesOpen: boolean
   onToggleSources: () => void
+  myContentOpen: boolean
+  onToggleMyContent: () => void
 }) {
   const router = useRouter()
   const { isAdmin, budget, pubKey } = useUserStore()
@@ -118,19 +122,20 @@ export function AppSidebar({
           label="Add Content"
           onClick={() => openModal("addContent")}
         />
+        {pubKey && (
+          <NavItem
+            icon={BookMarked}
+            label="My Content"
+            active={myContentOpen}
+            onClick={onToggleMyContent}
+          />
+        )}
         <NavItem
           icon={Layers}
           label="Sources"
           active={sourcesOpen}
           onClick={onToggleSources}
         />
-        {pubKey && (
-          <NavItem
-            icon={BookMarked}
-            label="My Content"
-            onClick={() => router.push("/my-content")}
-          />
-        )}
       </nav>
 
       {/* Footer */}

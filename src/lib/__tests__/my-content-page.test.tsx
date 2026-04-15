@@ -2,25 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import React from "react"
 
-// --- mock next/navigation ---
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}))
-
-// --- mock AuthGuard (render children directly) ---
-vi.mock("@/components/auth/auth-guard", () => ({
-  AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}))
-
 // --- mock api ---
 const mockApiGet = vi.fn()
 vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => mockApiGet(...args) },
 }))
 
-// --- mock user store ---
+// --- mock stores ---
 vi.mock("@/stores/user-store", () => ({
   useUserStore: () => ({ pubKey: "03abc123testkey" }),
+}))
+
+vi.mock("@/stores/schema-store", () => ({
+  useSchemaStore: (sel: (s: { schemas: never[] }) => unknown) =>
+    sel({ schemas: [] }),
 }))
 
 const mockOpen = vi.fn()
@@ -29,27 +24,35 @@ vi.mock("@/stores/modal-store", () => ({
     sel({ open: mockOpen }),
 }))
 
-import MyContentPage from "@/app/my-content/page"
+// --- mock mock-data (disable mock mode so tests hit api.get) ---
+vi.mock("@/lib/mock-data", () => ({
+  useMocks: () => false,
+  MOCK_CONTENT: { nodes: [], totalCount: 0, totalProcessing: 0 },
+}))
+
+// --- mock node-preview-panel ---
+vi.mock("@/components/layout/node-preview-panel", () => ({
+  NodePreviewPanel: () => <div data-testid="node-preview" />,
+}))
+
+// --- mock boost-button ---
+vi.mock("@/components/boost/boost-button", () => ({
+  BoostButton: () => null,
+}))
+
+import { MyContentPanel } from "@/components/layout/my-content-panel"
 
 const TWO_NODES = {
   nodes: [
     {
-      node_type: "web_page",
+      node_type: "Tweet",
       ref_id: "ref-1",
-      properties: {
-        source: "https://example.com",
-        source_type: "web_page",
-        status: "complete",
-      },
+      properties: { name: "Bitcoin is freedom", status: "complete" },
     },
     {
-      node_type: "tweet",
+      node_type: "Podcast",
       ref_id: "ref-2",
-      properties: {
-        source: "https://twitter.com/user/status/123",
-        source_type: "tweet",
-        status: "processing",
-      },
+      properties: { name: "What Bitcoin Did #412", status: "processing" },
     },
   ],
   totalCount: 2,
@@ -62,51 +65,45 @@ const EMPTY_RESPONSE = {
   totalProcessing: 0,
 }
 
-describe("MyContentPage", () => {
+describe("MyContentPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it("renders items, status badges, and processing banner", async () => {
+  it("renders items with processing banner", async () => {
     mockApiGet.mockResolvedValue(TWO_NODES)
-    render(<MyContentPage />)
+    render(<MyContentPanel onClose={() => {}} />)
 
-    // Wait for content to load
     await waitFor(() => {
-      expect(screen.getByText("https://example.com")).toBeInTheDocument()
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
     })
 
-    // Both items rendered
-    expect(screen.getByText("https://example.com")).toBeInTheDocument()
-    expect(screen.getByText("https://twitter.com/user/status/123")).toBeInTheDocument()
-
-    // Status badges
-    expect(screen.getByText("Complete")).toBeInTheDocument()
-    expect(screen.getByText("Processing")).toBeInTheDocument()
-
-    // Amber processing banner
+    expect(screen.getByText("What Bitcoin Did #412")).toBeInTheDocument()
     expect(screen.getByText(/1 item.* still processing/i)).toBeInTheDocument()
   })
 
-  it("renders empty state with Add Content button when no nodes", async () => {
+  it("renders empty state with Add Content button", async () => {
     mockApiGet.mockResolvedValue(EMPTY_RESPONSE)
-    render(<MyContentPage />)
+    render(<MyContentPanel onClose={() => {}} />)
 
     await waitFor(() => {
       expect(screen.getByText("No content yet")).toBeInTheDocument()
     })
 
     expect(screen.getByRole("button", { name: /add content/i })).toBeInTheDocument()
-    // No processing banner
     expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
   })
 
-  it("calls api.get with the correct pubkey query param", async () => {
+  it("calls the correct API endpoint", async () => {
     mockApiGet.mockResolvedValue(EMPTY_RESPONSE)
-    render(<MyContentPage />)
+    render(<MyContentPanel onClose={() => {}} />)
+
     await waitFor(() => {
       expect(screen.getByText("No content yet")).toBeInTheDocument()
     })
-    expect(mockApiGet).toHaveBeenCalledWith("/v2/content?pubkey=03abc123testkey")
+
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/node/content/03abc123testkey?only_content=true&sort_by=date&limit=100"
+    )
   })
 })

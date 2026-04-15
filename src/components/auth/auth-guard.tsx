@@ -107,6 +107,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         setIsAdmin(true)
         setIsAuthenticated(true)
         setBudget(5000)
+        setPubKey("mock-pub-key")
         setGraphMeta("Dev Graph", "Local development instance")
         setLoading(false)
         return

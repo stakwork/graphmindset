@@ -36,13 +36,13 @@ describe("AppSidebar – My Content nav item", () => {
 
   it("renders 'My Content' nav item when pubKey is set", () => {
     mockUserStore.mockReturnValue({ isAdmin: false, budget: 0, pubKey: "03abc123" })
-    render(<AppSidebar sourcesOpen={false} onToggleSources={() => {}} />)
+    render(<AppSidebar sourcesOpen={false} onToggleSources={() => {}} myContentOpen={false} onToggleMyContent={() => {}} />)
     expect(screen.getByText("My Content")).toBeInTheDocument()
   })
 
   it("does NOT render 'My Content' nav item when pubKey is empty", () => {
     mockUserStore.mockReturnValue({ isAdmin: false, budget: 0, pubKey: "" })
-    render(<AppSidebar sourcesOpen={false} onToggleSources={() => {}} />)
+    render(<AppSidebar sourcesOpen={false} onToggleSources={() => {}} myContentOpen={false} onToggleMyContent={() => {}} />)
     expect(screen.queryByText("My Content")).not.toBeInTheDocument()
   })
 })
