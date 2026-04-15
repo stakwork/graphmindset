@@ -71,7 +71,7 @@ export function AddContentModal() {
       const headers: Record<string, string> = {}
       if (l402) headers["Authorization"] = l402
 
-      const fullPubkey = pubKey && routeHint ? `${pubKey}:${routeHint}` : pubKey
+      const fullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
       console.log("[add-content] pubKey:", pubKey, "routeHint:", routeHint, "fullPubkey:", fullPubkey)
 
       if (isSubscriptionSource(sourceType)) {
