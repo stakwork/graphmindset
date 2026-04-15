@@ -100,7 +100,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
         } else if (pubKey) {
           const fullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
           const res = await api.get<ContentResponse>(
-            `/v2/content?pubkey=${fullPubkey}&only_content=true&sort_by=date&limit=100`
+            `/v2/content?pubkey=${fullPubkey}&sort_by=date&limit=100`
           )
           setNodes(res.nodes ?? [])
           setTotalProcessing(res.totalProcessing ?? 0)
