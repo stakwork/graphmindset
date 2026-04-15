@@ -7,17 +7,9 @@ import { api } from "@/lib/api"
 import { useMocks } from "@/lib/mock-data"
 import { adminKeysend, isSphinx, payL402 } from "@/lib/sphinx"
 import { useUserStore } from "@/stores/user-store"
+import { parsePubkeyWithHint } from "@/lib/pubkey-utils"
 
 const DEFAULT_BOOST_AMOUNT = 10
-
-/** Parse "pubkey:routeHintPubkey:shortChannelId" into separate fields */
-function parsePubkeyWithHint(raw: string): { pubkey: string; route_hint?: string } {
-  const parts = raw.split(":")
-  if (parts.length === 3 && parts[0].length === 66) {
-    return { pubkey: parts[0], route_hint: `${parts[1]}:${parts[2]}` }
-  }
-  return { pubkey: raw }
-}
 
 interface BoostButtonProps {
   refId: string
