@@ -152,6 +152,7 @@ export interface TransactionRow {
   type: 'debit' | 'credit'
   amount: number
   created_at: string | null
+  refunded?: boolean
 }
 
 export async function fetchTransactionHistory(): Promise<{

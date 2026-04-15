@@ -7,7 +7,7 @@ describe("getActionDisplayLabel", () => {
     expect(getActionDisplayLabel("search")).toBe("Search")
     expect(getActionDisplayLabel("purchase")).toBe("Purchase")
     expect(getActionDisplayLabel("boost")).toBe("Boost")
-    expect(getActionDisplayLabel("boost_refund")).toBe("Refund")
+    expect(getActionDisplayLabel("refund")).toBe("Refund")
     expect(getActionDisplayLabel("add_content")).toBe("Add Content")
     expect(getActionDisplayLabel("add_source")).toBe("Add Source")
     expect(getActionDisplayLabel("other")).toBe("Other")
@@ -35,7 +35,7 @@ describe("getActionBadgeColor", () => {
 
   it("returns amber for boost actions", () => {
     expect(getActionBadgeColor("boost")).toContain("text-amber")
-    expect(getActionBadgeColor("boost_refund")).toContain("text-amber")
+    expect(getActionBadgeColor("refund")).toContain("text-amber")
   })
 
   it("returns teal for add_source", () => {

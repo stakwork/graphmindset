@@ -472,19 +472,23 @@ export function BudgetModal() {
               ) : (
                 <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
                   {transactions.map((tx, i) => (
-                    <div key={i} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/20">
+                    <div key={i} className={`flex items-center justify-between rounded-md px-3 py-2 bg-muted/20 ${tx.refunded ? 'opacity-50' : ''}`}>
                       <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${getActionBadgeColor(tx.action)}`}>
-                          {getActionDisplayLabel(tx.action)}
+                        <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                          tx.refunded ? 'bg-red-500/10 text-red-400' : getActionBadgeColor(tx.action)
+                        }`}>
+                          {tx.refunded ? 'Failed' : getActionDisplayLabel(tx.action)}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '—'}
                         </span>
                       </div>
                       <span className={`text-xs font-mono font-medium ${
-                        tx.type === 'credit' ? 'text-emerald-400' : 'text-muted-foreground'
+                        tx.refunded
+                          ? 'text-muted-foreground/50'
+                          : tx.type === 'credit' ? 'text-emerald-400' : 'text-muted-foreground'
                       }`}>
-                        {tx.type === 'credit' ? '+' : '-'}{tx.amount} sats
+                        {tx.refunded ? '0' : `${tx.type === 'credit' ? '+' : '-'}${tx.amount}`} sats
                       </span>
                     </div>
                   ))}
