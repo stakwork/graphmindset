@@ -8,6 +8,7 @@ import {
   Zap,
   CircleDot,
   Network,
+  BookMarked,
 } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { useUserStore } from "@/stores/user-store"
@@ -41,12 +42,16 @@ function NavItem({
 export function AppSidebar({
   sourcesOpen,
   onToggleSources,
+  myContentOpen,
+  onToggleMyContent,
 }: {
   sourcesOpen: boolean
   onToggleSources: () => void
+  myContentOpen: boolean
+  onToggleMyContent: () => void
 }) {
   const router = useRouter()
-  const { isAdmin, budget } = useUserStore()
+  const { isAdmin, budget, pubKey } = useUserStore()
   const { graphName } = useAppStore()
   const openModal = useModalStore((s) => s.open)
 
@@ -117,13 +122,20 @@ export function AppSidebar({
           label="Add Content"
           onClick={() => openModal("addContent")}
         />
+        {pubKey && (
+          <NavItem
+            icon={BookMarked}
+            label="My Content"
+            active={myContentOpen}
+            onClick={onToggleMyContent}
+          />
+        )}
         <NavItem
           icon={Layers}
           label="Sources"
           active={sourcesOpen}
           onClick={onToggleSources}
         />
-
       </nav>
 
       {/* Footer */}

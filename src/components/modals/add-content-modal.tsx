@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator"
 import { MAX_LENGTHS } from "@/lib/input-limits"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
+import { useAppStore } from "@/stores/app-store"
 import { api } from "@/lib/api"
 import { getL402, payL402, getPrice } from "@/lib/sphinx"
 import {
@@ -108,6 +109,8 @@ export function AddContentModal() {
     const trimmed = sourceUrl.trim()
     if (!trimmed || !detectedType) return
 
+    const openMyContent = () => useAppStore.getState().setMyContentOpen(true)
+
     setSubmitting(true)
     setError("")
     try {
@@ -120,6 +123,7 @@ export function AddContentModal() {
         setSuccess(false)
         setPrice(null)
         close()
+        openMyContent()
       }, 1200)
     } catch (err: unknown) {
       // Handle 402 — need payment
@@ -137,6 +141,7 @@ export function AddContentModal() {
             setSuccess(false)
             setPrice(null)
             close()
+            openMyContent()
           }, 1200)
         } catch {
           openModal("budget")
