@@ -158,10 +158,11 @@ export function getTransactionLabel(endpoint: string): string {
   if (!endpoint) return 'Other'
   const e = endpoint.toLowerCase()
   if (e.includes('nodes/') || e === 'v2/nodes/:ref_id') return 'Purchase'
-  if (['search', 'v2/search', 'graph/search', 'graph/search/latest'].includes(e)) return 'Search'
+  if (['search', 'v2/search', 'graph/search', 'graph/search/latest', 'v2/nodes'].includes(e)) return 'Search'
   if (e === 'boost') return 'Boost'
   if (e === 'top_up_confirm' || e === 'buy_lsat') return 'Top Up'
-  if (e === 'v2/content' || e === 'add_node') return 'Add Content'
+  if (e === 'v2/content' || e === 'add_node' || e === 'node' || e === 'node/content') return 'Add Content'
+  if (e === 'radar') return 'Add Source'
   return 'Other'
 }
 
