@@ -23,12 +23,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       }
 
       const result = await enable()
+      console.log("[auth] enable() result:", JSON.stringify(result))
 
       if (result?.pubkey) {
+        console.log("[auth] setting pubKey:", result.pubkey, "routeHint:", result.routeHint)
         setPubKey(result.pubkey)
         setRouteHint(result.routeHint ?? "")
+      } else {
+        console.log("[auth] no pubkey in enable() result")
       }
-    } catch {
+    } catch (err) {
+      console.error("[auth] enable() failed:", err)
       setPubKey("")
       setRouteHint("")
     }
