@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { AppSidebar } from "./app-sidebar"
 import { SourcesPanel } from "./sources-panel"
 import { SearchResultsPanel } from "./search-results-panel"
+import { MyContentPanel } from "./my-content-panel"
 import { SearchBar } from "@/components/search/search-bar"
 import { Universe } from "@/components/universe"
 import { SettingsModal } from "@/components/modals/settings-modal"
@@ -17,6 +18,8 @@ import { useMocks } from "@/lib/mock-data"
 
 export function AppLayout() {
   const [sourcesOpen, setSourcesOpen] = useState(false)
+  const myContentOpen = useAppStore((s) => s.myContentOpen)
+  const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
   const searchTerm = useAppStore((s) => s.searchTerm)
   const hasResults = useGraphStore((s) => s.nodes.length > 0)
   const schemas = useSchemaStore((s) => s.schemas)
@@ -32,10 +35,13 @@ export function AppLayout() {
     fetchSchemas()
   }, [schemas.length, fetchSchemas])
 
-  // Auto-close sources when search results appear
+  // Auto-close other panels when search results appear
   useEffect(() => {
-    if (searchPanelOpen) setSourcesOpen(false)
-  }, [searchPanelOpen])
+    if (searchPanelOpen) {
+      setSourcesOpen(false)
+      setMyContentOpen(false)
+    }
+  }, [searchPanelOpen, setMyContentOpen])
 
   function closeSearchResults(): void {
     useAppStore.getState().setSearchTerm("")
@@ -49,7 +55,9 @@ export function AppLayout() {
       <div className="flex h-screen w-screen overflow-hidden">
         <AppSidebar
           sourcesOpen={sourcesOpen}
-          onToggleSources={() => setSourcesOpen((o) => !o)}
+          onToggleSources={() => { setSourcesOpen((o) => !o); setMyContentOpen(false) }}
+          myContentOpen={myContentOpen}
+          onToggleMyContent={() => { setMyContentOpen(!myContentOpen); setSourcesOpen(false) }}
         />
 
         <div className="relative flex flex-1 flex-col min-w-0">
@@ -68,6 +76,12 @@ export function AppLayout() {
             {sourcesOpen && (
               <div className="shrink-0 h-full">
                 <SourcesPanel onClose={() => setSourcesOpen(false)} />
+              </div>
+            )}
+
+            {myContentOpen && (
+              <div className="shrink-0 h-full">
+                <MyContentPanel onClose={() => setMyContentOpen(false)} />
               </div>
             )}
 

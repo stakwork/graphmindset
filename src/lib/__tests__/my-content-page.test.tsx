@@ -1,0 +1,109 @@
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { render, screen, waitFor } from "@testing-library/react"
+import React from "react"
+
+// --- mock api ---
+const mockApiGet = vi.fn()
+vi.mock("@/lib/api", () => ({
+  api: { get: (...args: unknown[]) => mockApiGet(...args) },
+}))
+
+// --- mock stores ---
+vi.mock("@/stores/user-store", () => ({
+  useUserStore: () => ({ pubKey: "03abc123testkey" }),
+}))
+
+vi.mock("@/stores/schema-store", () => ({
+  useSchemaStore: (sel: (s: { schemas: never[] }) => unknown) =>
+    sel({ schemas: [] }),
+}))
+
+const mockOpen = vi.fn()
+vi.mock("@/stores/modal-store", () => ({
+  useModalStore: (sel: (s: { open: typeof mockOpen }) => unknown) =>
+    sel({ open: mockOpen }),
+}))
+
+// --- mock mock-data (disable mock mode so tests hit api.get) ---
+vi.mock("@/lib/mock-data", () => ({
+  useMocks: () => false,
+  MOCK_CONTENT: { nodes: [], totalCount: 0, totalProcessing: 0 },
+}))
+
+// --- mock node-preview-panel ---
+vi.mock("@/components/layout/node-preview-panel", () => ({
+  NodePreviewPanel: () => <div data-testid="node-preview" />,
+}))
+
+// --- mock boost-button ---
+vi.mock("@/components/boost/boost-button", () => ({
+  BoostButton: () => null,
+}))
+
+import { MyContentPanel } from "@/components/layout/my-content-panel"
+
+const TWO_NODES = {
+  nodes: [
+    {
+      node_type: "Tweet",
+      ref_id: "ref-1",
+      properties: { name: "Bitcoin is freedom", status: "complete" },
+    },
+    {
+      node_type: "Podcast",
+      ref_id: "ref-2",
+      properties: { name: "What Bitcoin Did #412", status: "processing" },
+    },
+  ],
+  totalCount: 2,
+  totalProcessing: 1,
+}
+
+const EMPTY_RESPONSE = {
+  nodes: [],
+  totalCount: 0,
+  totalProcessing: 0,
+}
+
+describe("MyContentPanel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("renders items with processing banner", async () => {
+    mockApiGet.mockResolvedValue(TWO_NODES)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
+    })
+
+    expect(screen.getByText("What Bitcoin Did #412")).toBeInTheDocument()
+    expect(screen.getByText(/1 item.* still processing/i)).toBeInTheDocument()
+  })
+
+  it("renders empty state with Add Content button", async () => {
+    mockApiGet.mockResolvedValue(EMPTY_RESPONSE)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("No content yet")).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole("button", { name: /add content/i })).toBeInTheDocument()
+    expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+  })
+
+  it("calls the correct API endpoint", async () => {
+    mockApiGet.mockResolvedValue(EMPTY_RESPONSE)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("No content yet")).toBeInTheDocument()
+    })
+
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/node/content/03abc123testkey?only_content=true&sort_by=date&limit=100"
+    )
+  })
+})
