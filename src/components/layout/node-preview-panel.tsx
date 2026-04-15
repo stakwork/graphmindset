@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
+import { payL402 } from "@/lib/sphinx"
 import { useMocks, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
+import { useModalStore } from "@/stores/modal-store"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
@@ -224,6 +226,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [unlockState, setUnlockState] = useState<UnlockState>("preview")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const refreshBalance = useUserStore((s) => s.refreshBalance)
+  const openModal = useModalStore((s) => s.open)
 
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
@@ -250,7 +253,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     setUnlockState("loading")
     try {
       if (useMocks()) {
-        // Simulate network delay
         await new Promise((r) => setTimeout(r, 600))
         const mock = MOCK_FULL_NODES[node.ref_id]
         if (!mock) throw new Error("Not found")
@@ -261,8 +263,21 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       }
       setUnlockState("unlocked")
       refreshBalance()
-    } catch {
-      setUnlockState("error")
+    } catch (err) {
+      if (err instanceof Response && err.status === 402) {
+        try {
+          await payL402(() => {})
+          const result = await api.get<GraphNode>(`/v2/nodes/${node.ref_id}`)
+          setFullNode(result)
+          setUnlockState("unlocked")
+          refreshBalance()
+        } catch {
+          openModal("budget")
+          setUnlockState("preview")
+        }
+      } else {
+        setUnlockState("error")
+      }
     }
   }
 
