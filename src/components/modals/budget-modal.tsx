@@ -473,6 +473,7 @@ export function BudgetModal() {
                           tx.label === 'Top Up' ? 'bg-emerald-500/10 text-emerald-400' :
                           tx.label === 'Purchase' ? 'bg-purple-500/10 text-purple-400' :
                           tx.label === 'Add Source' ? 'bg-teal-500/10 text-teal-400' :
+                          tx.label === 'Add Content' ? 'bg-emerald-500/10 text-emerald-400' :
                           'bg-muted/40 text-muted-foreground'
                         }`}>{tx.label}</span>
                         <span className="text-xs text-muted-foreground">
