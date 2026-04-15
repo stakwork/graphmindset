@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetchTransactionHistory, TransactionRow } from "@/lib/sphinx"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, topUpStatus, fetchTransactionHistory, TransactionRow } from "@/lib/sphinx"
 
 type Step = "balance" | "amount" | "invoice" | "success" | "history"
 
@@ -148,16 +148,20 @@ export function BudgetModal() {
           return
         }
         console.log("[topUp] payment succeeded, waiting for LN confirmation...")
-        // LN payment may take a moment to settle — poll topUpConfirm
+        // LN payment may take a moment to settle — poll topUpStatus (read-only), confirm once on success
         let confirmed = false
         for (let i = 0; i < 20; i++) {
           try {
-            await topUpConfirm(result.payment_hash, macaroon)
-            confirmed = true
-            break
+            const paid = await topUpStatus(result.payment_hash)
+            if (paid) {
+              await topUpConfirm(result.payment_hash, macaroon)
+              confirmed = true
+              break
+            }
           } catch {
-            await new Promise((r) => setTimeout(r, 2000))
+            // ignore and retry
           }
+          await new Promise((r) => setTimeout(r, 2000))
         }
         if (!confirmed) {
           setError("Payment sent but confirmation timed out. Try refreshing balance.")
@@ -184,13 +188,15 @@ export function BudgetModal() {
           return
         }
         try {
-          // topUpConfirm checks if the LN invoice is paid and increments balance
-          await topUpConfirm(result.payment_hash, macaroon)
+          const paid = await topUpStatus(result.payment_hash)
+          if (!paid) return // not yet paid — keep polling
+          // Payment detected — confirm once and complete
           if (intervalRef.current) clearInterval(intervalRef.current)
+          await topUpConfirm(result.payment_hash, macaroon)
           await refreshBalance()
           setStep("success")
         } catch {
-          // Invoice not paid yet — keep polling
+          // Network error — keep polling
         }
       }, 3000)
     } catch (err) {
