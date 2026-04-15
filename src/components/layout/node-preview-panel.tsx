@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { ArrowLeft, Zap, Loader2, CircleDot, Play, Pause, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { BoostButton } from "@/components/boost/boost-button"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -23,6 +24,7 @@ const INTERNAL_FIELDS = new Set([
   "image_url", "thumbnail", "source_link", "tweet_id", "author",
   "twitter_handle", "like_count", "retweet_count", "verified", "date",
   "bio", "duration", "timestamp", "channel", "show", "episode_number",
+  "boost", "num_boost",
 ])
 
 function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
@@ -231,6 +233,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const props = node.properties
+  const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
+  const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
+  const boostAmt = typeof props?.boost === "number" ? props.boost : 0
 
   let title = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
   if (!title) {
@@ -316,6 +321,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         >
           {nodeType}
         </Badge>
+        {pubkey && (
+          <div className="ml-auto">
+            <BoostButton
+              refId={node.ref_id}
+              pubkey={pubkey}
+              routeHint={routeHint}
+              boostCount={boostAmt}
+            />
+          </div>
+        )}
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
