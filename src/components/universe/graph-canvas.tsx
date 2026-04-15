@@ -42,6 +42,12 @@ function nodeLabel(node: ApiNode, schemas: SchemaNode[]): string {
   return node.ref_id
 }
 
+const MAX_LABEL_LENGTH = 30
+
+function truncateLabel(label: string): string {
+  return label.length > MAX_LABEL_LENGTH ? label.slice(0, MAX_LABEL_LENGTH) + "\u2026" : label
+}
+
 function apiToGraph(
   nodes: ApiNode[],
   edges: ApiEdge[],
@@ -49,7 +55,7 @@ function apiToGraph(
 ): { graph: Graph; indexMap: Map<number, string> } {
   const rawNodes: RawNode[] = nodes.map((n) => ({
     id: n.ref_id,
-    label: nodeLabel(n, schemas),
+    label: truncateLabel(nodeLabel(n, schemas)),
   }))
 
   const rawEdges: RawEdge[] = edges.map((e) => ({
