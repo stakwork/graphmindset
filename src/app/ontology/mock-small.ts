@@ -7,6 +7,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Thing",
     parent: "",
     color: "#36292D",
+    icon: "NodesIcon",
     node_key: "thing-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -19,6 +20,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Person",
     parent: "Thing",
     color: "#362429",
+    icon: "PersonIcon",
     node_key: "person-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -31,6 +33,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Organization",
     parent: "Thing",
     color: "#302342",
+    icon: "OrganizationIcon",
     node_key: "organization-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -41,6 +44,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Topic",
     parent: "Thing",
     color: "#1D3140",
+    icon: "BookIcon",
     node_key: "topic-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -52,6 +56,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Content",
     parent: "Thing",
     color: "#36292D",
+    icon: "NodesIcon",
     node_key: "thing-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -62,6 +67,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Event",
     parent: "Thing",
     color: "#38243C",
+    icon: "EventIcon",
     node_key: "event-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -72,6 +78,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Show",
     parent: "Content",
     color: "#38243C",
+    icon: "VideoIcon",
     node_key: "show-show_title",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -83,6 +90,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Episode",
     parent: "Show",
     color: "#222B48",
+    icon: "EpisodeIcon",
     node_key: "episode-source_link",
     attributes: [
       { key: "date", type: "datetime", required: false },
@@ -97,6 +105,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Clip",
     parent: "Episode",
     color: "#1D3140",
+    icon: "AudioIcon",
     node_key: "clip-episode_title-timestamp",
     attributes: [
       { key: "boost", type: "int", required: false },
@@ -112,6 +121,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Tweet",
     parent: "Content",
     color: "#362429",
+    icon: "TwitterIcon",
     node_key: "tweet-tweet_id",
     attributes: [
       { key: "tweet_id", type: "string", required: true },
@@ -128,6 +138,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Document",
     parent: "Content",
     color: "#302342",
+    icon: "DocumentIcon",
     node_key: "document-source_link",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -140,6 +151,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Corporation",
     parent: "Organization",
     color: "#222B48",
+    icon: "CorporationIcon",
     node_key: "corporation-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -150,6 +162,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Host",
     parent: "Person",
     color: "#362429",
+    icon: "PersonIcon",
     node_key: "host-name",
     attributes: [
       { key: "name", type: "string", required: true },
@@ -161,6 +174,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     type: "Guest",
     parent: "Person",
     color: "#362429",
+    icon: "PersonIcon",
     node_key: "guest-name",
     attributes: [
       { key: "name", type: "string", required: true },

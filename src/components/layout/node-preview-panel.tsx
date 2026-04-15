@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Zap, Loader2, CircleDot, Play, Pause, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Zap, Loader2, Play, Pause, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
+import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
 import { Button } from "@/components/ui/button"
@@ -232,6 +233,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
+  const { icon: PlaceholderIcon, accent: schemaAccent } = getSchemaIconInfo(schema?.icon)
   const props = node.properties
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
   const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
@@ -344,7 +346,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
             />
           ) : (
             <div className="w-full h-32 rounded-md bg-muted/30 border border-border/50 flex items-center justify-center">
-              <CircleDot className="h-8 w-8 text-muted-foreground/30" />
+              <PlaceholderIcon className="h-8 w-8" style={{ color: `${schemaAccent}50` }} />
             </div>
           )}
 
