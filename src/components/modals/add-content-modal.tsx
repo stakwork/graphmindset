@@ -27,7 +27,7 @@ import {
 
 export function AddContentModal() {
   const { activeModal, close, open: openModal } = useModalStore()
-  const { budget, setBudget, pubKey } = useUserStore()
+  const { budget, setBudget, pubKey, routeHint } = useUserStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
@@ -71,16 +71,18 @@ export function AddContentModal() {
       const headers: Record<string, string> = {}
       if (l402) headers["Authorization"] = l402
 
+      const fullPubkey = pubKey && routeHint ? `${pubKey}:${routeHint}` : pubKey
+
       if (isSubscriptionSource(sourceType)) {
         const radarBody: Record<string, unknown> = { source, source_type: sourceType }
-        if (pubKey) radarBody.pubkey = pubKey
+        if (fullPubkey) radarBody.pubkey = fullPubkey
         await api.post("/radar", radarBody, headers)
         return
       }
 
       // Build v2/content body matching nav-fiber's format
       const body: Record<string, unknown> = {}
-      if (pubKey) body.pubkey = pubKey
+      if (fullPubkey) body.pubkey = fullPubkey
 
       if (sourceType === SOURCE_TYPES.TWEET) {
         body.content_type = "tweet"
