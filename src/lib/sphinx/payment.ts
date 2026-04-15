@@ -142,6 +142,11 @@ export async function topUpConfirm(
   await api.post("/top_up_confirm", { payment_hash: paymentHash, macaroon })
 }
 
+export async function topUpStatus(paymentHash: string): Promise<boolean> {
+  const res = await api.get<{ paid: boolean }>(`/top_up_status/${paymentHash}`)
+  return res.paid
+}
+
 export interface TransactionRow {
   endpoint: string
   amount: number
