@@ -15,6 +15,8 @@ import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
 import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, topUpStatus, fetchTransactionHistory, TransactionRow } from "@/lib/sphinx"
+import { getActionDisplayLabel, getActionBadgeColor } from "@/lib/transaction-display"
+import { useMocks, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 
 type Step = "balance" | "amount" | "invoice" | "success" | "history"
 
@@ -80,9 +82,14 @@ export function BudgetModal() {
     setStep('history')
     setHistoryLoading(true)
     try {
-      const result = await fetchTransactionHistory()
-      setTransactions(result.transactions)
-      setHistoryScope(result.scope)
+      if (useMocks()) {
+        setTransactions(MOCK_TRANSACTIONS.transactions)
+        setHistoryScope(MOCK_TRANSACTIONS.scope)
+      } else {
+        const result = await fetchTransactionHistory()
+        setTransactions(result.transactions)
+        setHistoryScope(result.scope)
+      }
     } finally {
       setHistoryLoading(false)
     }
@@ -339,7 +346,7 @@ export function BudgetModal() {
                 <Button
                   variant="ghost"
                   onClick={handleShowHistory}
-                  disabled={!hasExistingL402 || loading}
+                  disabled={(!hasExistingL402 && !useMocks()) || loading}
                   className="w-full text-xs text-muted-foreground"
                 >
                   <History className="mr-2 h-3.5 w-3.5" />
@@ -467,23 +474,17 @@ export function BudgetModal() {
                   {transactions.map((tx, i) => (
                     <div key={i} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/20">
                       <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                          tx.label === 'Boost' ? 'bg-amber/10 text-amber' :
-                          tx.label === 'Search' ? 'bg-blue-500/10 text-blue-400' :
-                          tx.label === 'Top Up' ? 'bg-emerald-500/10 text-emerald-400' :
-                          tx.label === 'Purchase' ? 'bg-purple-500/10 text-purple-400' :
-                          tx.label === 'Add Source' ? 'bg-teal-500/10 text-teal-400' :
-                          tx.label === 'Add Content' ? 'bg-emerald-500/10 text-emerald-400' :
-                          'bg-muted/40 text-muted-foreground'
-                        }`}>{tx.label}</span>
+                        <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${getActionBadgeColor(tx.action)}`}>
+                          {getActionDisplayLabel(tx.action)}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '—'}
                         </span>
                       </div>
                       <span className={`text-xs font-mono font-medium ${
-                        tx.label === 'Top Up' ? 'text-emerald-400' : 'text-destructive'
+                        tx.type === 'credit' ? 'text-emerald-400' : 'text-muted-foreground'
                       }`}>
-                        {tx.label === 'Top Up' ? '+' : '-'}{Math.abs(tx.amount)} sats
+                        {tx.type === 'credit' ? '+' : '-'}{tx.amount} sats
                       </span>
                     </div>
                   ))}

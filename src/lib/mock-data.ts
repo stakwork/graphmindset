@@ -192,6 +192,22 @@ export const MOCK_CONTENT = {
   totalProcessing: 2,
 }
 
+export const MOCK_TRANSACTIONS = {
+  transactions: [
+    { action: "top_up", type: "credit" as const, amount: 500, created_at: "2026-04-15T10:00:00Z" },
+    { action: "search", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:05:00Z" },
+    { action: "search", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:06:30Z" },
+    { action: "purchase", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:08:00Z" },
+    { action: "boost", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:10:00Z" },
+    { action: "boost_refund", type: "credit" as const, amount: 10, created_at: "2026-04-15T10:10:01Z" },
+    { action: "add_content", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:15:00Z" },
+    { action: "add_source", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:20:00Z" },
+    { action: "purchase", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:25:00Z" },
+    { action: "top_up", type: "credit" as const, amount: 100, created_at: "2026-04-15T11:00:00Z" },
+  ],
+  scope: "pubkey" as const,
+}
+
 export function useMocks(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"
 }
