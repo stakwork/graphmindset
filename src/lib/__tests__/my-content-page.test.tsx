@@ -91,6 +91,7 @@ describe("MyContentPanel", () => {
     })
 
     expect(screen.getByRole("button", { name: /add content/i })).toBeInTheDocument()
+    expect(screen.getByText("Add content and start earning money for contributing")).toBeInTheDocument()
     expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
   })
 
