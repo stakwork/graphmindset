@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect } from "react"
-import { X, CircleDot } from "lucide-react"
+import { X } from "lucide-react"
+import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
@@ -40,11 +41,15 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
   const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
   const boostAmt = typeof props?.boost === "number" ? props.boost : 0
+  const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
   return (
     <button onClick={onClick} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 border border-primary/15">
-        <CircleDot className="h-3 w-3 text-primary/70" />
+      <div
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border"
+        style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
+      >
+        <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
       </div>
       <div className="flex-1 min-w-0 overflow-hidden">
         <p className="text-sm text-foreground truncate">{name}</p>

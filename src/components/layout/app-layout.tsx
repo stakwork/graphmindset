@@ -15,6 +15,7 @@ import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useMocks } from "@/lib/mock-data"
+import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
   const [sourcesOpen, setSourcesOpen] = useState(false)
@@ -31,8 +32,12 @@ export function AppLayout() {
   // results and any other node chrome — load once on mount if not already
   // populated (e.g. by the ontology page).
   useEffect(() => {
-    if (useMocks() || schemas.length > 0) return
-    fetchSchemas()
+    if (schemas.length > 0) return
+    if (useMocks()) {
+      useSchemaStore.getState().setSchemas(SMALL_SCHEMAS)
+    } else {
+      fetchSchemas()
+    }
   }, [schemas.length, fetchSchemas])
 
   // Auto-close other panels when search results appear
