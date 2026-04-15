@@ -19,6 +19,8 @@ const youtubeLiveRegex =
   /(https?:\/\/)?(www\.)?youtube\.com\/live\/([A-Za-z0-9_-]+)/
 const youtubeShortRegex =
   /(https?:\/\/)?(www\.)?youtu\.be\/([A-Za-z0-9_-]+)/
+const youtubeShortsRegex =
+  /(https?:\/\/)?(www\.)?youtube\.com\/shorts\/([A-Za-z0-9_-]+)/
 const twitterSpaceRegex =
   /https:\/\/twitter\.com\/i\/spaces\/([A-Za-z0-9_-]+)/
 const twitterBroadcastRegex =
@@ -49,6 +51,7 @@ export async function detectSourceType(source: string): Promise<SourceType> {
     twitterBroadcastRegex,
     youtubeRegex,
     youtubeShortRegex,
+    youtubeShortsRegex,
     twitterSpaceRegex,
     mp3Regex,
   ]
