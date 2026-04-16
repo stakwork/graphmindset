@@ -26,7 +26,7 @@ vi.mock("@/stores/modal-store", () => ({
 
 // --- mock mock-data (disable mock mode so tests hit api.get) ---
 vi.mock("@/lib/mock-data", () => ({
-  useMocks: () => false,
+  isMocksEnabled: () => false,
   MOCK_CONTENT: { nodes: [], totalCount: 0, totalProcessing: 0 },
 }))
 

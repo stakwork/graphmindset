@@ -7,7 +7,7 @@ import type { IsAdminResponse } from "@/lib/sphinx"
 import { api } from "@/lib/api"
 import { useUserStore } from "@/stores/user-store"
 import { useAppStore } from "@/stores/app-store"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 import { Separator } from "@/components/ui/separator"
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -110,7 +110,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const init = async () => {
-      if (useMocks()) {
+      if (isMocksEnabled()) {
         setIsAdmin(true)
         setIsAuthenticated(true)
         setBudget(5000)

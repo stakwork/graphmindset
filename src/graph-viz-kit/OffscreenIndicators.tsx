@@ -15,13 +15,19 @@ interface Props {
   hovered?: number | null;
 }
 
+type IndicatorDiv = HTMLDivElement & { __nodeId?: number };
+
 export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = null }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const indicatorsRef = useRef<HTMLDivElement[]>([]);
   const onNodeClickRef = useRef(onNodeClick);
-  onNodeClickRef.current = onNodeClick;
   const hoveredRef = useRef(hovered);
-  hoveredRef.current = hovered;
+  useEffect(() => {
+    onNodeClickRef.current = onNodeClick;
+  }, [onNodeClick]);
+  useEffect(() => {
+    hoveredRef.current = hovered;
+  }, [hovered]);
   const { camera, size, gl } = useThree();
 
   useEffect(() => {
@@ -48,7 +54,7 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
         cursor: "pointer",
       });
       el.addEventListener("click", () => {
-        const nid = (el as any).__nodeId as number | undefined;
+        const nid = (el as IndicatorDiv).__nodeId;
         if (nid !== undefined) onNodeClickRef.current(nid);
       });
       el.addEventListener("mouseenter", () => {
@@ -218,7 +224,7 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
       clampY = Math.max(MARGIN, Math.min(h - MARGIN, clampY));
 
       const el = indicators[count];
-      (el as any).__nodeId = nodeId;
+      (el as IndicatorDiv).__nodeId = nodeId;
       el.style.display = "block";
       el.style.left = `${clampX}px`;
       el.style.top = `${clampY}px`;

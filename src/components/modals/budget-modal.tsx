@@ -16,7 +16,7 @@ import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
 import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, topUpStatus, fetchTransactionHistory, TransactionRow } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor } from "@/lib/transaction-display"
-import { useMocks, MOCK_TRANSACTIONS } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 
 type Step = "balance" | "amount" | "invoice" | "success" | "history"
 
@@ -82,7 +82,7 @@ export function BudgetModal() {
     setStep('history')
     setHistoryLoading(true)
     try {
-      if (useMocks()) {
+      if (isMocksEnabled()) {
         setTransactions(MOCK_TRANSACTIONS.transactions)
         setHistoryScope(MOCK_TRANSACTIONS.scope)
       } else {
@@ -349,7 +349,7 @@ export function BudgetModal() {
                 <Button
                   variant="ghost"
                   onClick={handleShowHistory}
-                  disabled={(!hasExistingL402 && !useMocks()) || loading}
+                  disabled={(!hasExistingL402 && !isMocksEnabled()) || loading}
                   className="w-full text-xs text-muted-foreground"
                 >
                   <History className="mr-2 h-3.5 w-3.5" />

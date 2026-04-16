@@ -191,10 +191,14 @@ export function OntologyGraph3D({ schemas, edges, selectedId, onSelect }: Props)
     return result
   }, [pinStack, baseGraph])
 
-  // When a node is pinned, set viewState for the pinned graph
+  // When a node is pinned, set viewState for the pinned graph. Also drives
+  // an imperative camera move, so the React-compiler-friendly alternative
+  // (move setViewState into the click handler that sets pinnedNodeId) would
+  // require lifting the subgraph extraction out of here too.
   useEffect(() => {
     if (pinnedNodeId === null || !pinnedGraph) return
     const sub = extractSubgraph(pinnedGraph, pinnedNodeId, 30, { useAdj: "undirected" })
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- paired with imperative camera move; refactor into pin handler is out of scope
     setViewState({
       mode: "subgraph",
       selectedNodeId: pinnedNodeId,

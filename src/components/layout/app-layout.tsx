@@ -14,7 +14,7 @@ import { MediaPlayer } from "@/components/player/media-player"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
@@ -33,20 +33,24 @@ export function AppLayout() {
   // populated (e.g. by the ontology page).
   useEffect(() => {
     if (schemas.length > 0) return
-    if (useMocks()) {
+    if (isMocksEnabled()) {
       useSchemaStore.getState().setSchemas(SMALL_SCHEMAS)
     } else {
       fetchSchemas()
     }
   }, [schemas.length, fetchSchemas])
 
-  // Auto-close other panels when search results appear
+  // Auto-close other panels when search results appear. The app-store setter
+  // takes a plain boolean (not a functional updater), so we can't identity-
+  // guard this the React-compiler-friendly way — a cleanup PR could move
+  // searchPanelOpen into the store and clear panels inside setSearchTerm.
   useEffect(() => {
-    if (searchPanelOpen) {
-      setSourcesOpen(false)
-      setMyContentOpen(false)
-    }
-  }, [searchPanelOpen, setMyContentOpen])
+    if (!searchPanelOpen) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-panel sync; refactor target is to move searchPanelOpen into the store and clear panels inside setSearchTerm
+    if (sourcesOpen) setSourcesOpen(false)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-store sync; app-store setter is plain boolean so no identity guard
+    if (myContentOpen) setMyContentOpen(false)
+  }, [searchPanelOpen, sourcesOpen, myContentOpen, setMyContentOpen])
 
   function closeSearchResults(): void {
     useAppStore.getState().setSearchTerm("")

@@ -13,7 +13,7 @@ const OntologyGraph3D = dynamic(
 )
 import { Button } from "@/components/ui/button"
 import { useSchemaStore } from "@/stores/schema-store"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
 
 export interface SchemaAttribute {
@@ -50,7 +50,7 @@ export default function OntologyPage() {
   const [view3D, setView3D] = useState(false)
 
   useEffect(() => {
-    if (useMocks()) {
+    if (isMocksEnabled()) {
       store.setSchemas(SMALL_SCHEMAS)
       store.setEdges(SMALL_EDGES)
     } else {

@@ -4,7 +4,7 @@ import { useCallback, useState } from "react"
 import { Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 import { adminKeysend, isSphinx, payL402 } from "@/lib/sphinx"
 import { useUserStore } from "@/stores/user-store"
 import { parsePubkeyWithHint } from "@/lib/pubkey-utils"
@@ -40,7 +40,7 @@ export function BoostButton({ refId, pubkey, routeHint, boostCount = 0, classNam
     console.log("[boost] parsed dest:", dest)
 
     try {
-      if (!useMocks()) {
+      if (!isMocksEnabled()) {
         if (isAdmin && isSphinx()) {
           // Admin path: pay directly from Sphinx wallet, then record
           await adminKeysend(dest.pubkey, DEFAULT_BOOST_AMOUNT, dest.route_hint)

@@ -9,7 +9,7 @@ import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
 import { searchNodes } from "@/lib/graph-api"
 import { payL402 } from "@/lib/sphinx"
-import { useMocks, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 
 export function SearchBar() {
   const setSearchTerm = useAppStore((s) => s.setSearchTerm)
@@ -37,7 +37,7 @@ export function SearchBar() {
       setLoading(true)
 
       try {
-        if (useMocks()) {
+        if (isMocksEnabled()) {
           const q = trimmed.toLowerCase()
           const filtered = MOCK_NODES.filter(
             (n) => (n.properties?.name as string)?.toLowerCase().includes(q) || n.node_type.toLowerCase().includes(q)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -18,11 +18,16 @@ function StarLayer({
   duration: number
   opacity: number
 }) {
-  const shadows = Array.from({ length: count }, () => {
-    const x = Math.floor(Math.random() * 2000)
-    const y = Math.floor(Math.random() * 2000)
-    return `${x}px ${y}px oklch(0.85 0.01 260 / ${opacity})`
-  }).join(", ")
+  // Random star positions are mounted once; re-randomizing on re-render
+  // would cause visible jitter, and the values don't depend on anything
+  // we need to react to.
+  const [shadows] = useState(() =>
+    Array.from({ length: count }, () => {
+      const x = Math.floor(Math.random() * 2000)
+      const y = Math.floor(Math.random() * 2000)
+      return `${x}px ${y}px oklch(0.85 0.01 260 / ${opacity})`
+    }).join(", ")
+  )
 
   return (
     <div

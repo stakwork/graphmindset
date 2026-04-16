@@ -166,8 +166,11 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
 
-  // Reset view when data changes
+  // Reset view when data changes. This also repositions the camera, so a
+  // parent `key` remount (the React-compiler-friendly alternative) would
+  // thrash the WebGL context.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- paired with an imperative camera reset; remount would drop GL state
     setViewState({ mode: "overview" })
     const cam = cameraRef.current
     if (cam) cam.setLookAt(0, 80, 0.1, 0, 0, 0, true)
