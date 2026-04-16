@@ -40,15 +40,17 @@ export function AppLayout() {
     }
   }, [schemas.length, fetchSchemas])
 
-  // Auto-close other panels when search results appear. Functional setters
-  // with identity guards so already-closed panels are a no-op.
+  // Auto-close other panels when search results appear. The app-store setter
+  // takes a plain boolean (not a functional updater), so we can't identity-
+  // guard this the React-compiler-friendly way — a cleanup PR could move
+  // searchPanelOpen into the store and clear panels inside setSearchTerm.
   useEffect(() => {
     if (!searchPanelOpen) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-store sync; refactor target is the app-store setter itself
-    setSourcesOpen((prev) => (prev ? false : prev))
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-store sync; refactor target is the app-store setter itself
-    setMyContentOpen((prev) => (prev ? false : prev))
-  }, [searchPanelOpen, setMyContentOpen])
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-panel sync; refactor target is to move searchPanelOpen into the store and clear panels inside setSearchTerm
+    if (sourcesOpen) setSourcesOpen(false)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-store sync; app-store setter is plain boolean so no identity guard
+    if (myContentOpen) setMyContentOpen(false)
+  }, [searchPanelOpen, sourcesOpen, myContentOpen, setMyContentOpen])
 
   function closeSearchResults(): void {
     useAppStore.getState().setSearchTerm("")
