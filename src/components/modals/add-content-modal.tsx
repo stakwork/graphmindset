@@ -19,12 +19,18 @@ import { api } from "@/lib/api"
 import { getL402, payL402, getPrice } from "@/lib/sphinx"
 import {
   detectSourceType,
-  extractTweetId,
   SOURCE_TYPE_LABELS,
   SOURCE_TYPES,
   isSubscriptionSource,
   type SourceType,
 } from "@/lib/source-detection"
+
+const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
+  [SOURCE_TYPES.TWEET]: "tweet",
+  [SOURCE_TYPES.LINK]: "audio_video",
+  [SOURCE_TYPES.WEB_PAGE]: "webpage",
+  [SOURCE_TYPES.DOCUMENT]: "document",
+}
 
 export function AddContentModal() {
   const { activeModal, close, open: openModal } = useModalStore()
@@ -82,27 +88,15 @@ export function AddContentModal() {
         return
       }
 
-      // Build v2/content body matching nav-fiber's format
-      const body: Record<string, unknown> = {}
-      if (fullPubkey) body.pubkey = fullPubkey
-
-      if (sourceType === SOURCE_TYPES.TWEET) {
-        body.content_type = "tweet"
-        body.tweet_id = extractTweetId(source) ?? source
-        body.source_link = source
-      } else if (sourceType === SOURCE_TYPES.LINK) {
-        body.content_type = "audio_video"
-        body.media_url = source
-        body.source_link = source
-      } else if (sourceType === SOURCE_TYPES.WEB_PAGE) {
-        body.content_type = "webpage"
-        body.web_page = source
-        body.source_link = source
-      } else if (sourceType === SOURCE_TYPES.DOCUMENT) {
-        body.content_type = "document"
-        body.text = source
-        body.source_link = source
+      const contentType = CONTENT_TYPE_BY_SOURCE[sourceType]
+      if (!contentType) {
+        throw new Error(`Unsupported source type: ${sourceType}`)
       }
+      const body: Record<string, unknown> = {
+        content_type: contentType,
+        source_link: source,
+      }
+      if (fullPubkey) body.pubkey = fullPubkey
 
       await api.post("/v2/content", body, headers)
     },
