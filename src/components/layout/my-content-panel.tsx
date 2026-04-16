@@ -161,7 +161,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                 <BookMarked className="h-8 w-8 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">No content yet</p>
                 <p className="text-xs text-muted-foreground/60">
-                  Add content to start building your graph
+                  Add content and start earning money for contributing
                 </p>
                 <button
                   onClick={() => openModal("addContent")}
