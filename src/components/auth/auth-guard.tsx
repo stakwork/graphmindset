@@ -68,7 +68,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       const res = await api.get<{ data: IsAdminResponse }>("/isAdmin")
       const d = res.data
 
-      if (!d.isPublic && !d.isAdmin && !d.isMember) {
+      const isPrivate = d.isPublic === false
+      if (isPrivate && !d.isAdmin && !d.isMember) {
         setUnauthorized(true)
         return
       }
@@ -76,7 +77,13 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       setIsAdmin(!!d.isAdmin)
       localStorage.setItem("admin", JSON.stringify({ isAdmin: d.isAdmin }))
       setIsAuthenticated(true)
-    } catch {
+    } catch (err) {
+      // 401 = private graph, user has no access → show overlay
+      if (err instanceof Response && err.status === 401) {
+        setUnauthorized(true)
+        return
+      }
+      // Any other error (network, 500, etc.) — fail open
       setIsAuthenticated(true)
     }
   }, [setIsAdmin, setIsAuthenticated])
