@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { X, Loader2, BookMarked } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -17,6 +17,51 @@ import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
+
+const IN_PROGRESS_STATUSES = new Set(["processing", "in_progress"])
+const POLL_INTERVAL_MS = 5000
+
+type StatusBadge = {
+  label: string
+  className: string
+}
+
+function isInProgress(status: unknown): boolean {
+  return typeof status === "string" && IN_PROGRESS_STATUSES.has(status)
+}
+
+function getStatusBadge(status: unknown): StatusBadge | null {
+  if (typeof status !== "string") return null
+  if (isInProgress(status)) {
+    return {
+      label: "Processing",
+      className: "bg-amber-500/15 text-amber-400",
+    }
+  }
+  if (status === "halted") {
+    return {
+      label: "Paused",
+      className: "bg-muted text-muted-foreground",
+    }
+  }
+  if (status === "error" || status === "failed") {
+    return {
+      label: "Failed",
+      className: "bg-destructive/15 text-destructive",
+    }
+  }
+  return null
+}
+
+function sameContent(a: GraphNode[], b: GraphNode[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].ref_id !== b[i].ref_id) return false
+    if (a[i].properties?.status !== b[i].properties?.status) return false
+  }
+  return true
+}
 
 function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
   if (!props || !key) return undefined
@@ -39,7 +84,7 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
 
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
   const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
-  const isProcessing = props?.status === "processing"
+  const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
   return (
@@ -59,9 +104,11 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
           >
             {nodeType}
           </Badge>
-          {isProcessing && (
-            <span className="inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium bg-amber-500/15 text-amber-400">
-              Processing
+          {statusBadge && (
+            <span
+              className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
+            >
+              {statusBadge.label}
             </span>
           )}
         </div>
@@ -85,34 +132,86 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const { pubKey, routeHint } = useUserStore()
   const schemas = useSchemaStore((s) => s.schemas)
   const openModal = useModalStore((s) => s.open)
+  const mocksEnabled = useMocks()
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [totalProcessing, setTotalProcessing] = useState(0)
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
 
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchFromApi = useCallback(async (): Promise<ContentResponse | null> => {
+    if (!pubKey) return null
+    const fullPubkey = routeHint ? `${pubKey}_${routeHint}` : pubKey
+    return api.get<ContentResponse>(
+      `/v2/content?pubkey=${fullPubkey}&sort_by=date&limit=100`
+    )
+  }, [pubKey, routeHint])
+
+  const applyResponse = useCallback((res: ContentResponse | null) => {
+    if (!res) return
+    const nextNodes = res.nodes ?? []
+    const nextProcessing = res.totalProcessing ?? 0
+    // Guard against identity churn: the poll effect depends on `nodes`, so
+    // re-assigning a fresh array every tick would clear+restart the interval.
+    setNodes((prev) => (sameContent(prev, nextNodes) ? prev : nextNodes))
+    setTotalProcessing((prev) => (prev === nextProcessing ? prev : nextProcessing))
+  }, [])
+
   useEffect(() => {
-    const fetchContent = async () => {
+    let cancelled = false
+
+    const run = async () => {
       setLoading(true)
       try {
-        if (useMocks()) {
+        if (mocksEnabled) {
+          if (cancelled) return
           setNodes(MOCK_CONTENT.nodes as GraphNode[])
           setTotalProcessing(MOCK_CONTENT.totalProcessing)
-        } else if (pubKey) {
-          const fullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
-          const res = await api.get<ContentResponse>(
-            `/v2/content?pubkey=${fullPubkey}&sort_by=date&limit=100`
-          )
-          setNodes(res.nodes ?? [])
-          setTotalProcessing(res.totalProcessing ?? 0)
+        } else {
+          const res = await fetchFromApi()
+          if (cancelled) return
+          applyResponse(res)
         }
       } catch {
-        setNodes([])
+        if (!cancelled) setNodes([])
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
-    fetchContent()
-  }, [pubKey])
+
+    run()
+
+    return () => {
+      cancelled = true
+    }
+  }, [mocksEnabled, fetchFromApi, applyResponse])
+
+  const hasInProgress =
+    totalProcessing > 0 || nodes.some((n) => isInProgress(n.properties?.status))
+
+  useEffect(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+    if (!hasInProgress || mocksEnabled || !pubKey) return
+
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        applyResponse(await fetchFromApi())
+      } catch {
+        // Leave existing state; next tick will retry.
+      }
+    }, POLL_INTERVAL_MS)
+
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+    }
+  }, [hasInProgress, mocksEnabled, pubKey, fetchFromApi, applyResponse])
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
