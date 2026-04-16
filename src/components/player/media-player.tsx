@@ -3,6 +3,13 @@
 import { useCallback, useRef, useEffect } from "react"
 import { Play, Pause, X, Volume2, VolumeX, Maximize2, Minimize2 } from "lucide-react"
 import { usePlayerStore } from "@/stores/player-store"
+import { useSchemaStore } from "@/stores/schema-store"
+
+function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
+  if (!props || !key) return undefined
+  const v = props[key]
+  return typeof v === "string" && v.length > 0 ? v : undefined
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -35,8 +42,13 @@ export function MediaPlayer() {
     (playingNode?.properties?.link as string) ??
     null
 
+  const schemas = useSchemaStore((s) => s.schemas)
+  const schema = schemas.find((s) => s.type === playingNode?.node_type)
+  const props = playingNode?.properties
   const title =
-    (playingNode?.properties?.name as string) ??
+    pickString(props, schema?.title_key) ??
+    pickString(props, schema?.index) ??
+    (props?.name as string) ??
     "Unknown"
 
   const nodeType = playingNode?.node_type ?? ""

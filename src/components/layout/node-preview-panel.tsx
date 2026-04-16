@@ -304,7 +304,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const hasPerson = fp && ("bio" in fp || "twitter_handle" in fp) && !hasTweet
   // Remaining properties not handled by rich widgets
   const remainingProps = fp
-    ? Object.entries(fp).filter(([k]) => !INTERNAL_FIELDS.has(k))
+    ? Object.entries(fp).filter(([k]) =>
+        !INTERNAL_FIELDS.has(k) && k !== schema?.title_key && k !== schema?.description_key
+      )
     : []
 
   return (
