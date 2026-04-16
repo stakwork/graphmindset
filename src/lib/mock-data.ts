@@ -208,6 +208,6 @@ export const MOCK_TRANSACTIONS = {
   scope: "pubkey" as const,
 }
 
-export function useMocks(): boolean {
+export function isMocksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"
 }

@@ -16,13 +16,18 @@ export function PrevNodeIndicator({ graph, viewState, onNodeClick }: Props) {
   const bracketRef = useRef<HTMLDivElement | null>(null);
   const chevronRef = useRef<HTMLDivElement | null>(null);
   const onClickRef = useRef(onNodeClick);
-  onClickRef.current = onNodeClick;
   const { camera, size, gl } = useThree();
 
   const navigationHistory = viewState.mode === "subgraph" ? viewState.navigationHistory : [];
   const prevNodeId = navigationHistory.length >= 2 ? navigationHistory[navigationHistory.length - 2] : null;
   const prevNodeIdRef = useRef(prevNodeId);
-  prevNodeIdRef.current = prevNodeId;
+
+  useEffect(() => {
+    onClickRef.current = onNodeClick;
+  }, [onNodeClick]);
+  useEffect(() => {
+    prevNodeIdRef.current = prevNodeId;
+  }, [prevNodeId]);
 
   useEffect(() => {
     const canvasParent = gl.domElement.parentElement;

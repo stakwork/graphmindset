@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
 import { useSourcesStore, type Source } from "@/stores/sources-store"
 import { useUserStore } from "@/stores/user-store"
-import { useMocks, MOCK_SOURCES } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_SOURCES } from "@/lib/mock-data"
 import {
   SOURCE_TYPES,
   extractNameFromSource,
@@ -115,7 +115,7 @@ export function SourcesPanel({ onClose }: { onClose: () => void }) {
     const fetchSources = async () => {
       setLoading(true)
       try {
-        if (useMocks()) {
+        if (isMocksEnabled()) {
           setSources(MOCK_SOURCES)
         } else {
           const res = await api.get<{ data: Source[] }>(

@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import { payL402 } from "@/lib/sphinx"
-import { useMocks, MOCK_FULL_NODES } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
@@ -259,7 +259,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   async function handleUnlock() {
     setUnlockState("loading")
     try {
-      if (useMocks()) {
+      if (isMocksEnabled()) {
         await new Promise((r) => setTimeout(r, 600))
         const mock = MOCK_FULL_NODES[node.ref_id]
         if (!mock) throw new Error("Not found")

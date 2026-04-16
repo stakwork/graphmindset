@@ -14,7 +14,7 @@ import { MediaPlayer } from "@/components/player/media-player"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
@@ -33,19 +33,21 @@ export function AppLayout() {
   // populated (e.g. by the ontology page).
   useEffect(() => {
     if (schemas.length > 0) return
-    if (useMocks()) {
+    if (isMocksEnabled()) {
       useSchemaStore.getState().setSchemas(SMALL_SCHEMAS)
     } else {
       fetchSchemas()
     }
   }, [schemas.length, fetchSchemas])
 
-  // Auto-close other panels when search results appear
+  // Auto-close other panels when search results appear. Functional setters
+  // with identity guards so already-closed panels are a no-op.
   useEffect(() => {
-    if (searchPanelOpen) {
-      setSourcesOpen(false)
-      setMyContentOpen(false)
-    }
+    if (!searchPanelOpen) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-store sync; refactor target is the app-store setter itself
+    setSourcesOpen((prev) => (prev ? false : prev))
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-store sync; refactor target is the app-store setter itself
+    setMyContentOpen((prev) => (prev ? false : prev))
   }, [searchPanelOpen, setMyContentOpen])
 
   function closeSearchResults(): void {

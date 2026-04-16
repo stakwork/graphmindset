@@ -10,7 +10,7 @@ vi.mock("@/lib/sphinx", () => ({
 }))
 
 vi.mock("@/lib/mock-data", () => ({
-  useMocks: vi.fn().mockReturnValue(false),
+  isMocksEnabled: vi.fn().mockReturnValue(false),
 }))
 
 const mockSetIsAdmin = vi.fn()

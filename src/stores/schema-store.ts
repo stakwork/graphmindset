@@ -3,7 +3,7 @@
 import { create } from "zustand"
 import type { SchemaNode, SchemaEdge } from "@/app/ontology/page"
 import { api } from "@/lib/api"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 
 interface SchemaState {
   schemas: SchemaNode[]
@@ -56,7 +56,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
       schemas: s.schemas.map((x) => (x.ref_id === updated.ref_id ? updated : x)),
     }))
 
-    if (useMocks()) return
+    if (isMocksEnabled()) return
 
     try {
       await api.put(`/schema/${updated.ref_id}`, {
@@ -75,7 +75,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     // Optimistic add
     set((s) => ({ schemas: [...s.schemas, schema] }))
 
-    if (useMocks()) return
+    if (isMocksEnabled()) return
 
     try {
       const res = await api.post<{ ref_id?: string }>("/schema", {
@@ -106,7 +106,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     // Optimistic remove
     set((s) => ({ schemas: s.schemas.filter((x) => x.ref_id !== refId) }))
 
-    if (useMocks()) return
+    if (isMocksEnabled()) return
 
     try {
       await api.delete(`/schema/${refId}`)

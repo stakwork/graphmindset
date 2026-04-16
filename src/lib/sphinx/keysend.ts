@@ -2,16 +2,16 @@
 const sphinx = require("sphinx-bridge")
 
 export async function adminKeysend(destPubkey: string, amount: number, routeHint?: string): Promise<void> {
-  // @ts-ignore
+  // @ts-expect-error sphinx-bridge has no type declarations
   let res = await sphinx.keysend(destPubkey, amount, routeHint)
 
   if (!res?.success) {
-    // @ts-ignore
+    // @ts-expect-error sphinx-bridge has no type declarations
     res = await sphinx.topup()
     if (!res?.budget || res.budget < amount) {
       throw new Error("Topup failed — insufficient budget")
     }
-    // @ts-ignore
+    // @ts-expect-error sphinx-bridge has no type declarations
     res = await sphinx.keysend(destPubkey, amount, routeHint)
     if (!res?.success) throw new Error("Keysend failed after topup")
   }

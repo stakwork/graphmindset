@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { api } from "@/lib/api"
-import { useMocks, MOCK_CONTENT } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_CONTENT } from "@/lib/mock-data"
 import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
@@ -132,7 +132,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const { pubKey, routeHint } = useUserStore()
   const schemas = useSchemaStore((s) => s.schemas)
   const openModal = useModalStore((s) => s.open)
-  const mocksEnabled = useMocks()
+  const mocksEnabled = isMocksEnabled()
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [totalProcessing, setTotalProcessing] = useState(0)
   const [loading, setLoading] = useState(true)
