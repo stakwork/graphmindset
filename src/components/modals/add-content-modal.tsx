@@ -89,6 +89,9 @@ export function AddContentModal() {
       }
 
       const contentType = CONTENT_TYPE_BY_SOURCE[sourceType]
+      if (!contentType) {
+        throw new Error(`Unsupported source type: ${sourceType}`)
+      }
       const body: Record<string, unknown> = {
         content_type: contentType,
         source_link: source,
