@@ -1,9 +1,9 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sphinx = require("sphinx-bridge")
 
-export async function adminKeysend(destPubkey: string, amount: number): Promise<void> {
+export async function adminKeysend(destPubkey: string, amount: number, routeHint?: string): Promise<void> {
   // @ts-ignore
-  let res = await sphinx.keysend(destPubkey, amount)
+  let res = await sphinx.keysend(destPubkey, amount, routeHint)
 
   if (!res?.success) {
     // @ts-ignore
@@ -12,7 +12,7 @@ export async function adminKeysend(destPubkey: string, amount: number): Promise<
       throw new Error("Topup failed — insufficient budget")
     }
     // @ts-ignore
-    res = await sphinx.keysend(destPubkey, amount)
+    res = await sphinx.keysend(destPubkey, amount, routeHint)
     if (!res?.success) throw new Error("Keysend failed after topup")
   }
 }
