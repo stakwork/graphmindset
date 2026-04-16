@@ -43,7 +43,7 @@ export function BoostButton({ refId, pubkey, routeHint, boostCount = 0, classNam
       if (!useMocks()) {
         if (isAdmin && isSphinx()) {
           // Admin path: pay directly from Sphinx wallet, then record
-          await adminKeysend(dest.pubkey, DEFAULT_BOOST_AMOUNT)
+          await adminKeysend(dest.pubkey, DEFAULT_BOOST_AMOUNT, dest.route_hint)
           await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, ...dest })
         } else {
           // Regular user path: L402-gated boost
