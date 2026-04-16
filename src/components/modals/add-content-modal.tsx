@@ -89,15 +89,19 @@ export function AddContentModal() {
       if (sourceType === SOURCE_TYPES.TWEET) {
         body.content_type = "tweet"
         body.tweet_id = extractTweetId(source) ?? source
+        body.source_link = source
       } else if (sourceType === SOURCE_TYPES.LINK) {
         body.content_type = "audio_video"
         body.media_url = source
+        body.source_link = source
       } else if (sourceType === SOURCE_TYPES.WEB_PAGE) {
         body.content_type = "webpage"
         body.web_page = source
+        body.source_link = source
       } else if (sourceType === SOURCE_TYPES.DOCUMENT) {
         body.content_type = "document"
         body.text = source
+        body.source_link = source
       }
 
       await api.post("/v2/content", body, headers)
