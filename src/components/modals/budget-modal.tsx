@@ -155,26 +155,23 @@ export function BudgetModal() {
           return
         }
         console.log("[topUp] payment succeeded, waiting for LN confirmation...")
-        // LN payment may take a moment to settle — poll topUpStatus (read-only), confirm once on success
-        let confirmed = false
+        // Poll status until paid, then confirm exactly once
+        let paid = false
         for (let i = 0; i < 20; i++) {
           try {
-            const paid = await topUpStatus(result.payment_hash)
-            if (paid) {
-              await topUpConfirm(result.payment_hash, macaroon)
-              confirmed = true
-              break
-            }
+            paid = await topUpStatus(result.payment_hash)
+            if (paid) break
           } catch {
-            // ignore and retry
+            // status check failed — keep polling
           }
           await new Promise((r) => setTimeout(r, 2000))
         }
-        if (!confirmed) {
+        if (!paid) {
           setError("Payment sent but confirmation timed out. Try refreshing balance.")
           setLoading(false)
           return
         }
+        await topUpConfirm(result.payment_hash, macaroon)
         console.log("[topUp] confirmed, refreshing balance...")
         await refreshBalance()
         setStep("success")
@@ -187,7 +184,9 @@ export function BudgetModal() {
       setStep("invoice")
 
       let attempts = 0
+      let confirming = false
       intervalRef.current = setInterval(async () => {
+        if (confirming) return
         if (++attempts > 100) {
           if (intervalRef.current) clearInterval(intervalRef.current)
           setError("Payment not detected. Try again.")
@@ -196,14 +195,18 @@ export function BudgetModal() {
         }
         try {
           const paid = await topUpStatus(result.payment_hash)
-          if (!paid) return // not yet paid — keep polling
-          // Payment detected — confirm once and complete
+          if (!paid) return
+          // Payment detected — confirm exactly once
           if (intervalRef.current) clearInterval(intervalRef.current)
+          confirming = true
           await topUpConfirm(result.payment_hash, macaroon)
           await refreshBalance()
           setStep("success")
         } catch {
-          // Network error — keep polling
+          if (!confirming) return // status check failed — keep polling
+          // confirm failed — stop and surface the error
+          setError("Payment received but confirmation failed. Try refreshing balance.")
+          setStep("amount")
         }
       }, 3000)
     } catch (err) {
