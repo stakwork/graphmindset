@@ -170,11 +170,16 @@ export async function fetchTransactionHistory(): Promise<{
   }
 }
 
-export async function getPrice(endpoint: string): Promise<number> {
+export async function getPrice(
+  endpoint: string,
+  method: "get" | "post" = "post",
+  signal?: AbortSignal,
+): Promise<number> {
   try {
+    const query = new URLSearchParams({ endpoint, method })
     const res = await api.get<{
       data: { price: number; endpoint: string; method: string }
-    }>(`/getprice?endpoint=${endpoint}&method=post`)
+    }>(`/getprice?${query}`, undefined, signal)
     return res.data.price
   } catch {
     return 0
