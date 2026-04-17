@@ -260,14 +260,25 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   async function handleUnlock() {
     setUnlockState("loading")
     try {
-      await payL402(() => {})
       const result = await api.get<GraphNode>(`/v2/nodes/${node.ref_id}`)
       setFullNode(result)
       setUnlockState("unlocked")
       refreshBalance()
-    } catch {
-      openModal("budget")
-      setUnlockState("preview")
+    } catch (err) {
+      if (err instanceof Response && err.status === 402) {
+        try {
+          await payL402(() => {})
+          const result = await api.get<GraphNode>(`/v2/nodes/${node.ref_id}`)
+          setFullNode(result)
+          setUnlockState("unlocked")
+          refreshBalance()
+        } catch {
+          openModal("budget")
+          setUnlockState("preview")
+        }
+      } else {
+        setUnlockState("error")
+      }
     }
   }
 
@@ -292,15 +303,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         return
       }
       try {
+        // Probe without L402: lets admin/contributor bypass return 200 directly,
+        // while users with an LSAT balance get 402 + price so they can confirm the spend.
         const result = await api.get<GraphNode>(
           `/v2/nodes/${node.ref_id}`,
-          undefined,
+          { Authorization: "" },
           controller.signal,
         )
         if (controller.signal.aborted) return
         setFullNode(result)
         setUnlockState("unlocked")
-        refreshBalance()
       } catch (err) {
         if (controller.signal.aborted) return
         if (err instanceof Response && err.status === 402) {
