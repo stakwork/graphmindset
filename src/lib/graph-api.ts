@@ -77,14 +77,26 @@ export async function listNodes(
   )
 }
 
+// Type guard for GraphData
+export function isGraphData(r: unknown): r is GraphData {
+  return (
+    typeof r === "object" &&
+    r !== null &&
+    Array.isArray((r as GraphData).nodes) &&
+    Array.isArray((r as GraphData).edges)
+  )
+}
+
 // Get a single node (optionally with edges)
+export async function getNode(refId: string, expand: "edges", signal?: AbortSignal): Promise<GraphData>
+export async function getNode(refId: string, expand?: undefined, signal?: AbortSignal): Promise<GraphNode>
 export async function getNode(
   refId: string,
   expand?: "edges",
   signal?: AbortSignal
-): Promise<GraphNode> {
+): Promise<GraphNode | GraphData> {
   const params = expand ? `?expand=${expand}` : ""
-  return api.get<GraphNode>(
+  return api.get<GraphNode | GraphData>(
     `/v2/nodes/${refId}${params}`,
     undefined,
     signal

@@ -14,7 +14,8 @@ import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
-import type { GraphNode } from "@/lib/graph-api"
+import { useGraphStore } from "@/stores/graph-store"
+import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
@@ -260,16 +261,20 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   async function handleUnlock() {
     setUnlockState("loading")
     try {
-      const result = await api.get<GraphNode>(`/v2/nodes/${node.ref_id}`)
-      setFullNode(result)
+      const result = await api.get<GraphData>(`/v2/nodes/${node.ref_id}`)
+      const unlocked = result.nodes?.[0] ?? null
+      setFullNode(unlocked)
+      useGraphStore.getState().addNodes(result.nodes ?? [], result.edges ?? [])
       setUnlockState("unlocked")
       refreshBalance()
     } catch (err) {
       if (err instanceof Response && err.status === 402) {
         try {
           await payL402(() => {})
-          const result = await api.get<GraphNode>(`/v2/nodes/${node.ref_id}`)
-          setFullNode(result)
+          const result = await api.get<GraphData>(`/v2/nodes/${node.ref_id}`)
+          const unlocked = result.nodes?.[0] ?? null
+          setFullNode(unlocked)
+          useGraphStore.getState().addNodes(result.nodes ?? [], result.edges ?? [])
           setUnlockState("unlocked")
           refreshBalance()
         } catch {
@@ -295,7 +300,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         if (controller.signal.aborted) return
         const mock = MOCK_FULL_NODES[node.ref_id]
         if (mock) {
-          setFullNode(mock)
+          setFullNode(mock.nodes?.[0] ?? null)
+          useGraphStore.getState().addNodes(mock.nodes ?? [], mock.edges ?? [])
           setUnlockState("unlocked")
         } else {
           setUnlockState("preview")
@@ -305,13 +311,15 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       try {
         // Probe without L402: lets admin/contributor bypass return 200 directly,
         // while users with an LSAT balance get 402 + price so they can confirm the spend.
-        const result = await api.get<GraphNode>(
+        const result = await api.get<GraphData>(
           `/v2/nodes/${node.ref_id}`,
           { Authorization: "" },
           controller.signal,
         )
         if (controller.signal.aborted) return
-        setFullNode(result)
+        const unlocked = result.nodes?.[0] ?? null
+        setFullNode(unlocked)
+        useGraphStore.getState().addNodes(result.nodes ?? [], result.edges ?? [])
         setUnlockState("unlocked")
       } catch (err) {
         if (controller.signal.aborted) return
