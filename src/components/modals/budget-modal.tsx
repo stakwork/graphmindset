@@ -474,7 +474,9 @@ export function BudgetModal() {
                 <p className="text-xs text-muted-foreground text-center py-8">No transactions yet.</p>
               ) : (
                 <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
-                  {transactions.map((tx, i) => (
+                  {transactions
+                    .filter(tx => tx.action !== 'refund' && tx.action !== 'boost_refund')
+                    .map((tx, i) => (
                     <div key={i} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/20">
                       <div className="flex items-center gap-2">
                         <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${getActionBadgeColor(tx.action)}`}>
@@ -485,9 +487,10 @@ export function BudgetModal() {
                         </span>
                       </div>
                       <span className={`text-xs font-mono font-medium ${
+                        tx.refunded ? 'text-muted-foreground' :
                         tx.type === 'credit' ? 'text-emerald-400' : 'text-muted-foreground'
                       }`}>
-                        {tx.type === 'credit' ? '+' : '-'}{tx.amount} sats
+                        {tx.refunded ? '—' : `${tx.type === 'credit' ? '+' : '-'}${tx.amount} sats`}
                       </span>
                     </div>
                   ))}
