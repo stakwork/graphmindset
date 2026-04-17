@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { SelectCustom } from "@/components/ui/select-custom"
 import { MAX_LENGTHS } from "@/lib/input-limits"
-import type { SchemaNode, SchemaAttribute } from "./page"
+import type { SchemaNode, SchemaAttribute, SchemaEdge } from "./page"
 
 const COLORS = [
   "#6366f1", "#0d9488", "#d97706", "#8b5cf6", "#ef4444",
@@ -22,12 +22,13 @@ const ATTR_TYPES = ["string", "int", "float", "boolean", "date"]
 interface Props {
   schema: SchemaNode
   allSchemas: SchemaNode[]
+  edges: SchemaEdge[]
   onUpdate: (schema: SchemaNode) => void
   onDelete: (refId: string) => void
   onClose: () => void
 }
 
-export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: Props) {
+export function TypeEditor({ schema, allSchemas, edges, onUpdate, onDelete, onClose }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const update = useCallback(
@@ -67,6 +68,13 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
   const parentOptions = allSchemas
     .filter((s) => s.ref_id !== schema.ref_id)
     .map((s) => s.type)
+
+  const refIdToType = Object.fromEntries(allSchemas.map((s) => [s.ref_id, s]))
+
+  const relationships = edges.filter(
+    (e) => (e.source === schema.ref_id || e.target === schema.ref_id)
+      && e.edge_type !== "CHILD_OF"
+  )
 
   return (
     <div className="w-[340px] shrink-0 border-l border-border flex flex-col bg-card">
@@ -218,6 +226,42 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
               </div>
             ))}
           </div>
+        </div>
+
+        <Separator className="bg-border/30" />
+
+        {/* Relationships */}
+        <div className="space-y-2">
+          <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
+            Relationships
+          </Label>
+
+          {relationships.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground/50">No relationships defined</p>
+          ) : (
+            <div className="space-y-1.5">
+              {relationships.map((e) => {
+                const source = refIdToType[e.source]
+                const target = refIdToType[e.target]
+                return (
+                  <div
+                    key={e.ref_id}
+                    className="flex items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 px-2 py-1.5"
+                  >
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {source?.type ?? e.source}
+                    </span>
+                    <span className="text-[10px] font-mono font-medium text-foreground truncate mx-1">
+                      — {e.edge_type} →
+                    </span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {target?.type ?? e.target}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 

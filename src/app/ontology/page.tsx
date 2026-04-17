@@ -184,6 +184,7 @@ export default function OntologyPage() {
         <TypeEditor
           schema={selected}
           allSchemas={store.schemas}
+          edges={store.edges}
           onUpdate={handleUpdateSchema}
           onDelete={handleDeleteSchema}
           onClose={() => setSelectedId(null)}
