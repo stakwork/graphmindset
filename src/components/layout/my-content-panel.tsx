@@ -1,12 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { X, Loader2, BookMarked } from "lucide-react"
+import { X, Loader2, BookMarked, Zap } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { BoostButton } from "@/components/boost/boost-button"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { api } from "@/lib/api"
 import { isMocksEnabled, MOCK_CONTENT } from "@/lib/mock-data"
@@ -82,8 +81,7 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
   }
   if (!name) name = node.ref_id
 
-  const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
-  const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
+  const boostAmt = typeof props?.boost === "number" && props.boost > 0 ? props.boost : null
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
@@ -113,9 +111,11 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
           )}
         </div>
       </div>
-      {pubkey && (
-        <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-          <BoostButton refId={node.ref_id} pubkey={pubkey} routeHint={routeHint} className="shrink-0" />
+      {boostAmt !== null && (
+        <div className="shrink-0 flex items-center gap-1 text-[11px] font-mono text-amber-400">
+          <Zap className="h-3 w-3" />
+          <span>{boostAmt}</span>
+          <span className="text-muted-foreground">sats</span>
         </div>
       )}
     </button>

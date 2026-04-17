@@ -35,11 +35,6 @@ vi.mock("@/components/layout/node-preview-panel", () => ({
   NodePreviewPanel: () => <div data-testid="node-preview" />,
 }))
 
-// --- mock boost-button ---
-vi.mock("@/components/boost/boost-button", () => ({
-  BoostButton: () => null,
-}))
-
 import { MyContentPanel } from "@/components/layout/my-content-panel"
 
 const TWO_NODES = {
@@ -93,6 +88,43 @@ describe("MyContentPanel", () => {
     expect(screen.getByRole("button", { name: /add content/i })).toBeInTheDocument()
     expect(screen.getByText("Add content and start earning money for contributing")).toBeInTheDocument()
     expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+  })
+
+  it("renders read-only boost amount when node has boost property", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Bitcoin is freedom", status: "complete", boost: 150 },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("150")).toBeInTheDocument()
+      expect(screen.getByText("sats")).toBeInTheDocument()
+    })
+  })
+
+  it("renders no boost display when boost is absent", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Bitcoin is freedom", status: "complete" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.queryByText("sats")).not.toBeInTheDocument()
+    })
   })
 
   it("calls the correct API endpoint", async () => {
