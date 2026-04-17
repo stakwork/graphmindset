@@ -199,7 +199,7 @@ export const MOCK_TRANSACTIONS = {
     { action: "search", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:06:30Z" },
     { action: "purchase", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:08:00Z" },
     { action: "boost", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:10:00Z" },
-    { action: "boost_refund", type: "credit" as const, amount: 10, created_at: "2026-04-15T10:10:01Z" },
+    { action: "refund", type: "credit" as const, amount: 10, created_at: "2026-04-15T10:10:01Z" },
     { action: "add_content", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:15:00Z" },
     { action: "add_source", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:20:00Z" },
     { action: "purchase", type: "debit" as const, amount: 10, created_at: "2026-04-15T10:25:00Z" },
