@@ -165,12 +165,12 @@ export const MOCK_CONTENT = {
     {
       node_type: "Tweet",
       ref_id: "c1",
-      properties: { name: "Bitcoin is freedom tech", text: "Bitcoin is freedom tech. The separation of money and state.", status: "complete", date_added_to_graph: 1713100000 },
+      properties: { name: "Bitcoin is freedom tech", text: "Bitcoin is freedom tech. The separation of money and state.", status: "complete", date_added_to_graph: 1713100000, boost: 150 },
     },
     {
       node_type: "Video",
       ref_id: "c2",
-      properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works", status: "complete", date_added_to_graph: 1713000000 },
+      properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works", status: "complete", date_added_to_graph: 1713000000, boost: 40 },
     },
     {
       node_type: "Podcast",
