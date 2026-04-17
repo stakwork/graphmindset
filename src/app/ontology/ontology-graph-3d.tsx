@@ -77,8 +77,10 @@ function schemasToGraph(
   return { graph, indexMap }
 }
 
-function applyInitialLayout(graph: Graph) {
-  const sub = extractInitialSubgraph(graph)
+function applyInitialLayout(graph: Graph, rootIndex?: number) {
+  const sub = rootIndex !== undefined
+    ? extractSubgraph(graph, rootIndex, 30, { useAdj: "undirected" })
+    : extractInitialSubgraph(graph)
   const { positions, treeEdgeSet, childrenOf } = computeRadialLayout(
     sub.centerId,
     sub.neighborsByDepth,
@@ -123,7 +125,10 @@ export function OntologyGraph3D({ schemas, edges, selectedId, onSelect }: Props)
 
   const { graph: baseGraph, indexMap } = useMemo(() => {
     const result = schemasToGraph(schemas, edges)
-    applyInitialLayout(result.graph)
+    // Find the hierarchy root (schema with no parent) so the layout
+    // places it at the center instead of picking highest-degree node.
+    const rootSchemaIdx = schemas.findIndex((s) => !s.parent)
+    applyInitialLayout(result.graph, rootSchemaIdx !== -1 ? rootSchemaIdx : undefined)
     return result
   }, [schemas, edges])
 
