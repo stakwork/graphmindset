@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
-import { payL402 } from "@/lib/sphinx"
+import { payL402, getPrice } from "@/lib/sphinx"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
@@ -226,8 +226,9 @@ function PersonCard({ props }: { props: Record<string, unknown> }) {
 // --- Main component ---
 
 export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProps) {
-  const [unlockState, setUnlockState] = useState<UnlockState>("preview")
+  const [unlockState, setUnlockState] = useState<UnlockState>("loading")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
+  const [price, setPrice] = useState<number | null>(null)
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const openModal = useModalStore((s) => s.open)
 
@@ -259,15 +260,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   async function handleUnlock() {
     setUnlockState("loading")
     try {
-      if (isMocksEnabled()) {
-        await new Promise((r) => setTimeout(r, 600))
-        const mock = MOCK_FULL_NODES[node.ref_id]
-        if (!mock) throw new Error("Not found")
-        setFullNode(mock)
-      } else {
-        const result = await api.get<GraphNode>(`/v2/nodes/${node.ref_id}`)
-        setFullNode(result)
-      }
+      const result = await api.get<GraphNode>(`/v2/nodes/${node.ref_id}`)
+      setFullNode(result)
       setUnlockState("unlocked")
       refreshBalance()
     } catch (err) {
@@ -288,11 +282,53 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     }
   }
 
-  // Reset state when node changes
   useEffect(() => {
-    setUnlockState("preview")
+    const controller = new AbortController()
+
+    setUnlockState("loading")
     setFullNode(null)
-  }, [node.ref_id])
+    setPrice(null)
+
+    async function probe() {
+      if (isMocksEnabled()) {
+        await new Promise((r) => setTimeout(r, 300))
+        if (controller.signal.aborted) return
+        const mock = MOCK_FULL_NODES[node.ref_id]
+        if (mock) {
+          setFullNode(mock)
+          setUnlockState("unlocked")
+        } else {
+          setUnlockState("preview")
+        }
+        return
+      }
+      try {
+        // Probe without L402: lets admin/contributor bypass return 200 directly,
+        // while users with an LSAT balance get 402 + price so they can confirm the spend.
+        const result = await api.get<GraphNode>(
+          `/v2/nodes/${node.ref_id}`,
+          { Authorization: "" },
+          controller.signal,
+        )
+        if (controller.signal.aborted) return
+        setFullNode(result)
+        setUnlockState("unlocked")
+      } catch (err) {
+        if (controller.signal.aborted) return
+        if (err instanceof Response && err.status === 402) {
+          const p = await getPrice(`v2/nodes/${node.ref_id}`, "get", controller.signal)
+          if (controller.signal.aborted) return
+          setPrice(p || null)
+          setUnlockState("preview")
+        } else {
+          setUnlockState("error")
+        }
+      }
+    }
+
+    probe()
+    return () => controller.abort()
+  }, [node.ref_id, refreshBalance])
 
   const fp = fullNode?.properties
 
@@ -368,7 +404,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               <Skeleton className="h-4 w-3/4" />
               <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
                 <Zap className="h-3.5 w-3.5 mr-1.5" />
-                Unlock Full Content
+                {price != null ? `Unlock for ${price} sats` : "Unlock Full Content"}
               </Button>
             </div>
           )}

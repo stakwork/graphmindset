@@ -40,11 +40,14 @@ async function request<Res>(
     parsed.searchParams.append("msg", signed.message)
   }
 
-  // Attach L402 token upfront if available
-  // Skip payment endpoints — /buy_lsat MUST return 402 with the invoice
+  // Attach L402 token upfront if available.
+  // Skip payment endpoints — /buy_lsat MUST return 402 with the invoice.
+  // Callers that explicitly set Authorization (including "") opt out of auto-attach,
+  // which lets probe calls force a 402 without debiting an existing balance.
   const existingHeaders = config?.headers as Record<string, string> | undefined
   const isPaymentEndpoint = parsed.pathname.endsWith("/buy_lsat") || parsed.pathname.endsWith("/top_up_lsat")
-  if (!existingHeaders?.Authorization && !isPaymentEndpoint) {
+  const hasExplicitAuth = !!existingHeaders && "Authorization" in existingHeaders
+  if (!hasExplicitAuth && !isPaymentEndpoint) {
     const l402 = await getL402()
     if (l402) {
       config = {
