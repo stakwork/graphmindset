@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -11,6 +11,7 @@ import { NodePreviewPanel } from "./node-preview-panel"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
+import { cn } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
@@ -73,12 +74,42 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
   const { nodes, edges, loading, selectedNode, setSelectedNode } = useGraphStore()
   const searchTerm = useAppStore((s) => s.searchTerm)
   const schemas = useSchemaStore((s) => s.schemas)
+  const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     setSelectedNode(null)
+    setActiveTypes(new Set())
   }, [searchTerm, setSelectedNode])
 
+  const typeCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const n of nodes) {
+      const t = n.node_type ?? "Unknown"
+      counts.set(t, (counts.get(t) ?? 0) + 1)
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
+  }, [nodes])
+
+  const filteredNodes = useMemo(
+    () =>
+      activeTypes.size === 0
+        ? nodes
+        : nodes.filter((n) => activeTypes.has(n.node_type ?? "Unknown")),
+    [nodes, activeTypes]
+  )
+
+  const toggleType = (type: string) => {
+    setActiveTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
+      return next
+    })
+  }
+
   if (!searchTerm) return null
+
+  const filtering = activeTypes.size > 0
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
@@ -96,7 +127,7 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
                 Results
               </h3>
               <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
-                {nodes.length} nodes &middot; {edges.length} edges
+                {filtering ? `${filteredNodes.length} of ${nodes.length}` : nodes.length} nodes &middot; {edges.length} edges
               </p>
             </div>
             <button
@@ -113,24 +144,63 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
+          {typeCounts.length > 1 && (
+            <div className="relative z-10 px-4 py-2 border-b border-sidebar-border/50">
+              <div className="flex flex-wrap gap-1">
+                {typeCounts.map(([type, count]) => {
+                  const active = activeTypes.has(type)
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => toggleType(type)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono transition-colors cursor-pointer",
+                        active
+                          ? "border-primary/40 bg-primary/15 text-foreground"
+                          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                      )}
+                    >
+                      <span>{type}</span>
+                      <span className={cn("text-[9px]", active ? "text-primary" : "text-muted-foreground/70")}>
+                        {count}
+                      </span>
+                    </button>
+                  )
+                })}
+                {filtering && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTypes(new Set())}
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <ScrollArea className="relative z-10 flex-1 min-h-0">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="h-5 w-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
               </div>
-            ) : nodes.length === 0 ? (
+            ) : filteredNodes.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                <p className="text-sm text-muted-foreground">No results found</p>
+                <p className="text-sm text-muted-foreground">
+                  {nodes.length === 0 ? "No results found" : "No results match the selected types"}
+                </p>
                 <p className="text-xs text-muted-foreground/60 mt-1">
-                  Try a different search term
+                  {nodes.length === 0 ? "Try a different search term" : "Try clearing or changing filters"}
                 </p>
               </div>
             ) : (
               <div className="py-1">
-                {nodes.map((node, i) => (
+                {filteredNodes.map((node, i) => (
                   <div key={node.ref_id}>
                     <NodeRow node={node} schemas={schemas} onClick={() => setSelectedNode(node)} />
-                    {i < nodes.length - 1 && (
+                    {i < filteredNodes.length - 1 && (
                       <Separator className="bg-sidebar-border/50" />
                     )}
                   </div>
