@@ -45,16 +45,18 @@ function DialogContent({
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+        style={{ zIndex: 16777273 }}
         onClick={() => onOpenChange?.(false)}
       />
       {/* Content */}
       <div
         data-slot="dialog-content"
         className={cn(
-          "fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 sm:max-w-sm",
+          "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 sm:max-w-sm",
           className
         )}
+        style={{ zIndex: 16777274 }}
         onClick={(e) => e.stopPropagation()}
         {...divProps}
       >

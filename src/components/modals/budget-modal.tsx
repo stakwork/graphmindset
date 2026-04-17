@@ -482,6 +482,11 @@ export function BudgetModal() {
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '—'}
+                          {tx.created_at && (
+                            <span className="ml-1.5 text-[10px] text-muted-foreground/60">
+                              {new Date(tx.created_at).toLocaleTimeString()}
+                            </span>
+                          )}
                         </span>
                       </div>
                       <span className={`text-xs font-mono font-medium ${
