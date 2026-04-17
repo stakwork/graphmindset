@@ -76,6 +76,17 @@ export function MediaPlayer() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [volume, isVideo])
 
+  // Guard against browser seek reset when toggling expand/collapse
+  useEffect(() => {
+    const media = videoRef.current
+    if (!media || !isVideo) return
+    media.currentTime = currentTime
+    if (isPlaying) {
+      media.play().catch(() => setIsPlaying(false))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpanded])
+
   const handleTimeUpdate = useCallback(() => {
     const media = getMedia()
     if (media) setCurrentTime(media.currentTime)
@@ -112,7 +123,7 @@ export function MediaPlayer() {
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
 
   const controlBar = (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-card/95 backdrop-blur-sm">
+    <div className="fixed bottom-0 left-0 right-0 z-[60] border-t border-border bg-card/95 backdrop-blur-sm">
       {/* Progress bar — clickable */}
       <div
         ref={progressRef}
@@ -179,11 +190,44 @@ export function MediaPlayer() {
   if (isVideo) {
     return (
       <>
-        {/* Floating video overlay */}
-        {isExpanded ? (
-          <div className="fixed inset-0 z-50 bg-black flex flex-col">
-            {/* Overlay controls */}
-            <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        {/* Single persistent video element — repositioned via dynamic classes */}
+        <video
+          ref={videoRef}
+          src={mediaUrl}
+          className={
+            isExpanded
+              ? "fixed inset-0 w-full h-full object-contain z-50 bg-black pb-12"
+              : "fixed bottom-16 right-4 w-72 aspect-video rounded-lg object-contain z-50 bg-black"
+          }
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={handleLoadedMetadata}
+          onEnded={handleEnded}
+        />
+
+        {/* Mini card chrome — sibling overlay, not wrapping video */}
+        {!isExpanded && (
+          <div className="fixed bottom-16 right-4 w-72 aspect-video rounded-lg z-[55] pointer-events-none">
+            <div className="absolute top-2 right-2 flex items-center gap-1.5 pointer-events-auto">
+              <button
+                onClick={() => setIsExpanded(true)}
+                className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={stop}
+                className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Expanded overlay controls — sibling div, not wrapping video */}
+        {isExpanded && (
+          <div className="fixed inset-0 z-[55] pointer-events-none">
+            <div className="absolute top-3 right-3 flex items-center gap-2 pointer-events-auto">
               <button
                 onClick={() => setIsExpanded(false)}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
@@ -197,42 +241,6 @@ export function MediaPlayer() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <video
-              ref={videoRef}
-              src={mediaUrl}
-              className="w-full h-full object-contain pb-12"
-              onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={handleLoadedMetadata}
-              onEnded={handleEnded}
-            />
-          </div>
-        ) : (
-          <div className="fixed bottom-16 right-4 z-50 w-72 rounded-lg overflow-hidden shadow-2xl border border-border">
-            <div className="relative aspect-video bg-black">
-              <video
-                ref={videoRef}
-                src={mediaUrl}
-                className="w-full h-full object-contain"
-                onTimeUpdate={handleTimeUpdate}
-                onLoadedMetadata={handleLoadedMetadata}
-                onEnded={handleEnded}
-              />
-              {/* Mini overlay controls */}
-              <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                <button
-                  onClick={() => setIsExpanded(true)}
-                  className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
-                >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={stop}
-                  className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
@@ -244,7 +252,7 @@ export function MediaPlayer() {
 
   // Audio mode
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-card/95 backdrop-blur-sm">
+    <div className="fixed bottom-0 left-0 right-0 z-[60] border-t border-border bg-card/95 backdrop-blur-sm">
       <audio
         ref={audioRef}
         src={mediaUrl}
