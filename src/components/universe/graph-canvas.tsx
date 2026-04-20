@@ -17,6 +17,7 @@ import {
 } from "@/graph-viz-kit"
 import type { Graph, ViewState, RawNode, RawEdge } from "@/graph-viz-kit"
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
+import { useGraphStore } from "@/stores/graph-store"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
@@ -52,7 +53,7 @@ function apiToGraph(
   nodes: ApiNode[],
   edges: ApiEdge[],
   schemas: SchemaNode[]
-): { graph: Graph; indexMap: Map<number, string> } {
+): { graph: Graph; indexMap: Map<number, string>; refIdToIndex: Map<string, number> } {
   const rawNodes: RawNode[] = nodes.map((n) => ({
     id: n.ref_id,
     label: truncateLabel(nodeLabel(n, schemas)),
@@ -104,11 +105,13 @@ function apiToGraph(
 
   // Only map real nodes — group nodes have no API counterpart
   const indexMap = new Map<number, string>()
+  const refIdToIndex = new Map<string, number>()
   for (let i = 0; i < nodes.length; i++) {
     indexMap.set(i, nodes[i].ref_id)
+    refIdToIndex.set(nodes[i].ref_id, i)
   }
 
-  return { graph, indexMap }
+  return { graph, indexMap, refIdToIndex }
 }
 
 function applyLayout(graph: Graph) {
@@ -157,8 +160,10 @@ interface GraphCanvasProps {
 
 export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvasProps) {
   const cameraRef = useRef<CameraControlsImpl>(null)
+  const hoveredNode = useGraphStore((s) => s.hoveredNode)
+  const sidebarSelectedNode = useGraphStore((s) => s.sidebarSelectedNode)
 
-  const { graph, indexMap } = useMemo(() => {
+  const { graph, indexMap, refIdToIndex } = useMemo(() => {
     const result = apiToGraph(nodes, edges, schemas)
     applyLayout(result.graph)
     return result
@@ -176,8 +181,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     if (cam) cam.setLookAt(0, 80, 0.1, 0, 0, 0, true)
   }, [nodes, edges])
 
+  const externalHoveredId = hoveredNode ? (refIdToIndex.get(hoveredNode.ref_id) ?? null) : null
+  const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
+
   const handleNodeClick = useCallback(
     (nodeId: number) => {
+      useGraphStore.getState().setSidebarSelectedNode(null)
+      useGraphStore.getState().setHoveredNode(null)
       const refId = indexMap.get(nodeId)
       if (refId && onNodeSelect) {
         const apiNode = nodes.find((n) => n.ref_id === refId)
@@ -254,6 +264,12 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           graph={graph}
           viewState={viewState}
           onNodeClick={handleNodeClick}
+          externalHoveredId={externalHoveredId}
+          externalSelectedId={externalSelectedId}
+          onGraphClick={() => {
+            useGraphStore.getState().setSidebarSelectedNode(null)
+            useGraphStore.getState().setHoveredNode(null)
+          }}
         />
         <OffscreenIndicators
           graph={graph}

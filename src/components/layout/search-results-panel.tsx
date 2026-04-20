@@ -23,7 +23,7 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void }) {
+function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void }) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   // Priority: title_key → index (sphinx convention) → common display-ish
@@ -45,7 +45,7 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
   return (
-    <button onClick={onClick} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
+    <button onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
       <div
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border"
         style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
@@ -72,6 +72,8 @@ function NodeRow({ node, schemas, onClick }: { node: GraphNode; schemas: SchemaN
 
 export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
   const { nodes, edges, loading, selectedNode, setSelectedNode } = useGraphStore()
+  const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
+  const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
   const searchTerm = useAppStore((s) => s.searchTerm)
   const schemas = useSchemaStore((s) => s.schemas)
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set())
@@ -116,7 +118,7 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
       {selectedNode ? (
         <NodePreviewPanel
           node={selectedNode}
-          onBack={() => setSelectedNode(null)}
+          onBack={() => { setSelectedNode(null); setSidebarSelectedNode(null) }}
           schemas={schemas}
         />
       ) : (
@@ -199,7 +201,13 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
               <div className="py-1">
                 {filteredNodes.map((node, i) => (
                   <div key={node.ref_id}>
-                    <NodeRow node={node} schemas={schemas} onClick={() => setSelectedNode(node)} />
+                    <NodeRow
+                      node={node}
+                      schemas={schemas}
+                      onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
+                      onMouseEnter={() => setHoveredNode(node)}
+                      onMouseLeave={() => setHoveredNode(null)}
+                    />
                     {i < filteredNodes.length - 1 && (
                       <Separator className="bg-sidebar-border/50" />
                     )}
