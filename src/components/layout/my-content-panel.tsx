@@ -221,7 +221,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
       {selectedNode ? (
         <NodePreviewPanel
           node={selectedNode}
-          onBack={() => setSelectedNode(null)}
+          onBack={() => { setSelectedNode(null); setSidebarSelectedNode(null); setHoveredNode(null) }}
           schemas={schemas}
         />
       ) : (

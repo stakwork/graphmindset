@@ -55,6 +55,8 @@ export function AppLayout() {
   function closeSearchResults(): void {
     useAppStore.getState().setSearchTerm("")
     useGraphStore.getState().setGraphData([], [])
+    useGraphStore.getState().setHoveredNode(null)
+    useGraphStore.getState().setSidebarSelectedNode(null)
   }
 
   const panelOverlay = "absolute left-0 top-0 z-10 h-full"

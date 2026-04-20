@@ -918,14 +918,19 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       mesh.setMatrixAt(i, tmpObj.matrix);
 
       const extHov = externalHoveredRef.current;
+      const extSelNode = externalSelectedRef.current;
       const extHovAdj = extHov !== null ? (graphRef.current.adj[extHov] ?? []) : null;
-      if (i === hovered || (extHov !== null && i === extHov)) {
-        tmpColor.setRGB(1.0, 0.2, 0.2);
-      } else if (
+      const isPrimaryHighlight =
+        i === hovered ||
+        (extHov !== null && i === extHov) ||
+        (extSelNode !== null && i === extSelNode);
+      const isNeighborHighlight =
         (hoveredRelated && hoveredRelated.has(i)) ||
-        (extHovAdj && (extHovAdj as number[]).includes(i))
-      ) {
-        tmpColor.setRGB(0.8, 0.15, 0.15);
+        (extHovAdj && (extHovAdj as number[]).includes(i));
+      if (isPrimaryHighlight) {
+        tmpColor.setRGB(0.4, 1.3, 1.8);
+      } else if (isNeighborHighlight) {
+        tmpColor.setRGB(0.18, 0.55, 0.8);
       } else if (graph.nodes[i].status === "executing") {
         tmpColor.setRGB(0.2, 1.0, 0.4);
       } else {
@@ -934,6 +939,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           currentColor.current[i3 + 1],
           currentColor.current[i3 + 2],
         );
+      }
+
+      // When a highlight is active, dim everything that isn't part of it so
+      // the selection pops by contrast.
+      const anyHighlightActive =
+        hovered !== null || extHov !== null || extSelNode !== null;
+      if (anyHighlightActive && !isPrimaryHighlight && !isNeighborHighlight) {
+        tmpColor.multiplyScalar(0.35);
       }
 
       // Search match: bright pulsing highlight
