@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { X, Loader2, BookMarked, Zap } from "lucide-react"
+import { X, Loader2, BookMarked, Zap, ExternalLink } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -69,7 +69,7 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void }) {
+function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, isAdmin }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void; isAdmin: boolean }) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const props = node.properties
@@ -85,6 +85,8 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node:
   const boostAmt = typeof props?.boost === "number" && props.boost > 0 ? props.boost : null
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
+  const projectId = props?.project_id
+  const stakworkUrl = isAdmin && projectId ? `https://jobs.stakwork.com/admin/projects/${projectId}` : null
 
   return (
     <button onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
@@ -119,6 +121,18 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node:
           <span className="text-muted-foreground">sats</span>
         </div>
       )}
+      {stakworkUrl && (
+        <a
+          href={stakworkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
+          title="View Stakwork workflow"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
     </button>
   )
 }
@@ -130,7 +144,7 @@ interface ContentResponse {
 }
 
 export function MyContentPanel({ onClose }: { onClose: () => void }) {
-  const { pubKey, routeHint } = useUserStore()
+  const { pubKey, routeHint, isAdmin } = useUserStore()
   const schemas = useSchemaStore((s) => s.schemas)
   const openModal = useModalStore((s) => s.open)
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
@@ -279,6 +293,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                     <NodeRow
                       node={node}
                       schemas={schemas}
+                      isAdmin={isAdmin}
                       onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
                       onMouseEnter={() => setHoveredNode(node)}
                       onMouseLeave={() => setHoveredNode(null)}

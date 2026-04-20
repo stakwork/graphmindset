@@ -239,7 +239,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Podcast",
       ref_id: "c3",
-      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "processing", date_added_to_graph: 1712900000 },
+      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "processing", date_added_to_graph: 1712900000, project_id: 99001 },
     },
     {
       node_type: "Document",
@@ -249,7 +249,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Tweet",
       ref_id: "c5",
-      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", date_added_to_graph: 1712700000 },
+      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", date_added_to_graph: 1712700000, project_id: 99002 },
     },
   ],
   totalCount: 5,

@@ -9,8 +9,9 @@ vi.mock("@/lib/api", () => ({
 }))
 
 // --- mock stores ---
+let mockUserStore = { pubKey: "03abc123testkey", isAdmin: false }
 vi.mock("@/stores/user-store", () => ({
-  useUserStore: () => ({ pubKey: "03abc123testkey" }),
+  useUserStore: () => mockUserStore,
 }))
 
 vi.mock("@/stores/schema-store", () => ({
@@ -28,6 +29,11 @@ vi.mock("@/stores/modal-store", () => ({
 vi.mock("@/lib/mock-data", () => ({
   isMocksEnabled: () => false,
   MOCK_CONTENT: { nodes: [], totalCount: 0, totalProcessing: 0 },
+}))
+
+vi.mock("@/stores/graph-store", () => ({
+  useGraphStore: (sel: (s: { setHoveredNode: () => void; setSidebarSelectedNode: () => void }) => unknown) =>
+    sel({ setHoveredNode: vi.fn(), setSidebarSelectedNode: vi.fn() }),
 }))
 
 // --- mock node-preview-panel ---
@@ -63,6 +69,7 @@ const EMPTY_RESPONSE = {
 describe("MyContentPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUserStore = { pubKey: "03abc123testkey", isAdmin: false }
   })
 
   it("renders items with processing banner", async () => {
@@ -138,5 +145,41 @@ describe("MyContentPanel", () => {
     expect(mockApiGet).toHaveBeenCalledWith(
       "/v2/content?pubkey=03abc123testkey&sort_by=date&limit=100"
     )
+  })
+
+  it("admin user sees Stakwork workflow link on node with project_id", async () => {
+    mockUserStore = { pubKey: "03abc", isAdmin: true }
+    mockApiGet.mockResolvedValue({
+      nodes: [{
+        node_type: "Podcast",
+        ref_id: "ref-10",
+        properties: { name: "Test Podcast", status: "processing", project_id: 12345 },
+      }],
+      totalCount: 1,
+      totalProcessing: 1,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /view stakwork workflow/i })
+      expect(link).toHaveAttribute("href", "https://jobs.stakwork.com/admin/projects/12345")
+      expect(link).toHaveAttribute("target", "_blank")
+    })
+  })
+
+  it("non-admin user does not see Stakwork workflow link", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [{
+        node_type: "Podcast",
+        ref_id: "ref-11",
+        properties: { name: "Test Podcast", status: "processing", project_id: 12345 },
+      }],
+      totalCount: 1,
+      totalProcessing: 1,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Test Podcast")).toBeInTheDocument()
+    })
+    expect(screen.queryByRole("link", { name: /view stakwork workflow/i })).not.toBeInTheDocument()
   })
 })
