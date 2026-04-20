@@ -6,6 +6,7 @@ export interface Source {
   ref_id: string
   source: string
   source_type: string
+  topics?: string[]
 }
 
 interface SourcesState {

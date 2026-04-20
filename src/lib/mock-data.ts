@@ -271,6 +271,20 @@ export const MOCK_TRANSACTIONS = {
   scope: "pubkey" as const,
 }
 
+const MOCK_RADAR_TS = Math.floor(Date.now() / 1000) - 3600
+const baseRadarConfig = {
+  namespace: "default",
+  workflow_id: "12345",
+  created_at: MOCK_RADAR_TS,
+  updated_at: MOCK_RADAR_TS,
+}
+export const MOCK_RADAR_CONFIGS = [
+  { ...baseRadarConfig, ref_id: "rc-twitter", source_type: "twitter_handle" as const, enabled: true, cadence: "0 */6 * * *" },
+  { ...baseRadarConfig, ref_id: "rc-youtube", source_type: "youtube_channel" as const, enabled: true, cadence: "0 */12 * * *" },
+  { ...baseRadarConfig, ref_id: "rc-rss", source_type: "rss" as const, enabled: false, cadence: "0 */12 * * *" },
+  { ...baseRadarConfig, ref_id: "rc-topic", source_type: "topic" as const, enabled: true, cadence: "*/10 * * * *" },
+]
+
 export function isMocksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"
 }

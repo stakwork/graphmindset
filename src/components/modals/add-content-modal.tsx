@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, CheckCircle2, LinkIcon, Zap } from "lucide-react"
+import { Loader2, CheckCircle2, LinkIcon, Zap, X } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -43,6 +43,8 @@ export function AddContentModal() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState("")
   const [price, setPrice] = useState<number | null>(null)
+  const [topics, setTopics] = useState<string[]>([])
+  const [topicDraft, setTopicDraft] = useState("")
 
   // Fetch price based on detected type
   useEffect(() => {
@@ -84,6 +86,9 @@ export function AddContentModal() {
       if (isSubscriptionSource(sourceType)) {
         const radarBody: Record<string, unknown> = { source, source_type: sourceType }
         if (fullPubkey) radarBody.pubkey = fullPubkey
+        if (sourceType === SOURCE_TYPES.TWITTER_HANDLE && topics.length) {
+          radarBody.topics = topics
+        }
         await api.post("/radar", radarBody, headers)
         return
       }
@@ -100,7 +105,7 @@ export function AddContentModal() {
 
       await api.post("/v2/content", body, headers)
     },
-    []
+    [pubKey, routeHint, topics]
   )
 
   const handleSubmit = useCallback(async () => {
@@ -120,6 +125,8 @@ export function AddContentModal() {
         setDetectedType(null)
         setSuccess(false)
         setPrice(null)
+        setTopics([])
+        setTopicDraft("")
         close()
         openMyContent()
       }, 1200)
@@ -168,10 +175,26 @@ export function AddContentModal() {
         setSuccess(false)
         setError("")
         setPrice(null)
+        setTopics([])
+        setTopicDraft("")
       }
     },
     [close]
   )
+
+  const addTopic = useCallback(() => {
+    const t = topicDraft.trim()
+    if (!t || topics.includes(t)) {
+      setTopicDraft("")
+      return
+    }
+    setTopics((prev) => [...prev, t])
+    setTopicDraft("")
+  }, [topicDraft, topics])
+
+  const removeTopic = useCallback((t: string) => {
+    setTopics((prev) => prev.filter((x) => x !== t))
+  }, [])
 
   const formattedBudget = budget !== null ? budget.toLocaleString() : "--"
 
@@ -210,6 +233,49 @@ export function AddContentModal() {
               <span className="text-xs text-primary font-medium">
                 Detected: {SOURCE_TYPE_LABELS[detectedType] ?? detectedType}
               </span>
+            </div>
+          )}
+
+          {detectedType === SOURCE_TYPES.TWITTER_HANDLE && !detecting && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+                Topic filter (optional)
+              </label>
+              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-muted/50 px-2 py-1.5 min-h-[34px]">
+                {topics.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() => removeTopic(t)}
+                      className="hover:text-destructive"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  value={topicDraft}
+                  onChange={(e) => setTopicDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault()
+                      addTopic()
+                    } else if (e.key === "Backspace" && !topicDraft && topics.length) {
+                      removeTopic(topics[topics.length - 1])
+                    }
+                  }}
+                  onBlur={addTopic}
+                  placeholder={topics.length ? "" : "AI, devtools (Enter to add)"}
+                  className="flex-1 min-w-[80px] bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Only tweets matching one of these topics will be ingested.
+              </p>
             </div>
           )}
 

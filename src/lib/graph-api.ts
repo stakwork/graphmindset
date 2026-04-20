@@ -173,8 +173,69 @@ export async function getStats(signal?: AbortSignal): Promise<StatsResponse> {
 
 // Add content via v2/content
 export async function addContent(
-  data: { source: string; source_type: string },
+  data: { source: string; source_type: string; topics?: string[] },
   signal?: AbortSignal
 ) {
   return api.post("/radar", data, undefined, signal)
+}
+
+// --- Radar config ---------------------------------------------------------
+
+export type RadarSourceType =
+  | "twitter_handle"
+  | "youtube_channel"
+  | "rss"
+  | "topic"
+
+export const RADAR_SOURCE_TYPES: RadarSourceType[] = [
+  "twitter_handle",
+  "youtube_channel",
+  "rss",
+  "topic",
+]
+
+export interface RadarConfig {
+  ref_id: string
+  namespace: string
+  source_type: RadarSourceType
+  enabled: boolean
+  cadence: string
+  workflow_id: string
+  created_at?: number
+  updated_at?: number
+}
+
+export async function getRadarConfig(
+  signal?: AbortSignal
+): Promise<{ configs: RadarConfig[] }> {
+  return api.get<{ configs: RadarConfig[] }>(
+    "/v2/radar/config",
+    undefined,
+    signal
+  )
+}
+
+export async function updateRadarConfig(
+  sourceType: RadarSourceType,
+  fields: Partial<Pick<RadarConfig, "enabled" | "cadence" | "workflow_id">>,
+  signal?: AbortSignal
+): Promise<{ config: RadarConfig }> {
+  return api.put<{ config: RadarConfig }>(
+    `/v2/radar/config/${sourceType}`,
+    fields,
+    undefined,
+    signal
+  )
+}
+
+export async function runRadarNow(
+  sourceType: RadarSourceType,
+  signal?: AbortSignal
+): Promise<{ status: string; dispatched: number; failed: string[] }> {
+  return api.post<{ status: string; dispatched: number; failed: string[] }>(
+    `/v2/radar/run/${sourceType}`,
+    {},
+    undefined,
+    signal
+  )
 }

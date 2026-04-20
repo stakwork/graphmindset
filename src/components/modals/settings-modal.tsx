@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import dynamic from "next/dynamic"
 import {
   Dialog,
   DialogContent,
@@ -11,11 +12,18 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MAX_LENGTHS } from "@/lib/input-limits"
 import { useModalStore } from "@/stores/modal-store"
 import { useAppStore } from "@/stores/app-store"
 import { useUserStore } from "@/stores/user-store"
 import { api } from "@/lib/api"
+
+// Admin-only, and pulls cronstrue + date-fns — defer so non-admins don't pay the bundle.
+const RadarSettings = dynamic(
+  () => import("./radar-settings").then((m) => m.RadarSettings),
+  { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
+)
 
 export function SettingsModal() {
   const { activeModal, close } = useModalStore()
@@ -48,7 +56,7 @@ export function SettingsModal() {
 
   return (
     <Dialog open={activeModal === "settings"} onOpenChange={() => close()}>
-      <DialogContent className="border-border/50 bg-card noise-bg sm:max-w-md">
+      <DialogContent className="border-border/50 bg-card noise-bg sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-heading text-lg tracking-wide">
             Graph Settings
@@ -60,51 +68,70 @@ export function SettingsModal() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative z-10 space-y-4 pt-2">
-          <div className="space-y-2">
-            <Label htmlFor="graph-name" className="text-xs uppercase tracking-wider font-heading">
-              Graph Name
-            </Label>
-            <Input
-              id="graph-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={!isAdmin}
-              maxLength={MAX_LENGTHS.GRAPH_NAME}
-              className="bg-muted/50 border-border/50 focus:border-primary/40"
-            />
-          </div>
+        <Tabs defaultValue="general" className="pt-2">
+          <TabsList className="w-full">
+            <TabsTrigger value="general">General</TabsTrigger>
+            {isAdmin && <TabsTrigger value="radar">Schedule</TabsTrigger>}
+          </TabsList>
 
-          <div className="space-y-2">
-            <Label htmlFor="graph-desc" className="text-xs uppercase tracking-wider font-heading">
-              Description
-            </Label>
-            <textarea
-              id="graph-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={!isAdmin}
-              rows={3}
-              maxLength={MAX_LENGTHS.GRAPH_DESCRIPTION}
-              className="w-full rounded-md border border-border/50 bg-muted/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none disabled:opacity-50 resize-none"
-            />
-          </div>
+          <TabsContent value="general" className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label
+                htmlFor="graph-name"
+                className="text-xs uppercase tracking-wider font-heading"
+              >
+                Graph Name
+              </Label>
+              <Input
+                id="graph-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                disabled={!isAdmin}
+                maxLength={MAX_LENGTHS.GRAPH_NAME}
+                className="bg-muted/50 border-border/50 focus:border-primary/40"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label
+                htmlFor="graph-desc"
+                className="text-xs uppercase tracking-wider font-heading"
+              >
+                Description
+              </Label>
+              <textarea
+                id="graph-desc"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                disabled={!isAdmin}
+                rows={3}
+                maxLength={MAX_LENGTHS.GRAPH_DESCRIPTION}
+                className="w-full rounded-md border border-border/50 bg-muted/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none disabled:opacity-50 resize-none"
+              />
+            </div>
+
+            {isAdmin && (
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="ghost" onClick={close} className="text-xs">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {saving ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            )}
+          </TabsContent>
 
           {isAdmin && (
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={close} className="text-xs">
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {saving ? "Saving..." : "Save Changes"}
-              </Button>
-            </div>
+            <TabsContent value="radar" className="pt-4">
+              <RadarSettings open={activeModal === "settings"} />
+            </TabsContent>
           )}
-        </div>
+        </Tabs>
       </DialogContent>
     </Dialog>
   )

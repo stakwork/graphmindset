@@ -88,6 +88,18 @@ function SourceRow({
             {displayName}
           </span>
         )}
+        {source.topics && source.topics.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-0.5">
+            {source.topics.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0 text-[9px] text-primary"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {canEdit && (
         <button
