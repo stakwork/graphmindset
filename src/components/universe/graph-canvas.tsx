@@ -19,6 +19,7 @@ import type { Graph, ViewState, RawNode, RawEdge } from "@/graph-viz-kit"
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
 import { useGraphStore } from "@/stores/graph-store"
 import type { SchemaNode } from "@/app/ontology/page"
+import { HoverPreviewCard } from "./hover-preview-card"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
@@ -160,7 +161,7 @@ interface GraphCanvasProps {
 
 export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvasProps) {
   const cameraRef = useRef<CameraControlsImpl>(null)
-  const hoveredNode = useGraphStore((s) => s.hoveredNode)
+  const sidebarHoveredNode = useGraphStore((s) => s.hoveredNode)
   const sidebarSelectedNode = useGraphStore((s) => s.sidebarSelectedNode)
 
   const { graph, indexMap, refIdToIndex } = useMemo(() => {
@@ -170,6 +171,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   }, [nodes, edges, schemas])
 
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
+  const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
+  const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   // Reset view when data changes. This also repositions the camera, so a
   // parent `key` remount (the React-compiler-friendly alternative) would
@@ -181,8 +184,33 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     if (cam) cam.setLookAt(0, 80, 0.1, 0, 0, 0, true)
   }, [nodes, edges])
 
-  const externalHoveredId = hoveredNode ? (refIdToIndex.get(hoveredNode.ref_id) ?? null) : null
+  const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
+
+  const handleHoverChange = useCallback(
+    (nodeId: number | null) => {
+      if (nodeId === null) {
+        setHoveredCardNode(null)
+        return
+      }
+      const refId = indexMap.get(nodeId)
+      if (!refId) {
+        setHoveredCardNode(null)
+        return
+      }
+      const apiNode = nodes.find((n) => n.ref_id === refId)
+      setHoveredCardNode(apiNode ?? null)
+    },
+    [indexMap, nodes]
+  )
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    setCursor({ x: e.clientX, y: e.clientY })
+  }, [])
+
+  const handlePointerLeave = useCallback(() => {
+    setHoveredCardNode(null)
+  }, [])
 
   const handleNodeClick = useCallback(
     (nodeId: number) => {
@@ -254,7 +282,11 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   }, [viewState.mode, handleReset])
 
   return (
-    <div className="relative h-full w-full">
+    <div
+      className="relative h-full w-full"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
+    >
       <Canvas
         camera={{ position: [0, 80, 0.1], fov: 50 }}
         style={{ background: "oklch(0.06 0.02 260)" }}
@@ -264,6 +296,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           graph={graph}
           viewState={viewState}
           onNodeClick={handleNodeClick}
+          onHoverChange={handleHoverChange}
           externalHoveredId={externalHoveredId}
           externalSelectedId={externalSelectedId}
           onGraphClick={() => {
@@ -305,6 +338,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           Reset view
         </button>
       )}
+
+      <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
     </div>
   )
 }
