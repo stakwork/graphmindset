@@ -517,8 +517,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         } else {
-          scales[i] = depth === 0 ? SELECTED_SCALE : NODE_SCALE;
-          const a = alphaByDepth(depth);
+          const w = graph.nodes[i].weight ?? 0;
+          const baseScale = depth === 0 ? SELECTED_SCALE : NODE_SCALE;
+          scales[i] = baseScale * (1 + 0.5 * w);
+          const baseA = alphaByDepth(depth);
+          const a = baseA + (1.0 - baseA) * w * 0.6;
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         }
@@ -550,8 +553,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         } else {
-          scales[i] = relDepth === 0 ? SELECTED_SCALE : NODE_SCALE;
-          const a = relDepth === -1 ? 0.3 : alphaByDepth(relDepth);
+          const w = graph.nodes[i].weight ?? 0;
+          const baseScale = relDepth === 0 ? SELECTED_SCALE : NODE_SCALE;
+          scales[i] = baseScale * (1 + 0.5 * w);
+          const baseA = relDepth === -1 ? 0.3 : alphaByDepth(relDepth);
+          const a = baseA + (1.0 - baseA) * w * 0.6;
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         }
@@ -912,14 +918,19 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       mesh.setMatrixAt(i, tmpObj.matrix);
 
       const extHov = externalHoveredRef.current;
+      const extSelNode = externalSelectedRef.current;
       const extHovAdj = extHov !== null ? (graphRef.current.adj[extHov] ?? []) : null;
-      if (i === hovered || (extHov !== null && i === extHov)) {
-        tmpColor.setRGB(1.0, 0.2, 0.2);
-      } else if (
+      const isPrimaryHighlight =
+        i === hovered ||
+        (extHov !== null && i === extHov) ||
+        (extSelNode !== null && i === extSelNode);
+      const isNeighborHighlight =
         (hoveredRelated && hoveredRelated.has(i)) ||
-        (extHovAdj && (extHovAdj as number[]).includes(i))
-      ) {
-        tmpColor.setRGB(0.8, 0.15, 0.15);
+        (extHovAdj && (extHovAdj as number[]).includes(i));
+      if (isPrimaryHighlight) {
+        tmpColor.setRGB(0.4, 1.3, 1.8);
+      } else if (isNeighborHighlight) {
+        tmpColor.setRGB(0.18, 0.55, 0.8);
       } else if (graph.nodes[i].status === "executing") {
         tmpColor.setRGB(0.2, 1.0, 0.4);
       } else {
@@ -928,6 +939,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           currentColor.current[i3 + 1],
           currentColor.current[i3 + 2],
         );
+      }
+
+      // When a highlight is active, dim everything that isn't part of it so
+      // the selection pops by contrast.
+      const anyHighlightActive =
+        hovered !== null || extHov !== null || extSelNode !== null;
+      if (anyHighlightActive && !isPrimaryHighlight && !isNeighborHighlight) {
+        tmpColor.multiplyScalar(0.35);
       }
 
       // Search match: bright pulsing highlight
@@ -1617,7 +1636,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const isCursorRevealed = fisheyeRevealed.has(i);
           const isSearchMatch = searchMatches?.has(i) ?? false;
           const isRecentNode = recentNodes?.has(i) ?? false;
-          const isProminent = isSelected || isHovered || isHoverNeighbor || isCursorRevealed || isSearchMatch || isRecentNode || isExpandedProxy;
+          const isHighWeight = (graph.nodes[i].weight ?? 0) > 0.5;
+          const isProminent = isSelected || isHovered || isHoverNeighbor || isCursorRevealed || isSearchMatch || isRecentNode || isExpandedProxy || isHighWeight;
 
           // Unstructured nodes: no label unless hovered, selected, or neighbor of selected
           if ((graph.unstructuredNodeIds?.has(i) ?? false) && !isHovered && !isSelected && !isHoverNeighbor) return null;

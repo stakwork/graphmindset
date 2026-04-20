@@ -14,7 +14,6 @@ import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
-import { useGraphStore } from "@/stores/graph-store"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
@@ -264,7 +263,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       const result = await api.get<GraphData>(`/v2/nodes/${node.ref_id}`)
       const unlocked = result.nodes?.[0] ?? null
       setFullNode(unlocked)
-      useGraphStore.getState().addNodes(result.nodes ?? [], result.edges ?? [])
       setUnlockState("unlocked")
       refreshBalance()
     } catch (err) {
@@ -274,7 +272,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           const result = await api.get<GraphData>(`/v2/nodes/${node.ref_id}`)
           const unlocked = result.nodes?.[0] ?? null
           setFullNode(unlocked)
-          useGraphStore.getState().addNodes(result.nodes ?? [], result.edges ?? [])
           setUnlockState("unlocked")
           refreshBalance()
         } catch {
@@ -301,7 +298,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         const mock = MOCK_FULL_NODES[node.ref_id]
         if (mock) {
           setFullNode(mock.nodes?.[0] ?? null)
-          useGraphStore.getState().addNodes(mock.nodes ?? [], mock.edges ?? [])
           setUnlockState("unlocked")
         } else {
           setUnlockState("preview")
@@ -319,7 +315,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         if (controller.signal.aborted) return
         const unlocked = result.nodes?.[0] ?? null
         setFullNode(unlocked)
-        useGraphStore.getState().addNodes(result.nodes ?? [], result.edges ?? [])
         setUnlockState("unlocked")
       } catch (err) {
         if (controller.signal.aborted) return

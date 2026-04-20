@@ -80,8 +80,10 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     setSelectedNode(null)
+    setSidebarSelectedNode(null)
+    setHoveredNode(null)
     setActiveTypes(new Set())
-  }, [searchTerm, setSelectedNode])
+  }, [searchTerm, setSelectedNode, setSidebarSelectedNode, setHoveredNode])
 
   const typeCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -118,7 +120,7 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
       {selectedNode ? (
         <NodePreviewPanel
           node={selectedNode}
-          onBack={() => { setSelectedNode(null); setSidebarSelectedNode(null) }}
+          onBack={() => { setSelectedNode(null); setSidebarSelectedNode(null); setHoveredNode(null) }}
           schemas={schemas}
         />
       ) : (
