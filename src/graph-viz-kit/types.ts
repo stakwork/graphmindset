@@ -16,6 +16,7 @@ export interface GraphNode {
   content?: string; // descriptive text for detail view
   loaderId?: string;
   nodeType?: string;
+  weight?: number; // 0–1 importance/relevance for visual prominence
 }
 
 export type LayoutStrategyName = "radial" | "force" | "auto";

@@ -57,6 +57,7 @@ function apiToGraph(
   const rawNodes: RawNode[] = nodes.map((n) => ({
     id: n.ref_id,
     label: truncateLabel(nodeLabel(n, schemas)),
+    ...(n.score != null && { weight: n.score }),
   }))
 
   const rawEdges: RawEdge[] = edges.map((e) => ({

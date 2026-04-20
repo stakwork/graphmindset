@@ -517,8 +517,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         } else {
-          scales[i] = depth === 0 ? SELECTED_SCALE : NODE_SCALE;
-          const a = alphaByDepth(depth);
+          const w = graph.nodes[i].weight ?? 0;
+          const baseScale = depth === 0 ? SELECTED_SCALE : NODE_SCALE;
+          scales[i] = baseScale * (1 + 0.5 * w);
+          const baseA = alphaByDepth(depth);
+          const a = baseA + (1.0 - baseA) * w * 0.6;
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         }
@@ -550,8 +553,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         } else {
-          scales[i] = relDepth === 0 ? SELECTED_SCALE : NODE_SCALE;
-          const a = relDepth === -1 ? 0.3 : alphaByDepth(relDepth);
+          const w = graph.nodes[i].weight ?? 0;
+          const baseScale = relDepth === 0 ? SELECTED_SCALE : NODE_SCALE;
+          scales[i] = baseScale * (1 + 0.5 * w);
+          const baseA = relDepth === -1 ? 0.3 : alphaByDepth(relDepth);
+          const a = baseA + (1.0 - baseA) * w * 0.6;
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
           alphas[i] = a;
         }
@@ -1617,7 +1623,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const isCursorRevealed = fisheyeRevealed.has(i);
           const isSearchMatch = searchMatches?.has(i) ?? false;
           const isRecentNode = recentNodes?.has(i) ?? false;
-          const isProminent = isSelected || isHovered || isHoverNeighbor || isCursorRevealed || isSearchMatch || isRecentNode || isExpandedProxy;
+          const isHighWeight = (graph.nodes[i].weight ?? 0) > 0.5;
+          const isProminent = isSelected || isHovered || isHoverNeighbor || isCursorRevealed || isSearchMatch || isRecentNode || isExpandedProxy || isHighWeight;
 
           // Unstructured nodes: no label unless hovered, selected, or neighbor of selected
           if ((graph.unstructuredNodeIds?.has(i) ?? false) && !isHovered && !isSelected && !isHoverNeighbor) return null;
