@@ -8,6 +8,8 @@ export interface GraphNode {
   score?: number
   match_type?: "exact" | "fuzzy" | "semantic"
   weight?: number
+  matched_property?: string
+  match_excerpt?: string | null
 }
 
 export interface GraphEdge {
