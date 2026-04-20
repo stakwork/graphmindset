@@ -67,7 +67,12 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         attributes: serializeAttributes(updated.attributes),
       })
     } catch (err) {
-      console.error("Failed to update schema:", err)
+      // Rollback optimistic update
+      set((s) => ({
+        schemas: s.schemas.map((x) => (x.ref_id === updated.ref_id ? updated : x)),
+      }))
+      const body = err instanceof Response ? await err.json().catch(() => ({})) : {}
+      throw new Error((body as { message?: string }).message || "Failed to save schema")
     }
   },
 
@@ -95,9 +100,10 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         }))
       }
     } catch (err) {
-      console.error("Failed to create schema:", err)
       // Rollback
       set((s) => ({ schemas: s.schemas.filter((x) => x.ref_id !== schema.ref_id) }))
+      const body = err instanceof Response ? await err.json().catch(() => ({})) : {}
+      throw new Error((body as { message?: string }).message || "Failed to save schema")
     }
   },
 
