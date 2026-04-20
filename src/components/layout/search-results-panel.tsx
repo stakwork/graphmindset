@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -17,13 +17,24 @@ import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
+function highlightTerm(text: string, term: string): React.ReactNode[] {
+  if (!term) return [text]
+  const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")
+  const parts = text.split(regex)
+  return parts.map((part, i) =>
+    regex.test(part)
+      ? <span key={i} className="font-semibold text-primary">{part}</span>
+      : part
+  )
+}
+
 function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
   if (!props || !key) return undefined
   const v = props[key]
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void }) {
+function NodeRow({ node, schemas, searchTerm, onClick, onMouseEnter, onMouseLeave }: { node: GraphNode; schemas: SchemaNode[]; searchTerm: string; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void }) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   // Priority: title_key → index (sphinx convention) → common display-ish
@@ -44,6 +55,9 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node:
   const boostAmt = typeof props?.boost === "number" ? props.boost : 0
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
+  const titleKey = schema?.title_key ?? schema?.index
+  const isTitleMatch = node.matched_property !== undefined && node.matched_property === titleKey
+
   return (
     <button onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
       <div
@@ -53,13 +67,21 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node:
         <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
       </div>
       <div className="flex-1 min-w-0 overflow-hidden">
-        <p className="text-sm text-foreground truncate">{name}</p>
+        <p className="text-sm text-foreground truncate">
+          {isTitleMatch ? highlightTerm(name, searchTerm) : name}
+        </p>
         <Badge
           variant="outline"
           className="mt-0.5 text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono"
         >
           {nodeType}
         </Badge>
+        {node.match_excerpt != null && (
+          <p className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5">
+            <span className="text-muted-foreground/50">{node.matched_property}: </span>
+            {highlightTerm(node.match_excerpt, searchTerm)}
+          </p>
+        )}
       </div>
       {pubkey && (
         <div onClick={(e) => e.stopPropagation()} className="shrink-0">
@@ -206,6 +228,7 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
                     <NodeRow
                       node={node}
                       schemas={schemas}
+                      searchTerm={searchTerm}
                       onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
                       onMouseEnter={() => setHoveredNode(node)}
                       onMouseLeave={() => setHoveredNode(null)}
