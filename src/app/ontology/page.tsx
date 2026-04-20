@@ -48,6 +48,7 @@ export default function OntologyPage() {
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [view3D, setView3D] = useState(false)
+  const [schemaError, setSchemaError] = useState<string | null>(null)
 
   useEffect(() => {
     if (isMocksEnabled()) {
@@ -62,13 +63,18 @@ export default function OntologyPage() {
   const selected = store.schemas.find((s) => s.ref_id === selectedId) ?? null
 
   const handleUpdateSchema = useCallback(
-    (updated: SchemaNode) => {
-      store.updateSchema(updated)
+    async (updated: SchemaNode) => {
+      try {
+        await store.updateSchema(updated)
+        setSchemaError(null)
+      } catch (err) {
+        setSchemaError(err instanceof Error ? err.message : "Failed to save schema")
+      }
     },
     [store]
   )
 
-  const handleAddType = useCallback(() => {
+  const handleAddType = useCallback(async () => {
     // Find next available name
     const existing = new Set(store.schemas.map((s) => s.type))
     let n = 1
@@ -83,7 +89,12 @@ export default function OntologyPage() {
       node_key: "name",
       attributes: [{ key: "name", type: "string", required: true }],
     }
-    store.addSchema(newSchema)
+    try {
+      await store.addSchema(newSchema)
+      setSchemaError(null)
+    } catch (err) {
+      setSchemaError(err instanceof Error ? err.message : "Failed to save schema")
+    }
     setSelectedId(id)
   }, [store])
 
@@ -188,6 +199,8 @@ export default function OntologyPage() {
           onUpdate={handleUpdateSchema}
           onDelete={handleDeleteSchema}
           onClose={() => setSelectedId(null)}
+          error={schemaError ?? undefined}
+          onClearError={() => setSchemaError(null)}
         />
       )}
     </div>

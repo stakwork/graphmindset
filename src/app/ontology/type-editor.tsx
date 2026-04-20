@@ -26,16 +26,19 @@ interface Props {
   onUpdate: (schema: SchemaNode) => void
   onDelete: (refId: string) => void
   onClose: () => void
+  error?: string
+  onClearError?: () => void
 }
 
-export function TypeEditor({ schema, allSchemas, edges, onUpdate, onDelete, onClose }: Props) {
+export function TypeEditor({ schema, allSchemas, edges, onUpdate, onDelete, onClose, error, onClearError }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const update = useCallback(
     (partial: Partial<SchemaNode>) => {
+      onClearError?.()
       onUpdate({ ...schema, ...partial })
     },
-    [schema, onUpdate]
+    [schema, onUpdate, onClearError]
   )
 
   const updateAttribute = useCallback(
@@ -266,7 +269,10 @@ export function TypeEditor({ schema, allSchemas, edges, onUpdate, onDelete, onCl
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border p-4">
+      <div className="border-t border-border p-4 space-y-3">
+        {error && (
+          <p className="text-xs text-destructive leading-snug">{error}</p>
+        )}
         {schema.type === "Thing" ? (
           <p className="text-[10px] text-muted-foreground/50 text-center">
             Root type cannot be deleted
