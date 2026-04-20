@@ -40,6 +40,12 @@ interface GraphViewProps {
   recentNodes?: Map<number, number>;
   /** Cluster proxy node ID that is currently expanded in place */
   expandedClusterId?: number | null;
+  /** External hovered node instance index (from sidebar hover) */
+  externalHoveredId?: number | null;
+  /** External selected node instance index (from sidebar click) */
+  externalSelectedId?: number | null;
+  /** Called when the user clicks directly in the graph (before onNodeClick) */
+  onGraphClick?: () => void;
 }
 
 const tmpObj = new THREE.Object3D();
@@ -272,7 +278,7 @@ function sampleBezier(
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -299,6 +305,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   graphRef.current = graph;
   const expandedClusterRef = useRef(expandedClusterId);
   expandedClusterRef.current = expandedClusterId;
+  const externalHoveredRef = useRef<number | null>(null);
+  externalHoveredRef.current = externalHoveredId ?? null;
+  const externalSelectedRef = useRef<number | null>(null);
+  externalSelectedRef.current = externalSelectedId ?? null;
 
   const hoveredRelated = useMemo<Set<number> | null>(() => {
     if (hovered === null) return null;
@@ -901,9 +911,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       tmpObj.updateMatrix();
       mesh.setMatrixAt(i, tmpObj.matrix);
 
-      if (i === hovered) {
+      const extHov = externalHoveredRef.current;
+      const extHovAdj = extHov !== null ? (graphRef.current.adj[extHov] ?? []) : null;
+      if (i === hovered || (extHov !== null && i === extHov)) {
         tmpColor.setRGB(1.0, 0.2, 0.2);
-      } else if (hoveredRelated && hoveredRelated.has(i)) {
+      } else if (
+        (hoveredRelated && hoveredRelated.has(i)) ||
+        (extHovAdj && (extHovAdj as number[]).includes(i))
+      ) {
         tmpColor.setRGB(0.8, 0.15, 0.15);
       } else if (graph.nodes[i].status === "executing") {
         tmpColor.setRGB(0.2, 1.0, 0.4);
@@ -1146,10 +1161,17 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       crossGeom.setDrawRange(0, segCount * 2);
     }
 
-    // Highlighted edges
+    // Highlighted edges (includes sidebar external selected edges imperatively)
     const hl = highlightLinesRef.current;
     if (hl) {
-      const hlCount = highlightedEdges.length;
+      const extSel = externalSelectedRef.current;
+      const extSelEdges = extSel !== null
+        ? targetEdges.filter((e) => e.src === extSel || e.dst === extSel)
+        : [];
+      const combinedEdges = extSelEdges.length > 0
+        ? [...highlightedEdges, ...extSelEdges.filter((e) => !highlightedEdges.includes(e))]
+        : highlightedEdges;
+      const hlCount = combinedEdges.length;
       if (hlCount > 0) {
         // Cross-edges need Bézier segments, so allocate for worst case (8 segs per edge)
         const HL_SUBDIVS = 8;
@@ -1169,14 +1191,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         const crossKeys = new Set<string>();
         const tes = graph.treeEdgeSet;
         if (tes) {
-          for (const e of highlightedEdges) {
+          for (const e of combinedEdges) {
             if (!tes.has(edgeKey(e.src, e.dst))) crossKeys.add(edgeKey(e.src, e.dst));
           }
         }
 
         let segIdx = 0;
         for (let i = 0; i < hlCount; i++) {
-          const e = highlightedEdges[i];
+          const e = combinedEdges[i];
           const s3 = e.src * 3;
           const d3 = e.dst * 3;
           const ax = currentPos.current[s3], ay = currentPos.current[s3 + 1], az = currentPos.current[s3 + 2];
@@ -1428,6 +1450,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     if (e.instanceId === undefined) { console.log("[GV] click: no instanceId"); return; }
     if (visibleNodes && !visibleNodes.has(e.instanceId)) { console.log("[GV] click: filtered by visibleNodes", e.instanceId, "set size:", visibleNodes.size); return; }
     e.stopPropagation();
+    onGraphClick?.();
     onNodeClick(e.instanceId);
   };
 
