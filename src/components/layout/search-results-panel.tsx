@@ -11,7 +11,7 @@ import { NodePreviewPanel } from "./node-preview-panel"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
-import { cn } from "@/lib/utils"
+import { cn, displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
@@ -74,7 +74,7 @@ function NodeRow({ node, schemas, searchTerm, onClick, onMouseEnter, onMouseLeav
           variant="outline"
           className="mt-0.5 text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono"
         >
-          {nodeType}
+          {displayNodeType(nodeType)}
         </Badge>
         {node.match_excerpt != null && (
           <p className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5">

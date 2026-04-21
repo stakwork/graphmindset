@@ -16,6 +16,7 @@ import { useGraphStore } from "@/stores/graph-store"
 import { isInProgress, getStatusBadge, type StatusBadge } from "@/lib/node-status"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
+import { displayNodeType } from "@/lib/utils"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
@@ -73,7 +74,7 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost
             variant="outline"
             className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono"
           >
-            {nodeType}
+            {displayNodeType(nodeType)}
           </Badge>
           {statusBadge && (
             stakworkUrl ? (
