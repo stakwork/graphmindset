@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge } from "@/lib/node-status"
+import { displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
@@ -94,7 +95,7 @@ export function NodeRow({
             variant="outline"
             className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono"
           >
-            {nodeType}
+            {displayNodeType(nodeType)}
           </Badge>
           {statusBadge && (
             stakworkUrl ? (

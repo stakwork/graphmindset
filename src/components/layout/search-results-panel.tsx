@@ -10,7 +10,7 @@ import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
-import { cn } from "@/lib/utils"
+import { cn, displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 

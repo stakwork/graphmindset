@@ -63,7 +63,11 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         type: updated.type,
         parent: updated.parent,
         primary_color: updated.color,
-        node_key: updated.node_key,
+        node_key: updated.node_key
+          ? updated.node_key.replace(new RegExp(`^${updated.type.toLowerCase()}-`), "")
+          : updated.node_key,
+        title_key: updated.title_key ?? null,
+        description_key: updated.description_key ?? null,
         attributes: serializeAttributes(updated.attributes),
       })
     } catch (err) {
@@ -139,6 +143,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
           description_key?: string
           icon?: string
           attributes?: Record<string, unknown>
+          inherited_attributes?: Record<string, unknown>
         }>
         edges: SchemaEdge[]
       }>("/schema/all")
@@ -155,6 +160,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         description_key: s.description_key,
         icon: s.icon,
         attributes: parseAttributes(s.attributes),
+        inherited_attributes: parseAttributes(s.inherited_attributes as Record<string, unknown> | undefined),
       }))
 
       set({ schemas, edges: res.edges ?? [] })
