@@ -14,10 +14,10 @@ import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
+import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
-const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "node_type", "date_added_to_graph",
   // Fields rendered by rich widgets — hide from the fallback key/value list
@@ -27,12 +27,6 @@ const INTERNAL_FIELDS = new Set([
   "bio", "duration", "timestamp", "channel", "show", "episode_number",
   "boost", "num_boost",
 ])
-
-function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
-  if (!props || !key) return undefined
-  const v = props[key]
-  return typeof v === "string" && v.length > 0 ? v : undefined
-}
 
 function isUrl(value: string): boolean {
   try {

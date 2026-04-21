@@ -24,7 +24,7 @@ export const MOCK_NODES: GraphNode[] = [
   {
     ref_id: "n5",
     node_type: "Video",
-    properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works and why it matters" },
+    properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works and why it matters", image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/320px-Bitcoin.svg.png" },
   },
   {
     ref_id: "n6",
@@ -234,7 +234,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Video",
       ref_id: "c2",
-      properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works", status: "complete", date_added_to_graph: 1713000000, boost: 40 },
+      properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works", status: "complete", date_added_to_graph: 1713000000, boost: 40, thumbnail: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/320px-Bitcoin.svg.png" },
     },
     {
       node_type: "Podcast",
