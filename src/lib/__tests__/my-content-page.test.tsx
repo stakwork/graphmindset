@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import React from "react"
 
 // --- mock api ---
@@ -191,5 +191,100 @@ describe("MyContentPanel", () => {
       expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
     })
     expect(screen.queryByText("sats")).not.toBeInTheDocument()
+  })
+})
+
+describe("MyContentPanel – Stakwork badge link", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = {}
+  })
+
+  it("renders badge as <a> with correct href when admin + project_id + error status", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Failed Node", status: "error", project_id: "99999" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Failed Node")).toBeInTheDocument()
+    })
+    const link = screen.getByRole("link", { name: /failed/i })
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute("href", "https://jobs.stakwork.com/admin/projects/99999")
+    expect(link).toHaveAttribute("target", "_blank")
+  })
+
+  it("renders badge as plain <span> (no <a>) when non-admin with project_id", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Failed Node", status: "error", project_id: "99999" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Failed Node")).toBeInTheDocument()
+    })
+    expect(screen.queryByRole("link", { name: /failed/i })).toBeNull()
+    expect(screen.getByText("Failed")).toBeInTheDocument()
+  })
+
+  it("renders badge as plain <span> (no <a>) when admin but no project_id", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Failed Node", status: "error" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Failed Node")).toBeInTheDocument()
+    })
+    expect(screen.queryByRole("link", { name: /failed/i })).toBeNull()
+    expect(screen.getByText("Failed")).toBeInTheDocument()
+  })
+
+  it("stopPropagation: clicking badge link does not trigger parent row onClick", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Failed Node", status: "error", project_id: "99999" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Failed Node")).toBeInTheDocument()
+    })
+    const link = screen.getByRole("link", { name: /failed/i })
+    // Should not open node preview panel after clicking link
+    fireEvent.click(link)
+    expect(screen.queryByTestId("node-preview")).toBeNull()
   })
 })

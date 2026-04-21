@@ -70,7 +70,11 @@ export function AppLayout() {
           sourcesOpen={sourcesOpen}
           onToggleSources={() => { setSourcesOpen((o) => !o); setMyContentOpen(false) }}
           myContentOpen={myContentOpen}
-          onToggleMyContent={() => { setMyContentOpen(!myContentOpen); setSourcesOpen(false) }}
+          onToggleMyContent={() => {
+            if (!myContentOpen) closeSearchResults()
+            setMyContentOpen(!myContentOpen)
+            setSourcesOpen(false)
+          }}
         />
 
         <div className="relative flex flex-1 flex-col min-w-0">

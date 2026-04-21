@@ -411,6 +411,29 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
             <p className="text-xs text-muted-foreground">{description}</p>
           )}
 
+          {/* Stakwork project link for admins */}
+          {(() => {
+            const projectId = typeof props?.project_id === "string" ? props.project_id : null
+            const status = typeof props?.status === "string" ? props.status : null
+            const isLinkable =
+              isAdmin &&
+              projectId &&
+              status &&
+              ["in_progress", "processing", "halted", "error", "failed"].includes(status)
+            if (!isLinkable) return null
+            return (
+              <a
+                href={`https://jobs.stakwork.com/admin/projects/${projectId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2"
+              >
+                <ExternalLink className="h-3 w-3" />
+                View on Stakwork
+              </a>
+            )
+          })()}
+
           {/* Preview / Loading / Unlocked / Error */}
           {unlockState === "preview" && (
             <div className="space-y-3">

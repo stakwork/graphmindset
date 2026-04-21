@@ -12,7 +12,7 @@ import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
 import { useGraphStore } from "@/stores/graph-store"
-import { isInProgress, getStatusBadge, type StatusBadge } from "@/lib/node-status"
+import { isInProgress } from "@/lib/node-status"
 import type { GraphNode } from "@/lib/graph-api"
 
 const POLL_INTERVAL_MS = 5000
@@ -188,6 +188,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                       onMouseEnter={() => setHoveredNode(node)}
                       onMouseLeave={() => setHoveredNode(null)}
                       hideBoost={isAdmin || node.properties?.pubkey === userFullPubkey}
+                      isAdmin={isAdmin}
                     />
                     {i < nodes.length - 1 && (
                       <Separator className="bg-sidebar-border/50" />

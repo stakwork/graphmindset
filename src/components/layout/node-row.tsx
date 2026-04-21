@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Zap } from "lucide-react"
+import { Zap, ExternalLink } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -22,6 +22,8 @@ interface NodeRowProps {
   matchExcerpt?: React.ReactNode
   /** Whether to hide the boost/sats UI (e.g. for content contributors or admins) */
   hideBoost?: boolean
+  /** When true, status badges with a project_id link to Stakwork admin */
+  isAdmin?: boolean
 }
 
 export function NodeRow({
@@ -33,6 +35,7 @@ export function NodeRow({
   nameDisplay,
   matchExcerpt,
   hideBoost = false,
+  isAdmin = false,
 }: NodeRowProps) {
   const [imgError, setImgError] = useState(false)
 
@@ -54,6 +57,11 @@ export function NodeRow({
   const boostAmt = typeof props?.boost === "number" ? props.boost : 0
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
+
+  const projectId = typeof props?.project_id === "string" ? props.project_id : null
+  const stakworkUrl = isAdmin && projectId && statusBadge
+    ? `https://jobs.stakwork.com/admin/projects/${projectId}`
+    : null
 
   const thumbnail = (props?.image_url ?? props?.thumbnail) as string | undefined
   const showThumbnail = !!thumbnail && !imgError
@@ -89,11 +97,24 @@ export function NodeRow({
             {nodeType}
           </Badge>
           {statusBadge && (
-            <span
-              className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
-            >
-              {statusBadge.label}
-            </span>
+            stakworkUrl ? (
+              <a
+                href={stakworkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
+              >
+                {statusBadge.label}
+                <ExternalLink className="h-2.5 w-2.5 ml-0.5 inline" />
+              </a>
+            ) : (
+              <span
+                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
+              >
+                {statusBadge.label}
+              </span>
+            )
           )}
         </div>
         {matchExcerpt}
