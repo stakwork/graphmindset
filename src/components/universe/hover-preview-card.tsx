@@ -64,6 +64,7 @@ export function HoverPreviewCard({ node, schemas, x, y }: HoverPreviewCardProps)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
   const title = getTitle(node, schemas)
   const snippet = getSnippet(node, title)
+  if (!snippet) return null // nothing to add beyond the graph label
 
   const rightEdge = x + CURSOR_OFFSET + CARD_WIDTH
   const left = rightEdge > viewport.w ? x - CURSOR_OFFSET - CARD_WIDTH : x + CURSOR_OFFSET
