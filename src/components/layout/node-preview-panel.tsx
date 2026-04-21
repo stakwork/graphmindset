@@ -14,7 +14,7 @@ import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
-import { cn } from "@/lib/utils"
+import { cn, displayNodeType } from "@/lib/utils"
 import { getStatusBadge } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
@@ -379,7 +379,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           variant="outline"
           className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono"
         >
-          {nodeType}
+          {displayNodeType(nodeType)}
         </Badge>
         {pubkey && !hideBoost && (
           <div className="ml-auto">
