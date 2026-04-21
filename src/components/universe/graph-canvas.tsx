@@ -138,18 +138,16 @@ function applyLayout(graph: Graph) {
 function moveCameraToNode(cam: CameraControlsImpl, graph: Graph, nodeId: number) {
   const p = graph.nodes[nodeId].position
   const treeKids = graph.childrenOf?.get(nodeId) ?? []
-  const allPts = [p, ...treeKids.map((nid) => graph.nodes[nid]?.position).filter(Boolean)]
-  const avgX = allPts.reduce((s, pt) => s + pt.x, 0) / allPts.length
-  const avgZ = allPts.reduce((s, pt) => s + pt.z, 0) / allPts.length
+  const kidPts = treeKids.map((nid) => graph.nodes[nid]?.position).filter(Boolean)
   let maxRadius = 0
-  for (const pt of allPts) {
-    const dx = pt.x - avgX
-    const dz = pt.z - avgZ
+  for (const pt of kidPts) {
+    const dx = pt.x - p.x
+    const dz = pt.z - p.z
     maxRadius = Math.max(maxRadius, Math.sqrt(dx * dx + dz * dz))
   }
   const fovRad = (50 / 2) * (Math.PI / 180)
   const cameraHeight = Math.max(5, (maxRadius * 1.05) / Math.tan(fovRad))
-  cam.setLookAt(avgX, p.y + cameraHeight, avgZ + 0.1, avgX, p.y, avgZ, true)
+  cam.setLookAt(p.x, p.y + cameraHeight, p.z + 0.1, p.x, p.y, p.z, true)
 }
 
 interface GraphCanvasProps {
@@ -163,6 +161,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const cameraRef = useRef<CameraControlsImpl>(null)
   const sidebarHoveredNode = useGraphStore((s) => s.hoveredNode)
   const sidebarSelectedNode = useGraphStore((s) => s.sidebarSelectedNode)
+  const dataVersion = useGraphStore((s) => s.dataVersion)
 
   const { graph, indexMap, refIdToIndex } = useMemo(() => {
     const result = apiToGraph(nodes, edges, schemas)
@@ -174,15 +173,15 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
-  // Reset view when data changes. This also repositions the camera, so a
-  // parent `key` remount (the React-compiler-friendly alternative) would
-  // thrash the WebGL context.
+  // Reset view only on full data replacement (new search), not on appends
+  // from sidebar-driven neighbor fetches — otherwise focusing the camera on
+  // a clicked node would be undone every time a neighborhood arrives.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- paired with an imperative camera reset; remount would drop GL state
     setViewState({ mode: "overview" })
     const cam = cameraRef.current
     if (cam) cam.setLookAt(0, 80, 0.1, 0, 0, 0, true)
-  }, [nodes, edges])
+  }, [dataVersion])
 
   const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null

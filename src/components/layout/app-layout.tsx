@@ -14,10 +14,12 @@ import { MediaPlayer } from "@/components/player/media-player"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
+import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
+  useSidebarNeighborFetch()
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
