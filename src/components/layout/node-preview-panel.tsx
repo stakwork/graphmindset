@@ -230,6 +230,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const [price, setPrice] = useState<number | null>(null)
   const refreshBalance = useUserStore((s) => s.refreshBalance)
+  const userPubKey = useUserStore((s) => s.pubKey)
+  const userRouteHint = useUserStore((s) => s.routeHint)
+  const isAdmin = useUserStore((s) => s.isAdmin)
   const openModal = useModalStore((s) => s.open)
 
   const nodeType = node.node_type ?? "Unknown"
@@ -239,6 +242,10 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
   const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
   const boostAmt = typeof props?.boost === "number" ? props.boost : 0
+
+  const userFullPubkey = userPubKey && userRouteHint ? `${userPubKey}_${userRouteHint}` : userPubKey
+  const isContributor = !!pubkey && pubkey === userFullPubkey
+  const hideBoost = isAdmin || isContributor
 
   let title = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
   if (!title) {
@@ -364,7 +371,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         >
           {nodeType}
         </Badge>
-        {pubkey && (
+        {pubkey && !hideBoost && (
           <div className="ml-auto">
             <BoostButton
               refId={node.ref_id}
