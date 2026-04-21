@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Zap, Loader2, Play, Pause, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -14,6 +14,7 @@ import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
+import { cn } from "@/lib/utils"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
@@ -96,9 +97,9 @@ function TweetCard({ props }: { props: Record<string, unknown> }) {
 
 function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unknown> }) {
   const setPlayingNode = usePlayerStore((s) => s.setPlayingNode)
-  const setIsPlaying = usePlayerStore((s) => s.setIsPlaying)
-  const isThisNodePlaying = usePlayerStore(
-    (s) => s.isPlaying && s.playingNode?.ref_id === node.ref_id
+  const setHost = usePlayerStore((s) => s.setHost)
+  const isThisNodeSelected = usePlayerStore(
+    (s) => s.playingNode?.ref_id === node.ref_id
   )
   const mediaUrl = (props.media_url ?? props.link) as string | undefined
   const duration = typeof props.duration === "number" ? props.duration : undefined
@@ -110,35 +111,36 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
   return (
     <div className="space-y-2">
       {mediaUrl ? (
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full"
-          onClick={() => {
-            if (isThisNodePlaying) {
-              setIsPlaying(false)
-            } else {
-              setPlayingNode({ ...node, properties: props })
-            }
-          }}
-        >
-          {isVideo ? (
-            <Film className="h-3.5 w-3.5 mr-1.5" />
-          ) : isThisNodePlaying ? (
-            <Pause className="h-3.5 w-3.5 mr-1.5" />
-          ) : (
-            <Play className="h-3.5 w-3.5 mr-1.5" />
-          )}
-          {isVideo
-            ? isThisNodePlaying ? "Pause Video" : "Play Video"
-            : isThisNodePlaying ? "Pause Audio" : "Play Audio"
-          }
-          {duration !== undefined && (
-            <span className="ml-auto text-muted-foreground font-mono text-[10px]">
-              {formatDuration(duration)}
-            </span>
-          )}
-        </Button>
+        isThisNodeSelected ? (
+          // Reserve the space the floating MediaPlayer will overlay. Video
+          // cards need aspect-video + controls row height; audio just the
+          // controls row. The card itself is a sibling at document-body z,
+          // tracking this div's getBoundingClientRect().
+          <div
+            ref={setHost}
+            className={cn("w-full", isVideo ? "aspect-video" : "h-[48px]")}
+            style={{ marginBottom: 44 }}
+          />
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => setPlayingNode({ ...node, properties: props })}
+          >
+            {isVideo ? (
+              <Film className="h-3.5 w-3.5 mr-1.5" />
+            ) : (
+              <Play className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            {isVideo ? "Play Video" : "Play Audio"}
+            {duration !== undefined && (
+              <span className="ml-auto text-muted-foreground font-mono text-[10px]">
+                {formatDuration(duration)}
+              </span>
+            )}
+          </Button>
+        )
       ) : null}
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
         {(show ?? channel) && <span>{show ?? channel}</span>}
@@ -257,6 +259,13 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     : rawDesc
 
   const thumbnail = (props?.image_url ?? props?.thumbnail) as string | undefined
+  // Hide the static thumbnail when this node is the one currently playing —
+  // the inline MediaPlayer card (rendered by MediaCard below) already shows
+  // the video frame, so both together would be a duplicate.
+  const isThisNodePlayingHere = usePlayerStore(
+    (s) => s.playingNode?.ref_id === node.ref_id
+  )
+  const showThumbnail = !!thumbnail && !isThisNodePlayingHere
 
   async function handleUnlock() {
     setUnlockState("loading")
@@ -379,14 +388,15 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-4 py-4 space-y-4">
-          {/* Thumbnail or placeholder */}
-          {thumbnail ? (
+          {/* Thumbnail or placeholder (skipped when MediaCard is already
+              rendering the video frame for this node) */}
+          {showThumbnail ? (
             <img
               src={thumbnail}
               alt={title}
               className="w-full h-32 object-cover rounded-md"
             />
-          ) : (
+          ) : isThisNodePlayingHere ? null : (
             <div className="w-full h-32 rounded-md bg-muted/30 border border-border/50 flex items-center justify-center">
               <PlaceholderIcon className="h-8 w-8" style={{ color: `${schemaAccent}50` }} />
             </div>
