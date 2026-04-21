@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useRef, useEffect, useState } from "react"
-import { Play, Pause, X, Volume2, VolumeX } from "lucide-react"
+import { Play, Pause, X, Volume2, VolumeX, Maximize2, Minimize2 } from "lucide-react"
 import { usePlayerStore } from "@/stores/player-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { cn } from "@/lib/utils"
@@ -26,10 +26,12 @@ export function MediaPlayer() {
     duration,
     volume,
     host,
+    isExpanded,
     setIsPlaying,
     setCurrentTime,
     setDuration,
     setVolume,
+    setIsExpanded,
     stop,
   } = usePlayerStore()
 
@@ -127,7 +129,16 @@ export function MediaPlayer() {
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
 
-  const style: React.CSSProperties = hostRect
+  const style: React.CSSProperties = isExpanded
+    ? {
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        zIndex: 60,
+      }
+    : hostRect
     ? {
         position: "fixed",
         top: hostRect.top,
@@ -147,15 +158,20 @@ export function MediaPlayer() {
     <div
       style={style}
       className={cn(
-        "overflow-hidden border border-border bg-card/95 backdrop-blur-sm rounded-md",
-        hostRect ? "" : "shadow-xl"
+        "overflow-hidden bg-card/95 backdrop-blur-sm flex flex-col",
+        isExpanded
+          ? "bg-black"
+          : cn("border border-border rounded-md", hostRect ? "" : "shadow-xl")
       )}
     >
       {isVideo ? (
         <video
           ref={videoRef}
           src={mediaUrl}
-          className="w-full aspect-video object-contain bg-black"
+          className={cn(
+            "w-full object-contain bg-black",
+            isExpanded ? "flex-1 min-h-0" : "aspect-video"
+          )}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onEnded={handleEnded}
@@ -173,7 +189,7 @@ export function MediaPlayer() {
       <div
         ref={progressRef}
         onClick={handleSeek}
-        className="h-1 w-full cursor-pointer bg-muted group"
+        className="h-1 w-full cursor-pointer bg-muted group shrink-0"
       >
         <div
           className="h-full bg-primary transition-[width] duration-100 group-hover:h-1.5"
@@ -181,7 +197,7 @@ export function MediaPlayer() {
         />
       </div>
 
-      <div className="flex items-center gap-3 px-3 py-2">
+      <div className="flex items-center gap-3 px-3 py-2 shrink-0">
         <button
           onClick={() => setIsPlaying(!isPlaying)}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -215,6 +231,19 @@ export function MediaPlayer() {
             <VolumeX className="h-4 w-4" />
           )}
         </button>
+
+        {isVideo && (
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {isExpanded ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
+          </button>
+        )}
 
         <button
           onClick={stop}
