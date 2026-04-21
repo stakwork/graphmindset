@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import { useGraphStore } from "@/stores/graph-store"
-import { getNodeNeighborhood } from "@/lib/graph-api"
+import { getNode } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 
 // When the user picks a node from the sidebar, fetch its 1-hop neighborhood
@@ -36,7 +36,7 @@ export function useSidebarNeighborFetch(): void {
           }
           return
         }
-        const result = await getNodeNeighborhood(refId, controller.signal)
+        const result = await getNode(refId, "edges", controller.signal)
         if (controller.signal.aborted) return
         useGraphStore.getState().addNodes(result.nodes ?? [], result.edges ?? [])
       } catch {
