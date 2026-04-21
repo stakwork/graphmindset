@@ -29,6 +29,7 @@ export interface SchemaNode {
   color: string
   node_key: string
   attributes: SchemaAttribute[]
+  inherited_attributes?: SchemaAttribute[]
   title_key?: string
   index?: string
   description_key?: string
