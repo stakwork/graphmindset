@@ -12,14 +12,10 @@ import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
 import { useGraphStore } from "@/stores/graph-store"
+import { isInProgress, getStatusBadge, type StatusBadge } from "@/lib/node-status"
 import type { GraphNode } from "@/lib/graph-api"
 
-const IN_PROGRESS_STATUSES = new Set(["processing", "in_progress"])
 const POLL_INTERVAL_MS = 5000
-
-function isInProgress(status: unknown): boolean {
-  return typeof status === "string" && IN_PROGRESS_STATUSES.has(status)
-}
 
 function sameContent(a: GraphNode[], b: GraphNode[]): boolean {
   if (a === b) return true
