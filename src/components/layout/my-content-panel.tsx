@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { X, Loader2, BookMarked, Zap } from "lucide-react"
+import { X, Loader2, BookMarked, Zap, ExternalLink } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -37,7 +37,7 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void; hideBoost: boolean }) {
+function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost, isAdmin }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void; hideBoost: boolean; isAdmin: boolean }) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const props = node.properties
@@ -53,6 +53,10 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost
   const boostAmt = typeof props?.boost === "number" && props.boost > 0 ? props.boost : null
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
+  const projectId = typeof props?.project_id === "string" ? props.project_id : null
+  const stakworkUrl = isAdmin && projectId && statusBadge
+    ? `https://jobs.stakwork.com/admin/projects/${projectId}`
+    : null
 
   return (
     <button onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
@@ -72,11 +76,24 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost
             {nodeType}
           </Badge>
           {statusBadge && (
-            <span
-              className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
-            >
-              {statusBadge.label}
-            </span>
+            stakworkUrl ? (
+              <a
+                href={stakworkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
+              >
+                {statusBadge.label}
+                <ExternalLink className="h-2.5 w-2.5 ml-0.5 inline" />
+              </a>
+            ) : (
+              <span
+                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
+              >
+                {statusBadge.label}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -252,6 +269,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                       onMouseEnter={() => setHoveredNode(node)}
                       onMouseLeave={() => setHoveredNode(null)}
                       hideBoost={isAdmin || node.properties?.pubkey === userFullPubkey}
+                      isAdmin={isAdmin}
                     />
                     {i < nodes.length - 1 && (
                       <Separator className="bg-sidebar-border/50" />
