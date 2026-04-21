@@ -80,6 +80,7 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     color: "#38243C",
     icon: "VideoIcon",
     node_key: "show-show_title",
+    title_key: "show_title",
     attributes: [
       { key: "name", type: "string", required: true },
       { key: "show_title", type: "string", required: true },
@@ -92,6 +93,10 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     color: "#222B48",
     icon: "EpisodeIcon",
     node_key: "episode-source_link",
+    title_key: "episode_title",
+    inherited_attributes: [
+      { key: "source_link", type: "string", required: true },
+    ],
     attributes: [
       { key: "date", type: "datetime", required: false },
       { key: "episode_title", type: "string", required: false },
@@ -107,6 +112,10 @@ export const SMALL_SCHEMAS: SchemaNode[] = [
     color: "#1D3140",
     icon: "AudioIcon",
     node_key: "clip-episode_title-timestamp",
+    title_key: "name",
+    inherited_attributes: [
+      { key: "episode_title", type: "string", required: false },
+    ],
     attributes: [
       { key: "boost", type: "int", required: false },
       { key: "name", type: "string", required: true },
