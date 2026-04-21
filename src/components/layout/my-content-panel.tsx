@@ -69,7 +69,7 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void }) {
+function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void; hideBoost: boolean }) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const props = node.properties
@@ -112,7 +112,7 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave }: { node:
           )}
         </div>
       </div>
-      {boostAmt !== null && (
+      {!hideBoost && boostAmt !== null && (
         <div className="shrink-0 flex items-center gap-1 text-[11px] font-mono text-amber-400">
           <Zap className="h-3 w-3" />
           <span>{boostAmt}</span>
@@ -130,11 +130,12 @@ interface ContentResponse {
 }
 
 export function MyContentPanel({ onClose }: { onClose: () => void }) {
-  const { pubKey, routeHint } = useUserStore()
+  const { pubKey, routeHint, isAdmin } = useUserStore()
   const schemas = useSchemaStore((s) => s.schemas)
   const openModal = useModalStore((s) => s.open)
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
+  const userFullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
   const mocksEnabled = isMocksEnabled()
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [totalProcessing, setTotalProcessing] = useState(0)
@@ -282,6 +283,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                       onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
                       onMouseEnter={() => setHoveredNode(node)}
                       onMouseLeave={() => setHoveredNode(null)}
+                      hideBoost={isAdmin || node.properties?.pubkey === userFullPubkey}
                     />
                     {i < nodes.length - 1 && (
                       <Separator className="bg-sidebar-border/50" />
