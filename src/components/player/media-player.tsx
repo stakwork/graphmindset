@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useRef, useEffect } from "react"
-import { Play, Pause, X, Volume2, VolumeX, Maximize2, Minimize2 } from "lucide-react"
+import { useCallback, useRef, useEffect, useState } from "react"
+import { Play, Pause, X, Volume2, VolumeX } from "lucide-react"
 import { usePlayerStore } from "@/stores/player-store"
 import { useSchemaStore } from "@/stores/schema-store"
+import { cn } from "@/lib/utils"
 
 function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
   if (!props || !key) return undefined
@@ -24,18 +25,40 @@ export function MediaPlayer() {
     currentTime,
     duration,
     volume,
-    isExpanded,
+    host,
     setIsPlaying,
     setCurrentTime,
     setDuration,
     setVolume,
-    setIsExpanded,
     stop,
   } = usePlayerStore()
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
+  const [hostRect, setHostRect] = useState<DOMRect | null>(null)
+
+  // Track the host element's position so the (always top-level) card can be
+  // laid over it. Using one stable mount + CSS repositioning instead of a
+  // portal avoids remounting the <video> element when the host disappears,
+  // which would otherwise tear down playback.
+  useEffect(() => {
+    if (!host) {
+      setHostRect(null)
+      return
+    }
+    const update = () => setHostRect(host.getBoundingClientRect())
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(host)
+    window.addEventListener("scroll", update, true)
+    window.addEventListener("resize", update)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener("scroll", update, true)
+      window.removeEventListener("resize", update)
+    }
+  }, [host])
 
   const mediaUrl =
     (playingNode?.properties?.media_url as string) ??
@@ -52,40 +75,22 @@ export function MediaPlayer() {
     "Unknown"
 
   const nodeType = playingNode?.node_type ?? ""
-
   const isVideo = typeof mediaUrl === "string" && /\.(mp4|webm|mov)/i.test(mediaUrl)
+  const getMedia = () => (isVideo ? videoRef.current : audioRef.current)
 
-  const getMedia = () => isVideo ? videoRef.current : audioRef.current
-
-  // Sync play/pause with media element
   useEffect(() => {
     const media = getMedia()
     if (!media) return
-    if (isPlaying) {
-      media.play().catch(() => setIsPlaying(false))
-    } else {
-      media.pause()
-    }
+    if (isPlaying) media.play().catch(() => setIsPlaying(false))
+    else media.pause()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, setIsPlaying, isVideo])
 
-  // Update volume
   useEffect(() => {
     const media = getMedia()
     if (media) media.volume = volume
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [volume, isVideo])
-
-  // Guard against browser seek reset when toggling expand/collapse
-  useEffect(() => {
-    const media = videoRef.current
-    if (!media || !isVideo) return
-    media.currentTime = currentTime
-    if (isPlaying) {
-      media.play().catch(() => setIsPlaying(false))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExpanded])
 
   const handleTimeUpdate = useCallback(() => {
     const media = getMedia()
@@ -122,185 +127,49 @@ export function MediaPlayer() {
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
 
-  const controlBar = (
-    <div className="fixed bottom-0 left-0 right-0 z-[60] border-t border-border bg-card/95 backdrop-blur-sm">
-      {/* Progress bar — clickable */}
-      <div
-        ref={progressRef}
-        onClick={handleSeek}
-        className="h-1 w-full cursor-pointer bg-muted group"
-      >
-        <div
-          className="h-full bg-primary transition-[width] duration-100 group-hover:h-1.5"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
+  const style: React.CSSProperties = hostRect
+    ? {
+        position: "fixed",
+        top: hostRect.top,
+        left: hostRect.left,
+        width: hostRect.width,
+        zIndex: 50,
+      }
+    : {
+        position: "fixed",
+        bottom: 16,
+        right: 16,
+        width: 320,
+        zIndex: 50,
+      }
 
-      <div className="flex items-center gap-4 px-5 py-2.5">
-        {/* Play/Pause */}
-        <button
-          onClick={() => setIsPlaying(!isPlaying)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          {isPlaying ? (
-            <Pause className="h-3.5 w-3.5" />
-          ) : (
-            <Play className="h-3.5 w-3.5 ml-0.5" />
-          )}
-        </button>
-
-        {/* Track info */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground truncate">
-            {title}
-          </p>
-          <p className="text-[10px] text-muted-foreground font-mono">
-            {nodeType}
-            {duration > 0 && (
-              <span className="ml-2">
-                {formatTime(currentTime)} / {formatTime(duration)}
-              </span>
-            )}
-          </p>
-        </div>
-
-        {/* Volume */}
-        <button
-          onClick={() => setVolume(volume > 0 ? 0 : 0.8)}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {volume > 0 ? (
-            <Volume2 className="h-4 w-4" />
-          ) : (
-            <VolumeX className="h-4 w-4" />
-          )}
-        </button>
-
-        {/* Close */}
-        <button
-          onClick={stop}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
-  )
-
-  if (isVideo) {
-    return (
-      <>
-        {/* Single persistent video element — repositioned via dynamic classes */}
+  return (
+    <div
+      style={style}
+      className={cn(
+        "overflow-hidden border border-border bg-card/95 backdrop-blur-sm rounded-md",
+        hostRect ? "" : "shadow-xl"
+      )}
+    >
+      {isVideo ? (
         <video
           ref={videoRef}
           src={mediaUrl}
-          className={
-            isExpanded
-              ? "fixed inset-0 w-full h-full object-contain z-50 bg-black pb-12"
-              : "fixed bottom-16 right-4 w-72 aspect-video rounded-lg object-contain z-50 bg-black"
-          }
+          className="w-full aspect-video object-contain bg-black"
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onEnded={handleEnded}
         />
+      ) : (
+        <audio
+          ref={audioRef}
+          src={mediaUrl}
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={handleLoadedMetadata}
+          onEnded={handleEnded}
+        />
+      )}
 
-        {/* Mini card chrome — sibling overlay, not wrapping video */}
-        {!isExpanded && (
-          <div className="fixed bottom-16 right-4 w-72 aspect-video rounded-lg z-[55] group pointer-events-none">
-
-            {/* Progress bar — bottom edge of card */}
-            <div
-              ref={progressRef}
-              onClick={handleSeek}
-              className="absolute bottom-0 left-0 right-0 h-1 cursor-pointer bg-white/20 rounded-b-lg pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <div
-                className="h-full bg-primary rounded-b-lg transition-[width] duration-100"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-
-            {/* Centre play/pause */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
-              >
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-              </button>
-            </div>
-
-            {/* Top-right: volume + expand + close */}
-            <div className="absolute top-2 right-2 flex items-center gap-1.5 pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => setVolume(volume > 0 ? 0 : 0.8)}
-                className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
-              >
-                {volume > 0 ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-              </button>
-              <button
-                onClick={() => setIsExpanded(true)}
-                className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={stop}
-                className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* Bottom-left: time display */}
-            <div className="absolute bottom-3 left-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-              {duration > 0 && (
-                <span className="text-[10px] font-mono text-white/80">
-                  {formatTime(currentTime)} / {formatTime(duration)}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Expanded overlay controls — sibling div, not wrapping video */}
-        {isExpanded && (
-          <div className="fixed inset-0 z-[55] pointer-events-none">
-            <div className="absolute top-3 right-3 flex items-center gap-2 pointer-events-auto">
-              <button
-                onClick={() => setIsExpanded(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
-              >
-                <Minimize2 className="h-4 w-4" />
-              </button>
-              <button
-                onClick={stop}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Bottom control bar for video — expanded only */}
-        {isExpanded && controlBar}
-      </>
-    )
-  }
-
-  // Audio mode
-  return (
-    <div className="fixed bottom-0 left-0 right-0 z-[60] border-t border-border bg-card/95 backdrop-blur-sm">
-      <audio
-        ref={audioRef}
-        src={mediaUrl}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onEnded={handleEnded}
-      />
-
-      {/* Progress bar — clickable */}
       <div
         ref={progressRef}
         onClick={handleSeek}
@@ -312,8 +181,7 @@ export function MediaPlayer() {
         />
       </div>
 
-      <div className="flex items-center gap-4 px-5 py-2.5">
-        {/* Play/Pause */}
+      <div className="flex items-center gap-3 px-3 py-2">
         <button
           onClick={() => setIsPlaying(!isPlaying)}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -325,12 +193,9 @@ export function MediaPlayer() {
           )}
         </button>
 
-        {/* Track info */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground truncate">
-            {title}
-          </p>
-          <p className="text-[10px] text-muted-foreground font-mono">
+          <p className="text-xs font-medium text-foreground truncate">{title}</p>
+          <p className="text-[10px] text-muted-foreground font-mono truncate">
             {nodeType}
             {duration > 0 && (
               <span className="ml-2">
@@ -340,7 +205,6 @@ export function MediaPlayer() {
           </p>
         </div>
 
-        {/* Volume */}
         <button
           onClick={() => setVolume(volume > 0 ? 0 : 0.8)}
           className="text-muted-foreground hover:text-foreground transition-colors"
@@ -352,7 +216,6 @@ export function MediaPlayer() {
           )}
         </button>
 
-        {/* Close */}
         <button
           onClick={stop}
           className="text-muted-foreground hover:text-foreground transition-colors"

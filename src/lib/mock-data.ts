@@ -239,7 +239,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Podcast",
       ref_id: "c3",
-      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "processing", date_added_to_graph: 1712900000 },
+      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "error", project_id: "123456", date_added_to_graph: 1712900000 },
     },
     {
       node_type: "Document",

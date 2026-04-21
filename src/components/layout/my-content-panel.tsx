@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { X, Loader2, BookMarked, Zap } from "lucide-react"
+import { X, Loader2, BookMarked, Zap, ExternalLink } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -13,45 +13,13 @@ import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
 import { useGraphStore } from "@/stores/graph-store"
+import { isInProgress, getStatusBadge, type StatusBadge } from "@/lib/node-status"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
-const IN_PROGRESS_STATUSES = new Set(["processing", "in_progress"])
 const POLL_INTERVAL_MS = 5000
-
-type StatusBadge = {
-  label: string
-  className: string
-}
-
-function isInProgress(status: unknown): boolean {
-  return typeof status === "string" && IN_PROGRESS_STATUSES.has(status)
-}
-
-function getStatusBadge(status: unknown): StatusBadge | null {
-  if (typeof status !== "string") return null
-  if (isInProgress(status)) {
-    return {
-      label: "Processing",
-      className: "bg-amber-500/15 text-amber-400",
-    }
-  }
-  if (status === "halted") {
-    return {
-      label: "Paused",
-      className: "bg-muted text-muted-foreground",
-    }
-  }
-  if (status === "error" || status === "failed") {
-    return {
-      label: "Failed",
-      className: "bg-destructive/15 text-destructive",
-    }
-  }
-  return null
-}
 
 function sameContent(a: GraphNode[], b: GraphNode[]): boolean {
   if (a === b) return true
@@ -69,7 +37,7 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void; hideBoost: boolean }) {
+function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost, isAdmin }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void; hideBoost: boolean; isAdmin: boolean }) {
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const props = node.properties
@@ -85,6 +53,10 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost
   const boostAmt = typeof props?.boost === "number" && props.boost > 0 ? props.boost : null
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
+  const projectId = typeof props?.project_id === "string" ? props.project_id : null
+  const stakworkUrl = isAdmin && projectId && statusBadge
+    ? `https://jobs.stakwork.com/admin/projects/${projectId}`
+    : null
 
   return (
     <button onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
@@ -104,11 +76,24 @@ function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost
             {nodeType}
           </Badge>
           {statusBadge && (
-            <span
-              className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
-            >
-              {statusBadge.label}
-            </span>
+            stakworkUrl ? (
+              <a
+                href={stakworkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
+              >
+                {statusBadge.label}
+                <ExternalLink className="h-2.5 w-2.5 ml-0.5 inline" />
+              </a>
+            ) : (
+              <span
+                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
+              >
+                {statusBadge.label}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -284,6 +269,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                       onMouseEnter={() => setHoveredNode(node)}
                       onMouseLeave={() => setHoveredNode(null)}
                       hideBoost={isAdmin || node.properties?.pubkey === userFullPubkey}
+                      isAdmin={isAdmin}
                     />
                     {i < nodes.length - 1 && (
                       <Separator className="bg-sidebar-border/50" />
