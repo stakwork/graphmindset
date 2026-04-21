@@ -9,8 +9,19 @@ vi.mock("@/lib/api", () => ({
 }))
 
 // --- mock stores ---
+interface MyContentUserStore {
+  pubKey: string
+  routeHint: string
+  isAdmin: boolean
+}
+let myContentUserOverrides: Partial<MyContentUserStore> = {}
 vi.mock("@/stores/user-store", () => ({
-  useUserStore: () => ({ pubKey: "03abc123testkey" }),
+  useUserStore: () => ({
+    pubKey: "03abc123testkey",
+    routeHint: "",
+    isAdmin: false,
+    ...myContentUserOverrides,
+  }),
 }))
 
 vi.mock("@/stores/schema-store", () => ({
@@ -63,6 +74,7 @@ const EMPTY_RESPONSE = {
 describe("MyContentPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    myContentUserOverrides = {}
   })
 
   it("renders items with processing banner", async () => {
@@ -138,5 +150,46 @@ describe("MyContentPanel", () => {
     expect(mockApiGet).toHaveBeenCalledWith(
       "/v2/content?pubkey=03abc123testkey&sort_by=date&limit=100"
     )
+  })
+
+  it("hides boost sats display when node pubkey matches user pubKey (contributor)", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Bitcoin is freedom", status: "complete", boost: 150, pubkey: "03abc123testkey" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    // pubKey matches node pubkey, no routeHint
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("sats")).not.toBeInTheDocument()
+  })
+
+  it("hides boost sats display when isAdmin is true", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Bitcoin is freedom", status: "complete", boost: 200, pubkey: "03someoneelse" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("sats")).not.toBeInTheDocument()
   })
 })

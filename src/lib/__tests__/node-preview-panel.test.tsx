@@ -29,9 +29,25 @@ vi.mock("@/lib/mock-data", () => ({
 
 // --- stores ---
 const mockRefreshBalance = vi.fn()
+
+interface UserStoreState {
+  refreshBalance: () => void
+  pubKey: string
+  routeHint: string
+  isAdmin: boolean
+}
+
+let userStoreOverrides: Partial<UserStoreState> = {}
+
 vi.mock("@/stores/user-store", () => ({
-  useUserStore: (sel: (s: { refreshBalance: () => void }) => unknown) =>
-    sel({ refreshBalance: mockRefreshBalance }),
+  useUserStore: (sel: (s: UserStoreState) => unknown) =>
+    sel({
+      refreshBalance: mockRefreshBalance,
+      pubKey: "",
+      routeHint: "",
+      isAdmin: false,
+      ...userStoreOverrides,
+    }),
 }))
 
 const mockOpen = vi.fn()
@@ -83,6 +99,7 @@ function makeGraphData(node: GraphNode) {
 describe("NodePreviewPanel – price display", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    userStoreOverrides = {}
   })
 
   it("shows spinner while getPrice is still pending (no unlock button yet)", async () => {
@@ -190,5 +207,78 @@ describe("NodePreviewPanel – price display", () => {
         expect.any(AbortSignal),
       )
     })
+  })
+})
+
+describe("NodePreviewPanel – boost visibility", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    // Default: api probe returns 200 so BoostButton area is reached
+    mockApiGet.mockResolvedValue({ nodes: [{ ref_id: "abc", node_type: "Topic", properties: { name: "Test Node", pubkey: "03abc" } }], edges: [] })
+  })
+
+  const nodeWithPubkey = (pubkey: string): GraphNode => ({
+    ref_id: "abc",
+    node_type: "Topic",
+    properties: { name: "Test Node", pubkey },
+  })
+
+  it("hides BoostButton when bare pubkey matches user pubKey (contributor)", async () => {
+    userStoreOverrides = { pubKey: "03abc", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey("03abc")))
+
+    const { container } = render(
+      <NodePreviewPanel node={nodeWithPubkey("03abc")} onBack={vi.fn()} schemas={[]} />
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    // BoostButton mock renders null, but its parent div should not be in DOM
+    expect(container.querySelector(".ml-auto")).toBeNull()
+  })
+
+  it("hides BoostButton when compound pubkey matches user pubKey_routeHint (contributor)", async () => {
+    userStoreOverrides = { pubKey: "03abc", routeHint: "02xyz_123456", isAdmin: false }
+    const compoundPubkey = "03abc_02xyz_123456"
+    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey(compoundPubkey)))
+
+    const { container } = render(
+      <NodePreviewPanel node={nodeWithPubkey(compoundPubkey)} onBack={vi.fn()} schemas={[]} />
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(container.querySelector(".ml-auto")).toBeNull()
+  })
+
+  it("hides BoostButton when isAdmin is true regardless of pubkey", async () => {
+    userStoreOverrides = { pubKey: "03other", routeHint: "", isAdmin: true }
+    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey("03abc")))
+
+    const { container } = render(
+      <NodePreviewPanel node={nodeWithPubkey("03abc")} onBack={vi.fn()} schemas={[]} />
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(container.querySelector(".ml-auto")).toBeNull()
+  })
+
+  it("renders BoostButton wrapper when non-owner non-admin views a pubkey node", async () => {
+    userStoreOverrides = { pubKey: "03other", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey("03abc")))
+
+    const { container } = render(
+      <NodePreviewPanel node={nodeWithPubkey("03abc")} onBack={vi.fn()} schemas={[]} />
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(container.querySelector(".ml-auto")).not.toBeNull()
   })
 })
