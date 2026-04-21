@@ -206,8 +206,38 @@ export function MediaPlayer() {
 
         {/* Mini card chrome — sibling overlay, not wrapping video */}
         {!isExpanded && (
-          <div className="fixed bottom-16 right-4 w-72 aspect-video rounded-lg z-[55] pointer-events-none">
-            <div className="absolute top-2 right-2 flex items-center gap-1.5 pointer-events-auto">
+          <div className="fixed bottom-16 right-4 w-72 aspect-video rounded-lg z-[55] group pointer-events-none">
+
+            {/* Progress bar — bottom edge of card */}
+            <div
+              ref={progressRef}
+              onClick={handleSeek}
+              className="absolute bottom-0 left-0 right-0 h-1 cursor-pointer bg-white/20 rounded-b-lg pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <div
+                className="h-full bg-primary rounded-b-lg transition-[width] duration-100"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            {/* Centre play/pause */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
+              >
+                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
+              </button>
+            </div>
+
+            {/* Top-right: volume + expand + close */}
+            <div className="absolute top-2 right-2 flex items-center gap-1.5 pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => setVolume(volume > 0 ? 0 : 0.8)}
+                className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
+              >
+                {volume > 0 ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+              </button>
               <button
                 onClick={() => setIsExpanded(true)}
                 className="flex h-6 w-6 items-center justify-center rounded bg-black/60 text-white hover:bg-black/80 transition-colors"
@@ -220,6 +250,15 @@ export function MediaPlayer() {
               >
                 <X className="h-3.5 w-3.5" />
               </button>
+            </div>
+
+            {/* Bottom-left: time display */}
+            <div className="absolute bottom-3 left-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+              {duration > 0 && (
+                <span className="text-[10px] font-mono text-white/80">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -244,8 +283,8 @@ export function MediaPlayer() {
           </div>
         )}
 
-        {/* Bottom control bar for video */}
-        {controlBar}
+        {/* Bottom control bar for video — expanded only */}
+        {isExpanded && controlBar}
       </>
     )
   }
