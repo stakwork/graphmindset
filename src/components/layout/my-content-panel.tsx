@@ -13,45 +13,13 @@ import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
 import { useGraphStore } from "@/stores/graph-store"
+import { isInProgress, getStatusBadge, type StatusBadge } from "@/lib/node-status"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
-const IN_PROGRESS_STATUSES = new Set(["processing", "in_progress"])
 const POLL_INTERVAL_MS = 5000
-
-type StatusBadge = {
-  label: string
-  className: string
-}
-
-function isInProgress(status: unknown): boolean {
-  return typeof status === "string" && IN_PROGRESS_STATUSES.has(status)
-}
-
-function getStatusBadge(status: unknown): StatusBadge | null {
-  if (typeof status !== "string") return null
-  if (isInProgress(status)) {
-    return {
-      label: "Processing",
-      className: "bg-amber-500/15 text-amber-400",
-    }
-  }
-  if (status === "halted") {
-    return {
-      label: "Paused",
-      className: "bg-muted text-muted-foreground",
-    }
-  }
-  if (status === "error" || status === "failed") {
-    return {
-      label: "Failed",
-      className: "bg-destructive/15 text-destructive",
-    }
-  }
-  return null
-}
 
 function sameContent(a: GraphNode[], b: GraphNode[]): boolean {
   if (a === b) return true

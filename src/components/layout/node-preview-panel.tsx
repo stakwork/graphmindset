@@ -15,12 +15,13 @@ import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
 import { cn } from "@/lib/utils"
+import { getStatusBadge } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 const INTERNAL_FIELDS = new Set([
-  "ref_id", "pubkey", "node_type", "date_added_to_graph",
+  "ref_id", "pubkey", "node_type", "date_added_to_graph", "status",
   // Fields rendered by rich widgets — hide from the fallback key/value list
   "name", "title", "description", "text", "transcript", "media_url", "link",
   "image_url", "thumbnail", "source_link", "tweet_id", "author",
@@ -447,6 +448,38 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
           {unlockState === "unlocked" && fp && (
             <div className="space-y-4">
+              {/* Core properties row */}
+              {(() => {
+                const statusBadge = getStatusBadge(fp.status)
+                const dateStr = typeof fp.date_added_to_graph === "string" && fp.date_added_to_graph
+                  ? new Date(fp.date_added_to_graph).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                  : null
+                const sats = typeof fp.boost === "number" && fp.boost > 0
+                  ? fp.boost
+                  : typeof fp.num_boost === "number" && fp.num_boost > 0
+                  ? fp.num_boost
+                  : null
+                if (!statusBadge && !dateStr && sats === null) return null
+                return (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {statusBadge && (
+                      <span className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}>
+                        {statusBadge.label}
+                      </span>
+                    )}
+                    {dateStr && (
+                      <span className="text-[11px] font-mono text-muted-foreground">{dateStr}</span>
+                    )}
+                    {sats !== null && (
+                      <div className="flex items-center gap-1 text-[11px] font-mono text-amber-400">
+                        <Zap className="h-3 w-3" />
+                        <span>{sats}</span>
+                        <span className="text-muted-foreground">sats</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
               {hasTweet && <TweetCard props={fp} />}
               {hasPerson && <PersonCard props={fp} />}
               {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}

@@ -282,3 +282,101 @@ describe("NodePreviewPanel – boost visibility", () => {
     expect(container.querySelector(".ml-auto")).not.toBeNull()
   })
 })
+
+describe("NodePreviewPanel – core property rendering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  function makeUnlockedNode(extraProps: Record<string, unknown>): GraphNode {
+    return {
+      ref_id: "abc",
+      node_type: "Topic",
+      properties: { name: "Test Node", ...extraProps },
+    }
+  }
+
+  it("shows 'Processing' badge when status is 'processing'", async () => {
+    const node = makeUnlockedNode({ status: "processing" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Processing")).toBeInTheDocument()
+    })
+  })
+
+  it("shows 'Done' badge when status is 'completed'", async () => {
+    const node = makeUnlockedNode({ status: "completed" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Done")).toBeInTheDocument()
+    })
+  })
+
+  it("shows 'Paused' badge when status is 'halted'", async () => {
+    const node = makeUnlockedNode({ status: "halted" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Paused")).toBeInTheDocument()
+    })
+  })
+
+  it("shows 'Failed' badge when status is 'error'", async () => {
+    const node = makeUnlockedNode({ status: "error" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed")).toBeInTheDocument()
+    })
+  })
+
+  it("shows formatted date when date_added_to_graph is present", async () => {
+    const node = makeUnlockedNode({ date_added_to_graph: "2025-04-18" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Apr 18, 2025")).toBeInTheDocument()
+    })
+  })
+
+  it("shows sats counter when boost is a positive number", async () => {
+    const node = makeUnlockedNode({ boost: 50 })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("50")).toBeInTheDocument()
+      expect(screen.getByText("sats")).toBeInTheDocument()
+    })
+  })
+
+  it("does not render core properties row when none of status/date/boost are present", async () => {
+    const node = makeUnlockedNode({})
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByText("Processing")).toBeNull()
+    expect(screen.queryByText("Done")).toBeNull()
+    expect(screen.queryByText("Paused")).toBeNull()
+    expect(screen.queryByText("Failed")).toBeNull()
+    expect(screen.queryByText("sats")).toBeNull()
+  })
+})
