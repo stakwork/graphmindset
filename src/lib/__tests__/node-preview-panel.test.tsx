@@ -308,15 +308,17 @@ describe("NodePreviewPanel – core property rendering", () => {
     })
   })
 
-  it("shows 'Done' badge when status is 'completed'", async () => {
+  it("does not show a status badge when status is 'completed'", async () => {
     const node = makeUnlockedNode({ status: "completed" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      expect(screen.getByText("Done")).toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
     })
+    expect(screen.queryByText("Done")).toBeNull()
+    expect(screen.queryByText("Processing")).toBeNull()
   })
 
   it("shows 'Paused' badge when status is 'halted'", async () => {
