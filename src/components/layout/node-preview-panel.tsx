@@ -261,6 +261,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
+  const paidProperties = schema?.paid_properties ?? []
   const { icon: PlaceholderIcon, accent: schemaAccent } = getSchemaIconInfo(schema?.icon)
   const props = node.properties
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
@@ -465,9 +466,23 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           {/* Preview / Loading / Unlocked / Error */}
           {unlockState === "preview" && (
             <div className="space-y-3">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
+              {paidProperties.length > 0 ? (
+                paidProperties.map((field) => (
+                  <div
+                    key={field}
+                    className="flex items-center gap-2 rounded-md bg-muted/30 border border-border/30 px-3 py-2"
+                  >
+                    <span className="text-muted-foreground text-xs">🔒</span>
+                    <span className="text-xs text-muted-foreground font-mono">{field}</span>
+                  </div>
+                ))
+              ) : (
+                <>
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                </>
+              )}
               <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
                 <Zap className="h-3.5 w-3.5 mr-1.5" />
                 {price != null ? `Unlock for ${price} sats` : "Unlock Full Content"}

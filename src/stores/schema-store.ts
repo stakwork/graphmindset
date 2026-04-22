@@ -144,6 +144,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
           icon?: string
           attributes?: Record<string, unknown>
           inherited_attributes?: Record<string, unknown>
+          paid_properties?: string[]
         }>
         edges: SchemaEdge[]
       }>("/schema/all")
@@ -161,6 +162,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         icon: s.icon,
         attributes: parseAttributes(s.attributes),
         inherited_attributes: parseAttributes(s.inherited_attributes as Record<string, unknown> | undefined),
+        paid_properties: Array.isArray(s.paid_properties) ? (s.paid_properties as string[]) : undefined,
       }))
 
       set({ schemas, edges: res.edges ?? [] })
