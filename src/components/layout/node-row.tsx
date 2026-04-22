@@ -64,8 +64,9 @@ export function NodeRow({
     ? `https://jobs.stakwork.com/admin/projects/${projectId}`
     : null
 
-  const thumbnail = (props?.image_url ?? props?.thumbnail) as string | undefined
+  const thumbnail = pickString(props, "image_url") ?? pickString(props, "thumbnail")
   const showThumbnail = !!thumbnail && !imgError
+  const tileClasses = "h-9 w-9 shrink-0 rounded-md border"
 
   return (
     <button
@@ -78,12 +79,12 @@ export function NodeRow({
         <img
           src={thumbnail}
           alt=""
-          className="h-9 w-9 shrink-0 object-cover rounded-md border border-border/40"
+          className={`${tileClasses} object-cover border-border/40`}
           onError={() => setImgError(true)}
         />
       ) : (
         <div
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border"
+          className={`${tileClasses} flex items-center justify-center`}
           style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
         >
           <Icon className="h-4 w-4" style={{ color: accent }} />
