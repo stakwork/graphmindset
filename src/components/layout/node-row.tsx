@@ -74,20 +74,21 @@ export function NodeRow({
       onMouseLeave={onMouseLeave}
       className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group overflow-hidden"
     >
-      {showThumbnail && (
+      {showThumbnail ? (
         <img
           src={thumbnail}
           alt=""
-          className="h-full w-12 shrink-0 object-cover rounded-l-md -ml-4 -my-3 self-stretch"
+          className="h-9 w-9 shrink-0 object-cover rounded-md border border-border/40"
           onError={() => setImgError(true)}
         />
+      ) : (
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border"
+          style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
+        >
+          <Icon className="h-4 w-4" style={{ color: accent }} />
+        </div>
       )}
-      <div
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border"
-        style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
-      >
-        <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
-      </div>
       <div className="flex-1 min-w-0 overflow-hidden">
         <p className="text-sm text-foreground truncate">{nameDisplay ?? name}</p>
         <div className="flex items-center gap-1.5 mt-0.5">
