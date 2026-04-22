@@ -544,3 +544,78 @@ describe("NodePreviewPanel – Stakwork project link", () => {
     }
   )
 })
+
+describe("NodePreviewPanel – paid_properties lock placeholders", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    // 402 probe → preview state
+    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
+    mockGetPrice.mockResolvedValue(10)
+  })
+
+  function makeSchemaNode(type: string, paid_properties?: string[]) {
+    return {
+      ref_id: `ref-${type}`,
+      type,
+      parent: "",
+      color: "#888",
+      node_key: "name",
+      attributes: [],
+      paid_properties,
+    }
+  }
+
+  it("shows lock placeholder for single paid_property (claim_text)", async () => {
+    const node: GraphNode = { ref_id: "c1", node_type: "Claim", properties: { name: "Claim Node" } }
+    const schema = makeSchemaNode("Claim", ["claim_text"])
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[schema]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("claim_text")).toBeInTheDocument()
+    })
+    expect(screen.getByText("🔒")).toBeInTheDocument()
+    // No generic skeletons when paid_properties is present
+    expect(document.querySelectorAll("[data-slot='skeleton']").length).toBe(0)
+  })
+
+  it("shows two lock placeholders for Episode/Clip (media_url + transcript)", async () => {
+    const node: GraphNode = { ref_id: "e1", node_type: "Episode", properties: { name: "Episode Node" } }
+    const schema = makeSchemaNode("Episode", ["media_url", "transcript"])
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[schema]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("media_url")).toBeInTheDocument()
+      expect(screen.getByText("transcript")).toBeInTheDocument()
+    })
+    const locks = screen.getAllByText("🔒")
+    expect(locks).toHaveLength(2)
+  })
+
+  it("shows generic skeletons when schema has no paid_properties (no regression)", async () => {
+    const node: GraphNode = { ref_id: "p1", node_type: "Person", properties: { name: "Person Node" } }
+    const schema = makeSchemaNode("Person")
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[schema]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /unlock/i })).toBeInTheDocument()
+    })
+    expect(screen.queryByText("🔒")).toBeNull()
+  })
+
+  it("shows no lock placeholders when node is unlocked (no regression)", async () => {
+    mockApiGet.mockResolvedValue({ nodes: [{ ref_id: "p2", node_type: "Person", properties: { name: "Person Node" } }], edges: [] })
+    const node: GraphNode = { ref_id: "p2", node_type: "Person", properties: { name: "Person Node" } }
+    const schema = makeSchemaNode("Person")
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[schema]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByText("🔒")).toBeNull()
+  })
+})
