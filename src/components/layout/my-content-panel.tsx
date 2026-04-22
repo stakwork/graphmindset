@@ -1,24 +1,19 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { X, Loader2, BookMarked, Zap, ExternalLink } from "lucide-react"
-import { getSchemaIconInfo } from "@/lib/schema-icons"
+import { X, Loader2, BookMarked } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
 import { NodePreviewPanel } from "./node-preview-panel"
+import { NodeRow } from "./node-row"
 import { api } from "@/lib/api"
 import { isMocksEnabled, MOCK_CONTENT } from "@/lib/mock-data"
 import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
 import { useGraphStore } from "@/stores/graph-store"
-import { isInProgress, getStatusBadge } from "@/lib/node-status"
+import { isInProgress } from "@/lib/node-status"
 import type { GraphNode } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
-import { displayNodeType } from "@/lib/utils"
-
-const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
 const POLL_INTERVAL_MS = 5000
 
@@ -30,83 +25,6 @@ function sameContent(a: GraphNode[], b: GraphNode[]): boolean {
     if (a[i].properties?.status !== b[i].properties?.status) return false
   }
   return true
-}
-
-function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
-  if (!props || !key) return undefined
-  const v = props[key]
-  return typeof v === "string" && v.length > 0 ? v : undefined
-}
-
-function NodeRow({ node, schemas, onClick, onMouseEnter, onMouseLeave, hideBoost, isAdmin }: { node: GraphNode; schemas: SchemaNode[]; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void; hideBoost: boolean; isAdmin: boolean }) {
-  const nodeType = node.node_type ?? "Unknown"
-  const schema = schemas.find((s) => s.type === nodeType)
-  const props = node.properties
-  let name = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
-  if (!name) {
-    for (const key of DISPLAY_KEY_FALLBACKS) {
-      name = pickString(props, key)
-      if (name) break
-    }
-  }
-  if (!name) name = node.ref_id
-
-  const boostAmt = typeof props?.boost === "number" && props.boost > 0 ? props.boost : null
-  const statusBadge = getStatusBadge(props?.status)
-  const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
-  const projectId = typeof props?.project_id === "string" ? props.project_id : null
-  const stakworkUrl = isAdmin && projectId && statusBadge
-    ? `https://jobs.stakwork.com/admin/projects/${projectId}`
-    : null
-
-  return (
-    <button onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
-      <div
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border"
-        style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
-      >
-        <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
-      </div>
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <p className="text-sm text-foreground truncate">{name}</p>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <Badge
-            variant="outline"
-            className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono w-16 justify-center shrink-0"
-          >
-            {displayNodeType(nodeType)}
-          </Badge>
-          {statusBadge && (
-            stakworkUrl ? (
-              <a
-                href={stakworkUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
-              >
-                {statusBadge.label}
-                <ExternalLink className="h-2.5 w-2.5 ml-0.5 inline" />
-              </a>
-            ) : (
-              <span
-                className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}
-              >
-                {statusBadge.label}
-              </span>
-            )
-          )}
-        </div>
-      </div>
-      {!hideBoost && boostAmt !== null && (
-        <div className="shrink-0 flex items-center gap-1 text-[11px] font-mono text-amber-400">
-          <Zap className="h-3 w-3" />
-          <span>{boostAmt}</span>
-          <span className="text-muted-foreground">sats</span>
-        </div>
-      )}
-    </button>
-  )
 }
 
 interface ContentResponse {

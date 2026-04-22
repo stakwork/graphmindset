@@ -2,20 +2,17 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
-import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
-import { BoostButton } from "@/components/boost/boost-button"
 import { NodePreviewPanel } from "./node-preview-panel"
+import { NodeRow } from "./node-row"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
+import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { cn, displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
-
-const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
 
 function highlightTerm(text: string, term: string): React.ReactNode[] {
   if (!term) return [text]
@@ -28,68 +25,19 @@ function highlightTerm(text: string, term: string): React.ReactNode[] {
   )
 }
 
-function pickString(props: Record<string, unknown> | undefined, key: string | undefined): string | undefined {
-  if (!props || !key) return undefined
-  const v = props[key]
-  return typeof v === "string" && v.length > 0 ? v : undefined
-}
-
-function NodeRow({ node, schemas, searchTerm, onClick, onMouseEnter, onMouseLeave }: { node: GraphNode; schemas: SchemaNode[]; searchTerm: string; onClick: () => void; onMouseEnter: () => void; onMouseLeave: () => void }) {
-  const nodeType = node.node_type ?? "Unknown"
-  const schema = schemas.find((s) => s.type === nodeType)
-  // Priority: title_key → index (sphinx convention) → common display-ish
-  // property names → ref_id. The last step catches nodes whose schema key
-  // isn't populated on this particular row.
-  const props = node.properties
-  let name = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
-  if (!name) {
-    for (const key of DISPLAY_KEY_FALLBACKS) {
-      name = pickString(props, key)
-      if (name) break
-    }
-  }
-  if (!name) name = node.ref_id
-
-  const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
-  const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
-  const boostAmt = typeof props?.boost === "number" ? props.boost : 0
-  const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
-
+function buildMatchExcerpt(node: GraphNode, schemas: SchemaNode[], searchTerm: string): React.ReactNode | undefined {
+  const schema = schemas.find((s) => s.type === (node.node_type ?? "Unknown"))
   const titleKey = schema?.title_key ?? schema?.index
   const isTitleMatch = node.matched_property !== undefined && node.matched_property === titleKey
-
-  return (
-    <button onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="flex items-center gap-3 px-4 py-3 w-full text-left cursor-pointer hover:bg-sidebar-accent transition-colors group">
-      <div
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border"
-        style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
-      >
-        <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
-      </div>
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <p className="text-sm text-foreground truncate">
-          {isTitleMatch ? highlightTerm(name, searchTerm) : name}
-        </p>
-        <Badge
-          variant="outline"
-          className="mt-0.5 text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono"
-        >
-          {displayNodeType(nodeType)}
-        </Badge>
-        {node.match_excerpt != null && (
-          <p className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5">
-            <span className="text-muted-foreground/50">{node.matched_property}: </span>
-            {highlightTerm(node.match_excerpt, searchTerm)}
-          </p>
-        )}
-      </div>
-      {pubkey && (
-        <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-          <BoostButton refId={node.ref_id} pubkey={pubkey} routeHint={routeHint} boostCount={boostAmt} className="shrink-0" />
-        </div>
-      )}
-    </button>
-  )
+  if (!isTitleMatch && node.match_excerpt != null) {
+    return (
+      <p className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5">
+        <span className="text-muted-foreground/50">{node.matched_property}: </span>
+        {highlightTerm(node.match_excerpt, searchTerm)}
+      </p>
+    )
+  }
+  return undefined
 }
 
 export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
@@ -223,12 +171,25 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
               </div>
             ) : (
               <div className="py-1">
-                {filteredNodes.map((node, i) => (
+                {filteredNodes.map((node, i) => {
+                  const schema = schemas.find((s) => s.type === (node.node_type ?? "Unknown"))
+                  const titleKey = schema?.title_key ?? schema?.index
+                  let name = pickString(node.properties, titleKey)
+                  if (!name) {
+                    for (const key of DISPLAY_KEY_FALLBACKS) {
+                      name = pickString(node.properties, key)
+                      if (name) break
+                    }
+                  }
+                  if (!name) name = node.ref_id
+                  const isTitleMatch = node.matched_property !== undefined && node.matched_property === titleKey
+                  return (
                   <div key={node.ref_id}>
                     <NodeRow
                       node={node}
                       schemas={schemas}
-                      searchTerm={searchTerm}
+                      nameDisplay={isTitleMatch ? highlightTerm(name, searchTerm) : undefined}
+                      matchExcerpt={buildMatchExcerpt(node, schemas, searchTerm)}
                       onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
                       onMouseEnter={() => setHoveredNode(node)}
                       onMouseLeave={() => setHoveredNode(null)}
@@ -237,7 +198,8 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
                       <Separator className="bg-sidebar-border/50" />
                     )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </ScrollArea>

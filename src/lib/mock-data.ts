@@ -9,27 +9,27 @@ export const MOCK_NODES: GraphNode[] = [
   {
     ref_id: "n2",
     node_type: "Tweet",
-    properties: { name: "Bitcoin is freedom tech", description: "Tweet by @jack about Bitcoin adoption" },
+    properties: { name: "Bitcoin is freedom tech", description: "Tweet by @jack about Bitcoin adoption", image_url: "https://picsum.photos/seed/tweet-jack/120" },
   },
   {
     ref_id: "n3",
     node_type: "Person",
-    properties: { name: "Satoshi Nakamoto", description: "Creator of Bitcoin", twitter_handle: "satoshi" },
+    properties: { name: "Satoshi Nakamoto", description: "Creator of Bitcoin", twitter_handle: "satoshi", image_url: "https://picsum.photos/seed/satoshi/120" },
   },
   {
     ref_id: "n4",
     node_type: "Episode",
-    properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer about Bitcoin scaling" },
+    properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer about Bitcoin scaling", thumbnail: "https://picsum.photos/seed/wbd412/120" },
   },
   {
     ref_id: "n5",
     node_type: "Video",
-    properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works and why it matters" },
+    properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works and why it matters", image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/320px-Bitcoin.svg.png" },
   },
   {
     ref_id: "n6",
     node_type: "Article",
-    properties: { name: "Bitcoin Whitepaper", description: "The original paper describing a peer-to-peer electronic cash system" },
+    properties: { name: "Bitcoin Whitepaper", description: "The original paper describing a peer-to-peer electronic cash system", image_url: "https://picsum.photos/seed/whitepaper/120" },
   },
   {
     ref_id: "n7",
@@ -39,7 +39,7 @@ export const MOCK_NODES: GraphNode[] = [
   {
     ref_id: "n8",
     node_type: "Clip",
-    properties: { name: "Bitcoin Mining Explained", description: "A 3-minute clip explaining proof-of-work mining" },
+    properties: { name: "Bitcoin Mining Explained", description: "A 3-minute clip explaining proof-of-work mining", thumbnail: "https://example.invalid/this-image-404.jpg" },
   },
 ]
 
@@ -229,17 +229,17 @@ export const MOCK_CONTENT = {
     {
       node_type: "Tweet",
       ref_id: "c1",
-      properties: { name: "Bitcoin is freedom tech", text: "Bitcoin is freedom tech. The separation of money and state.", status: "complete", date_added_to_graph: 1713100000, boost: 150 },
+      properties: { name: "Bitcoin is freedom tech", text: "Bitcoin is freedom tech. The separation of money and state.", status: "complete", date_added_to_graph: 1713100000, boost: 150, image_url: "https://picsum.photos/seed/content-c1/120" },
     },
     {
       node_type: "Video",
       ref_id: "c2",
-      properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works", status: "complete", date_added_to_graph: 1713000000, boost: 40 },
+      properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works", status: "complete", date_added_to_graph: 1713000000, boost: 40, thumbnail: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/320px-Bitcoin.svg.png" },
     },
     {
       node_type: "Podcast",
       ref_id: "c3",
-      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "error", project_id: "123456", date_added_to_graph: 1712900000 },
+      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "error", project_id: "123456", date_added_to_graph: 1712900000, thumbnail: "https://picsum.photos/seed/content-c3/120" },
     },
     {
       node_type: "Document",
@@ -249,7 +249,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Tweet",
       ref_id: "c5",
-      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", project_id: "789012", date_added_to_graph: 1712700000 },
+      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", project_id: "789012", date_added_to_graph: 1712700000, image_url: "https://example.invalid/content-c5-broken.jpg" },
     },
   ],
   totalCount: 5,
