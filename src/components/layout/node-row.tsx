@@ -95,7 +95,7 @@ export function NodeRow({
         <div className="flex items-center gap-1.5 mt-0.5">
           <Badge
             variant="outline"
-            className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono"
+            className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono w-16 justify-center shrink-0"
           >
             {displayNodeType(nodeType)}
           </Badge>

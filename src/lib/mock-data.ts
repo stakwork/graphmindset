@@ -249,7 +249,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Tweet",
       ref_id: "c5",
-      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", date_added_to_graph: 1712700000, image_url: "https://example.invalid/content-c5-broken.jpg" },
+      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", project_id: "789012", date_added_to_graph: 1712700000, image_url: "https://example.invalid/content-c5-broken.jpg" },
     },
   ],
   totalCount: 5,

@@ -14,6 +14,6 @@ export function getStatusBadge(status: unknown): StatusBadge | null {
   if (isInProgress(status)) return { label: "Processing", className: "bg-amber-500/15 text-amber-400" }
   if (HALTED_STATUSES.has(status)) return { label: "Paused", className: "bg-muted text-muted-foreground" }
   if (ERROR_STATUSES.has(status)) return { label: "Failed", className: "bg-destructive/15 text-destructive" }
-  if (COMPLETED_STATUSES.has(status)) return { label: "Done", className: "bg-green-500/15 text-green-400" }
+  if (COMPLETED_STATUSES.has(status)) return null
   return null
 }
