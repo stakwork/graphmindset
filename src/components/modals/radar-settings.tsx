@@ -14,6 +14,7 @@ import {
   updateRadarConfig,
 } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_RADAR_CONFIGS } from "@/lib/mock-data"
+import { useUserStore } from "@/stores/user-store"
 
 const SOURCE_TYPE_LABELS: Record<RadarSourceType, string> = {
   twitter_handle: "Twitter handles",
@@ -37,6 +38,7 @@ function formatLastRun(ts?: number): string {
 }
 
 export function RadarSettings({ open }: { open: boolean }) {
+  const isAdmin = useUserStore((s) => s.isAdmin)
   const [configs, setConfigs] = useState<RadarConfig[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -68,6 +70,7 @@ export function RadarSettings({ open }: { open: boolean }) {
       sourceType: RadarSourceType,
       fields: Partial<Pick<RadarConfig, "enabled" | "cadence" | "workflow_id">>
     ) => {
+      if (!isAdmin) return
       // Optimistic update so the row reacts immediately on toggle/edit.
       setConfigs((prev) =>
         prev
@@ -90,7 +93,7 @@ export function RadarSettings({ open }: { open: boolean }) {
         load()
       }
     },
-    [load]
+    [isAdmin, load]
   )
 
   if (loading && !configs) {
@@ -115,7 +118,7 @@ export function RadarSettings({ open }: { open: boolean }) {
         off to pause without losing the cadence.
       </p>
       {configs?.map((cfg) => (
-        <RadarRow key={cfg.source_type} config={cfg} onUpdate={handleUpdate} />
+        <RadarRow key={cfg.source_type} config={cfg} onUpdate={handleUpdate} isAdmin={isAdmin} />
       ))}
     </div>
   )
@@ -124,12 +127,14 @@ export function RadarSettings({ open }: { open: boolean }) {
 function RadarRow({
   config,
   onUpdate,
+  isAdmin,
 }: {
   config: RadarConfig
   onUpdate: (
     sourceType: RadarSourceType,
     fields: Partial<Pick<RadarConfig, "enabled" | "cadence" | "workflow_id">>
   ) => Promise<void>
+  isAdmin: boolean
 }) {
   const [cadence, setCadence] = useState(config.cadence)
   const [running, setRunning] = useState(false)
@@ -149,6 +154,7 @@ function RadarRow({
   }, [cadence, config.cadence, config.source_type, cadenceInvalid, onUpdate])
 
   const handleRunNow = useCallback(async () => {
+    if (!isAdmin) return
     if (isMocksEnabled()) {
       setRunMessage("Mock: dispatched")
       return
@@ -166,7 +172,7 @@ function RadarRow({
     } finally {
       setRunning(false)
     }
-  }, [config.source_type])
+  }, [isAdmin, config.source_type])
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/30 p-3 space-y-2">

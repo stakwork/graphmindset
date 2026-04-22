@@ -621,3 +621,72 @@ describe("NodePreviewPanel – paid_properties lock placeholders", () => {
     expect(screen.queryByText("🔒")).toBeNull()
   })
 })
+
+describe("NodePreviewPanel – View Source / web page link", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  it("renders 'View Source' link for a web page node with a plain link URL", async () => {
+    const node: GraphNode = {
+      ref_id: "n9",
+      node_type: "WebPage",
+      properties: { name: "Sphinx Chat Website", description: "Decentralised messaging on Lightning." },
+    }
+    const fullNode: GraphNode = {
+      ...node,
+      properties: { ...node.properties, link: "https://sphinx.chat" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [fullNode], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("View Source")).toBeInTheDocument()
+    })
+    const link = screen.getByRole("link", { name: /view source/i })
+    expect(link).toHaveAttribute("href", "https://sphinx.chat")
+    expect(link).toHaveAttribute("target", "_blank")
+  })
+
+  it("does not render 'View Source' for an audio node with a media link URL", async () => {
+    const node: GraphNode = {
+      ref_id: "a1",
+      node_type: "Episode",
+      properties: { name: "Audio Episode" },
+    }
+    const fullNode: GraphNode = {
+      ...node,
+      properties: { ...node.properties, link: "https://example.com/audio.mp3" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [fullNode], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Play Audio")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("View Source")).toBeNull()
+  })
+
+  it("renders player and no View Source for a node with media_url", async () => {
+    const node: GraphNode = {
+      ref_id: "m1",
+      node_type: "Episode",
+      properties: { name: "Media Node" },
+    }
+    const fullNode: GraphNode = {
+      ...node,
+      properties: { ...node.properties, media_url: "https://example.com/episode.mp3" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [fullNode], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Play Audio")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("View Source")).toBeNull()
+  })
+})
