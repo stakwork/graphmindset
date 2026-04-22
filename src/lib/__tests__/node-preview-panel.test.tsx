@@ -381,6 +381,93 @@ describe("NodePreviewPanel – core property rendering", () => {
   })
 })
 
+describe("NodePreviewPanel – SummaryBlock", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  function makeMediaNode(extraProps: Record<string, unknown>): GraphNode {
+    return {
+      ref_id: "media1",
+      node_type: "Episode",
+      properties: { name: "Media Node", media_url: "https://example.com/audio.mp3", ...extraProps },
+    }
+  }
+
+  it("renders 'Summary' label and text above 'Transcript' for a media node with both", async () => {
+    const node = makeMediaNode({ summary: "This is a summary.", transcript: "This is the transcript." })
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Summary")).toBeInTheDocument()
+      expect(screen.getByText("This is a summary.")).toBeInTheDocument()
+      expect(screen.getByText("Transcript")).toBeInTheDocument()
+    })
+
+    // Assert Summary appears before Transcript in the DOM
+    const summaryLabel = screen.getByText("Summary")
+    const transcriptLabel = screen.getByText("Transcript")
+    expect(
+      summaryLabel.compareDocumentPosition(transcriptLabel) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("does not render SummaryBlock when media node has no summary", async () => {
+    const node = makeMediaNode({ transcript: "Just a transcript." })
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Transcript")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("Summary")).toBeNull()
+  })
+
+  it("does not render SummaryBlock for a non-media node with summary", async () => {
+    const node: GraphNode = {
+      ref_id: "tweet1",
+      node_type: "Tweet",
+      properties: {
+        name: "A tweet",
+        tweet_id: "123",
+        text: "tweet text",
+        summary: "Should not appear",
+      },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByText("Summary")).toBeNull()
+  })
+
+  it("truncates long summary at 300 chars and shows 'Show more' toggle", async () => {
+    const longSummary = "A".repeat(350)
+    const node = makeMediaNode({ summary: longSummary })
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Summary")).toBeInTheDocument()
+    })
+
+    // Truncated text ends with ellipsis
+    const summaryText = screen.getByText(/A+…/)
+    expect(summaryText.textContent?.length).toBeLessThan(350)
+
+    // Show more button present
+    expect(screen.getByRole("button", { name: /show more/i })).toBeInTheDocument()
+  })
+})
+
 describe("NodePreviewPanel – Stakwork project link", () => {
   beforeEach(() => {
     vi.clearAllMocks()
