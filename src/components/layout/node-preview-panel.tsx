@@ -23,7 +23,7 @@ const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "bod
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "node_type", "date_added_to_graph", "status",
   // Fields rendered by rich widgets — hide from the fallback key/value list
-  "name", "title", "description", "text", "transcript", "media_url", "link",
+  "name", "title", "description", "text", "transcript", "summary", "media_url", "link",
   "image_url", "thumbnail", "source_link", "tweet_id", "author",
   "twitter_handle", "like_count", "retweet_count", "verified", "date",
   "bio", "duration", "timestamp", "channel", "show", "episode_number",
@@ -166,6 +166,27 @@ function TranscriptBlock({ text }: { text: string }) {
   return (
     <div className="space-y-1">
       <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Transcript</p>
+      <p className="text-xs leading-relaxed whitespace-pre-line">{display}</p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+        >
+          {expanded ? <><ChevronUp className="h-3 w-3" />Show less</> : <><ChevronDown className="h-3 w-3" />Show more</>}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function SummaryBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = text.length > 300
+  const display = isLong && !expanded ? text.slice(0, 300) + "\u2026" : text
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Summary</p>
       <p className="text-xs leading-relaxed whitespace-pre-line">{display}</p>
       {isLong && (
         <button
@@ -356,6 +377,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const hasTweet = fp && ("tweet_id" in fp || "twitter_handle" in fp) && "text" in fp
   const hasMedia = fp && ("media_url" in fp || "link" in fp)
   const hasTranscript = fp && typeof fp.transcript === "string"
+  const hasSummary = hasMedia && fp && typeof fp.summary === "string" && fp.summary.length > 0
   const hasArticle = fp && ("source_link" in fp || (typeof fp.text === "string" && !hasTweet))
   const hasPerson = fp && ("bio" in fp || "twitter_handle" in fp) && !hasTweet
   // Remaining properties not handled by rich widgets
@@ -506,6 +528,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               {hasTweet && <TweetCard props={fp} />}
               {hasPerson && <PersonCard props={fp} />}
               {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}
+              {hasSummary && <SummaryBlock text={fp.summary as string} />}
               {hasArticle && !hasTweet && <ArticleCard props={fp} />}
               {hasTranscript && <TranscriptBlock text={fp.transcript as string} />}
 
