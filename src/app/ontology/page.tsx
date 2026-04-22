@@ -35,6 +35,7 @@ export interface SchemaNode {
   description_key?: string
   icon?: string
   secondary_color?: string
+  paid_properties?: string[]
 }
 
 export interface SchemaEdge {
