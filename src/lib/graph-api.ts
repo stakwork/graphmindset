@@ -230,6 +230,41 @@ export async function updateRadarConfig(
   )
 }
 
+// --- Domains & hidden types ----------------------------------------------
+
+export interface SchemaDomainsResponse {
+  domains: string[]
+  hidden: string[]
+}
+
+// Returns the available domain roots for this namespace and the current
+// hidden_types list (schema types excluded from Domain_* labeling).
+export async function getSchemaDomains(
+  signal?: AbortSignal
+): Promise<SchemaDomainsResponse> {
+  return api.get<SchemaDomainsResponse>(
+    "/v2/schema/domains",
+    undefined,
+    signal
+  )
+}
+
+// Write the hidden_types list (and required title/description) via /about.
+// The backend diffs old vs new and re-labels affected nodes in the background.
+export async function updateHiddenTypes(
+  title: string,
+  description: string,
+  hiddenTypes: string[],
+  signal?: AbortSignal
+): Promise<{ status: string }> {
+  return api.post<{ status: string }>(
+    "/about",
+    { title, description, hidden_types: hiddenTypes },
+    undefined,
+    signal
+  )
+}
+
 export async function runRadarNow(
   sourceType: RadarSourceType,
   signal?: AbortSignal

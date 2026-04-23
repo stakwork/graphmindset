@@ -285,6 +285,11 @@ export const MOCK_RADAR_CONFIGS = [
   { ...baseRadarConfig, ref_id: "rc-topic", source_type: "topic" as const, enabled: true, cadence: "*/10 * * * *" },
 ]
 
+export const MOCK_DOMAINS = {
+  domains: ["content", "codegraph", "workflow"],
+  hidden: [] as string[],
+}
+
 export function isMocksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"
 }
