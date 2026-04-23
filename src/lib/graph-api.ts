@@ -105,18 +105,6 @@ export async function getNode(
   )
 }
 
-// Get node neighborhood (edges + connected nodes)
-export async function getNodeNeighborhood(
-  refId: string,
-  signal?: AbortSignal
-): Promise<GraphData> {
-  return api.get<GraphData>(
-    `/v2/nodes/${refId}/neighborhood`,
-    undefined,
-    signal
-  )
-}
-
 // Create node(s)
 export async function createNode(
   data: Record<string, unknown> | Record<string, unknown>[],
