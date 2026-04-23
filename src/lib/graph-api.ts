@@ -41,10 +41,13 @@ interface StatsResponse {
   [key: string]: number
 }
 
+// Domains used by default search. Caller can override via `opts.domains`.
+export const DEFAULT_SEARCH_DOMAINS: readonly string[] = ["content"]
+
 // Search nodes via v2 endpoint
 export async function searchNodes(
   query: string,
-  opts?: { limit?: number; skip?: number; node_type?: string },
+  opts?: { limit?: number; skip?: number; node_type?: string; domains?: string[] },
   signal?: AbortSignal
 ): Promise<NodesListResponse> {
   const params = new URLSearchParams({
@@ -53,6 +56,11 @@ export async function searchNodes(
     skip: String(opts?.skip ?? 0),
   })
   if (opts?.node_type) params.set("node_type", opts.node_type)
+
+  const domains = opts?.domains ?? DEFAULT_SEARCH_DOMAINS
+  if (domains.length > 0) {
+    params.set("domains", domains.join(","))
+  }
 
   return api.get<NodesListResponse>(
     `/v2/nodes?${params}`,
