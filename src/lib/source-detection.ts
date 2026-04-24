@@ -1,6 +1,9 @@
 export const SOURCE_TYPES = {
   TWITTER_HANDLE: "twitter_handle",
   YOUTUBE_CHANNEL: "youtube_channel",
+  YOUTUBE_VIDEO: "youtube_video",
+  YOUTUBE_LIVE: "youtube_live",
+  YOUTUBE_SHORT: "youtube_short",
   RSS: "rss",
   GITHUB_REPOSITORY: "github_repository",
   TWEET: "tweet",
@@ -46,12 +49,12 @@ async function checkIfRSS(url: string): Promise<boolean> {
 }
 
 export async function detectSourceType(source: string): Promise<SourceType> {
+  if (youtubeLiveRegex.test(source)) return SOURCE_TYPES.YOUTUBE_LIVE
+  if (youtubeRegex.test(source) || youtubeShortRegex.test(source)) return SOURCE_TYPES.YOUTUBE_VIDEO
+  if (youtubeShortsRegex.test(source)) return SOURCE_TYPES.YOUTUBE_SHORT
+
   const linkPatterns = [
-    youtubeLiveRegex,
     twitterBroadcastRegex,
-    youtubeRegex,
-    youtubeShortRegex,
-    youtubeShortsRegex,
     twitterSpaceRegex,
     mp3Regex,
   ]
@@ -87,6 +90,9 @@ export function extractTweetId(source: string): string | null {
 export const SOURCE_TYPE_LABELS: Record<string, string> = {
   [SOURCE_TYPES.TWITTER_HANDLE]: "Twitter Handle",
   [SOURCE_TYPES.YOUTUBE_CHANNEL]: "YouTube Channel",
+  [SOURCE_TYPES.YOUTUBE_VIDEO]: "YouTube Video",
+  [SOURCE_TYPES.YOUTUBE_LIVE]: "YouTube Live",
+  [SOURCE_TYPES.YOUTUBE_SHORT]: "YouTube Short",
   [SOURCE_TYPES.RSS]: "RSS Feed",
   [SOURCE_TYPES.GITHUB_REPOSITORY]: "GitHub Repo",
   [SOURCE_TYPES.TWEET]: "Tweet",
