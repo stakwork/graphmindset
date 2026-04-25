@@ -261,6 +261,10 @@ export async function updateHiddenTypes(
   )
 }
 
+export async function deleteNodesByUniqueSourceId(uniqueSourceId: string, signal?: AbortSignal) {
+  return api.delete(`/v2/nodes/run/${uniqueSourceId}`, undefined, signal)
+}
+
 export async function runRadarNow(
   sourceType: RadarSourceType,
   signal?: AbortSignal
