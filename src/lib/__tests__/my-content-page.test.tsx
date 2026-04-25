@@ -8,6 +8,14 @@ vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => mockApiGet(...args) },
 }))
 
+// --- mock graph-api delete functions ---
+const mockDeleteNodesByUniqueSourceId = vi.fn().mockResolvedValue({})
+const mockDeleteNode = vi.fn().mockResolvedValue({})
+vi.mock("@/lib/graph-api", () => ({
+  deleteNodesByUniqueSourceId: (...args: unknown[]) => mockDeleteNodesByUniqueSourceId(...args),
+  deleteNode: (...args: unknown[]) => mockDeleteNode(...args),
+}))
+
 // --- mock stores ---
 interface MyContentUserStore {
   pubKey: string
@@ -286,5 +294,134 @@ describe("MyContentPanel – Stakwork badge link", () => {
     // Should not open node preview panel after clicking link
     fireEvent.click(link)
     expect(screen.queryByTestId("node-preview")).toBeNull()
+  })
+})
+
+describe("MyContentPanel – delete button", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = {}
+    mockDeleteNodesByUniqueSourceId.mockResolvedValue({})
+    mockDeleteNode.mockResolvedValue({})
+  })
+
+  const NODE_WITH_UID = {
+    nodes: [
+      {
+        node_type: "Tweet",
+        ref_id: "ref-1",
+        properties: { name: "Node A", status: "complete", pubkey: "03abc123testkey", unique_source_id: "uid-42" },
+      },
+      {
+        node_type: "Podcast",
+        ref_id: "ref-2",
+        properties: { name: "Node B", status: "complete", pubkey: "03abc123testkey", unique_source_id: "uid-42" },
+      },
+    ],
+    totalCount: 2,
+    totalProcessing: 0,
+  }
+
+  const NODE_WITHOUT_UID = {
+    nodes: [
+      {
+        node_type: "Tweet",
+        ref_id: "ref-orphan",
+        properties: { name: "Orphan Node", status: "error", pubkey: "03abc123testkey" },
+      },
+    ],
+    totalCount: 1,
+    totalProcessing: 0,
+  }
+
+  const NODE_OTHER_PUBKEY = {
+    nodes: [
+      {
+        node_type: "Tweet",
+        ref_id: "ref-other",
+        properties: { name: "Someone Else Node", status: "complete", pubkey: "03someoneelse" },
+      },
+    ],
+    totalCount: 1,
+    totalProcessing: 0,
+  }
+
+  it("trash button renders when isAdmin = true", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
+    mockApiGet.mockResolvedValue(NODE_OTHER_PUBKEY)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Someone Else Node")).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: /delete node/i })).toBeInTheDocument()
+  })
+
+  it("trash button renders when node pubkey matches user pubKey", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(NODE_WITHOUT_UID)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: /delete node/i })).toBeInTheDocument()
+  })
+
+  it("trash button is absent when neither owner nor admin", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(NODE_OTHER_PUBKEY)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Someone Else Node")).toBeInTheDocument())
+    expect(screen.queryByRole("button", { name: /delete node/i })).toBeNull()
+  })
+
+  it("clicking trash shows inline confirmation; Cancel hides it with no API call", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(NODE_WITHOUT_UID)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole("button", { name: /delete node/i }))
+    expect(screen.getByRole("button", { name: /confirm delete/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }))
+    expect(screen.queryByRole("button", { name: /confirm delete/i })).toBeNull()
+    expect(mockDeleteNodesByUniqueSourceId).not.toHaveBeenCalled()
+    expect(mockDeleteNode).not.toHaveBeenCalled()
+  })
+
+  it("confirm with unique_source_id calls deleteNodesByUniqueSourceId and removes all matching nodes", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(NODE_WITH_UID)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Node A")).toBeInTheDocument())
+    expect(screen.getByText("Node B")).toBeInTheDocument()
+
+    const trashButtons = screen.getAllByRole("button", { name: /delete node/i })
+    fireEvent.click(trashButtons[0])
+    fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }))
+
+    await waitFor(() => {
+      expect(mockDeleteNodesByUniqueSourceId).toHaveBeenCalledWith("uid-42")
+    })
+    await waitFor(() => {
+      expect(screen.queryByText("Node A")).not.toBeInTheDocument()
+      expect(screen.queryByText("Node B")).not.toBeInTheDocument()
+    })
+    expect(mockDeleteNode).not.toHaveBeenCalled()
+  })
+
+  it("confirm with no unique_source_id calls deleteNode(ref_id) and removes only that node", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(NODE_WITHOUT_UID)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole("button", { name: /delete node/i }))
+    fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }))
+
+    await waitFor(() => {
+      expect(mockDeleteNode).toHaveBeenCalledWith("ref-orphan")
+    })
+    await waitFor(() => {
+      expect(screen.queryByText("Orphan Node")).not.toBeInTheDocument()
+    })
+    expect(mockDeleteNodesByUniqueSourceId).not.toHaveBeenCalled()
   })
 })
