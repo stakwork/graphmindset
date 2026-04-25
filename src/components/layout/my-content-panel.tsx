@@ -1,12 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { X, Loader2, BookMarked } from "lucide-react"
+import { X, Loader2, BookMarked, Trash2 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { NodeRow } from "./node-row"
 import { api } from "@/lib/api"
+import { deleteNodesByUniqueSourceId, deleteNode } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_CONTENT } from "@/lib/mock-data"
 import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -45,6 +46,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const [totalProcessing, setTotalProcessing] = useState(0)
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -179,22 +181,67 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
               </div>
             ) : (
               <div className="py-1">
-                {nodes.map((node, i) => (
-                  <div key={node.ref_id}>
-                    <NodeRow
-                      node={node}
-                      schemas={schemas}
-                      onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
-                      onMouseEnter={() => setHoveredNode(node)}
-                      onMouseLeave={() => setHoveredNode(null)}
-                      hideBoost={isAdmin || node.properties?.pubkey === userFullPubkey}
-                      isAdmin={isAdmin}
-                    />
-                    {i < nodes.length - 1 && (
-                      <Separator className="bg-sidebar-border/50" />
-                    )}
-                  </div>
-                ))}
+                {nodes.map((node, i) => {
+                  const canDelete = isAdmin || node.properties?.pubkey === userFullPubkey
+                  const isConfirming = deletingId === node.ref_id
+
+                  const handleConfirmDelete = async () => {
+                    const uid = node.properties?.unique_source_id as string | undefined
+                    if (uid) {
+                      await deleteNodesByUniqueSourceId(uid)
+                      setNodes((prev) => prev.filter((n) => n.properties?.unique_source_id !== uid))
+                    } else {
+                      await deleteNode(node.ref_id)
+                      setNodes((prev) => prev.filter((n) => n.ref_id !== node.ref_id))
+                    }
+                    setDeletingId(null)
+                  }
+
+                  return (
+                    <div key={node.ref_id}>
+                      <div className="relative group">
+                        <NodeRow
+                          node={node}
+                          schemas={schemas}
+                          onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
+                          onMouseEnter={() => setHoveredNode(node)}
+                          onMouseLeave={() => setHoveredNode(null)}
+                          hideBoost={isAdmin || node.properties?.pubkey === userFullPubkey}
+                          isAdmin={isAdmin}
+                        />
+                        {canDelete && !isConfirming && (
+                          <button
+                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                            onClick={(e) => { e.stopPropagation(); setDeletingId(node.ref_id) }}
+                            aria-label="Delete node"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      {isConfirming && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-destructive/10 border-t border-destructive/20">
+                          <span className="text-xs text-destructive flex-1">Delete this content?</span>
+                          <button
+                            className="text-xs font-medium text-destructive hover:text-destructive/80 transition-colors"
+                            onClick={handleConfirmDelete}
+                          >
+                            Confirm delete
+                          </button>
+                          <button
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            onClick={() => setDeletingId(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                      {i < nodes.length - 1 && (
+                        <Separator className="bg-sidebar-border/50" />
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </ScrollArea>
