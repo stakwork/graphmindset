@@ -28,6 +28,9 @@ import {
 const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
   [SOURCE_TYPES.TWEET]: "tweet",
   [SOURCE_TYPES.LINK]: "audio_video",
+  [SOURCE_TYPES.YOUTUBE_VIDEO]: "audio_video",
+  [SOURCE_TYPES.YOUTUBE_LIVE]: "audio_video",
+  [SOURCE_TYPES.YOUTUBE_SHORT]: "audio_video",
   [SOURCE_TYPES.WEB_PAGE]: "webpage",
   [SOURCE_TYPES.DOCUMENT]: "document",
 }
