@@ -205,6 +205,31 @@ function colorForNodeType(t?: string): RGB {
   return NODE_TYPE_COLORS[t.toLowerCase()] ?? NODE_DEFAULT_COLOR;
 }
 
+// Per-edge-type color for the focus-highlight overlay. When a node is hovered
+// or selected, its edges colorize by type so the chip "MENTIONS × 24" and the
+// 24 orange edges that belong to it read as one visual bundle.
+const EDGE_DEFAULT_COLOR: RGB = { r: 1.0, g: 0.45, b: 0.5 };
+const EDGE_TYPE_COLORS: Record<string, RGB> = {
+  HAS: { r: 0.49, g: 0.83, b: 0.66 },
+  HAS_CLAIM: { r: 0.91, g: 0.47, b: 0.66 },
+  MENTIONS: { r: 0.96, g: 0.71, b: 0.38 },
+  MENTIONED: { r: 0.96, g: 0.71, b: 0.38 },
+  MENTIONED_IN: { r: 1.0, g: 0.58, b: 0.27 },
+  IS_HOST: { r: 0.65, g: 0.55, b: 0.98 },
+  IS_GUEST: { r: 0.55, g: 0.45, b: 0.95 },
+  IS_SPEAKER: { r: 0.45, g: 0.40, b: 0.92 },
+  SOURCE: { r: 0.91, g: 0.47, b: 0.66 },
+  MADE_CLAIM: { r: 0.99, g: 0.83, b: 0.30 },
+  RELATED_TO: { r: 0.62, g: 0.75, b: 0.82 },
+};
+function colorForEdgeType(t?: string): RGB {
+  if (!t) return EDGE_DEFAULT_COLOR;
+  return EDGE_TYPE_COLORS[t.toUpperCase()] ?? EDGE_DEFAULT_COLOR;
+}
+function rgbToCss(c: RGB, alpha = 1): string {
+  return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${alpha})`;
+}
+
 // --------- Edge glow material (matches ring style) ---------
 const edgeGlowVertexShader = /* glsl */ `
   attribute float alpha;
@@ -223,6 +248,30 @@ const edgeGlowFragmentShader = /* glsl */ `
 
   void main() {
     gl_FragColor = vec4(color * 1.2, vOpacity);
+  }
+`;
+
+// Highlight overlay reads color from a per-vertex attribute so each focused
+// edge can colorize by its edge type instead of all turning the same red.
+const edgeHighlightVertexShader = /* glsl */ `
+  attribute float alpha;
+  attribute vec3 vertexColor;
+  uniform float opacity;
+  varying float vOpacity;
+  varying vec3 vColor;
+
+  void main() {
+    vOpacity = opacity * alpha;
+    vColor = vertexColor;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const edgeHighlightFragmentShader = /* glsl */ `
+  varying float vOpacity;
+  varying vec3 vColor;
+
+  void main() {
+    gl_FragColor = vec4(vColor * 1.3, vOpacity);
   }
 `;
 
@@ -466,6 +515,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const edgeAlphaRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 2));
   const hlEdgePosRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 6));
   const hlEdgeAlphaRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 2));
+  const hlEdgeColorRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 6));
   const trailEdgePosRef = useRef<Float32Array>(new Float32Array(64 * 6));
   const trailEdgeAlphaRef = useRef<Float32Array>(new Float32Array(64 * 2));
   // Cross-edge Bézier buffers (8 segments per edge)
@@ -674,6 +724,26 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         e.src === selectedId || e.dst === selectedId
     );
   }, [hovered, selectedId, targetEdges]);
+
+  // For each neighbor of the focused node, the set of edge types connecting
+  // it to the focused node. Lets the label render show "via MENTIONS" etc.
+  // right under the node, so the edge-to-node link is unambiguous.
+  const edgeTypesByNeighbor = useMemo(() => {
+    const m = new Map<number, Set<string>>();
+    if (highlightedEdges.length === 0) return m;
+    const focusIds = new Set<number>();
+    if (hovered !== null) focusIds.add(hovered);
+    if (selectedId !== null) focusIds.add(selectedId);
+    for (const e of highlightedEdges) {
+      const label = e.label;
+      if (!label) continue;
+      const other = focusIds.has(e.src) ? e.dst : e.src;
+      let s = m.get(other);
+      if (!s) { s = new Set<string>(); m.set(other, s); }
+      s.add(label);
+    }
+    return m;
+  }, [highlightedEdges, hovered, selectedId]);
 
   // Transition
   const transitionProgress = useRef(1);
@@ -1239,6 +1309,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           hlAlpha = new Float32Array(maxSegs * 2);
           hlEdgeAlphaRef.current = hlAlpha;
         }
+        let hlColor = hlEdgeColorRef.current;
+        if (hlColor.length < maxSegs * 6) {
+          hlColor = new Float32Array(maxSegs * 6);
+          hlEdgeColorRef.current = hlColor;
+        }
 
         // Build cross-edge lookup
         const crossKeys = new Set<string>();
@@ -1257,6 +1332,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const ax = currentPos.current[s3], ay = currentPos.current[s3 + 1], az = currentPos.current[s3 + 2];
           const bx = currentPos.current[d3], by = currentPos.current[d3 + 1], bz = currentPos.current[d3 + 2];
           const alpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
+          const ec = colorForEdgeType(e.type ?? e.label);
 
           const isCross = crossKeys.has(edgeKey(e.src, e.dst));
 
@@ -1267,6 +1343,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             hlPos[vi + 3] = bx; hlPos[vi + 4] = by; hlPos[vi + 5] = bz;
             const ai = segIdx * 2;
             hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+            const ci = segIdx * 6;
+            hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+            hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
             segIdx++;
           } else {
             // Bézier curve — match the cross-edge control point exactly so the
@@ -1286,6 +1365,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               hlPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
               const ai = segIdx * 2;
               hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+              const ci = segIdx * 6;
+              hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+              hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
               segIdx++;
             }
           }
@@ -1294,8 +1376,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         const hlGeom = hl.geometry as THREE.BufferGeometry;
         hlGeom.setAttribute("position", new THREE.BufferAttribute(hlPos, 3));
         hlGeom.setAttribute("alpha", new THREE.BufferAttribute(hlAlpha, 1));
+        hlGeom.setAttribute("vertexColor", new THREE.BufferAttribute(hlColor, 3));
         hlGeom.attributes.position.needsUpdate = true;
         hlGeom.attributes.alpha.needsUpdate = true;
+        hlGeom.attributes.vertexColor.needsUpdate = true;
         hlGeom.setDrawRange(0, segIdx * 2);
       } else {
         (hl.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
@@ -1581,15 +1665,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       <lineSegments ref={highlightLinesRef} frustumCulled={false}>
         <bufferGeometry />
         <shaderMaterial
-          vertexShader={edgeGlowVertexShader}
-          fragmentShader={edgeGlowFragmentShader}
+          vertexShader={edgeHighlightVertexShader}
+          fragmentShader={edgeHighlightFragmentShader}
           transparent
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
           uniforms={{
-            color: { value: new THREE.Color(1.0, 0.2, 0.2) },
-            opacity: { value: 0.45 },
+            opacity: { value: 0.85 },
           }}
         />
       </lineSegments>
@@ -1768,41 +1851,77 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                     ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>
                     : node.label}
                 </div>
-                {!isExpandedProxy && node.nodeType && node.nodeType !== "_group" && (() => {
-                  const tc = colorForNodeType(node.nodeType);
-                  const tint = `rgb(${Math.round(tc.r * 255)}, ${Math.round(tc.g * 255)}, ${Math.round(tc.b * 255)})`;
-                  const iconName = nodeTypeIcons?.[node.nodeType.toLowerCase()];
-                  const Icon = getSchemaIcon(iconName);
+                {!isExpandedProxy && (() => {
+                  const showTypePill = node.nodeType && node.nodeType !== "_group";
+                  const types = edgeTypesByNeighbor.get(i);
+                  const hasEdges = types && types.size > 0;
+                  if (!showTypePill && !hasEdges) return null;
                   return (
                     <div style={{
-                      display: "inline-flex",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "center",
                       alignItems: "center",
-                      gap: 4,
-                      padding: "1px 6px 1px 1px",
-                      borderRadius: 999,
-                      background: "rgba(255,255,255,0.025)",
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                      fontSize: 9.5,
-                      color: "rgba(190,205,215,0.78)",
-                      letterSpacing: "0.02em",
-                      lineHeight: 1,
-                      whiteSpace: "nowrap",
+                      gap: 3,
                     }}>
-                      <span style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 14, height: 14,
-                        borderRadius: 3,
-                        background: `${tint}1f`,
-                        border: `1px solid ${tint}55`,
-                        color: tint,
-                        lineHeight: 1,
-                      }}>
-                        <Icon size={9} strokeWidth={2} />
-                      </span>
-                      {node.nodeType.toLowerCase()}
+                      {showTypePill && (() => {
+                        const tc = colorForNodeType(node.nodeType!);
+                        const tint = `rgb(${Math.round(tc.r * 255)}, ${Math.round(tc.g * 255)}, ${Math.round(tc.b * 255)})`;
+                        const iconName = nodeTypeIcons?.[node.nodeType!.toLowerCase()];
+                        const Icon = getSchemaIcon(iconName);
+                        return (
+                          <div style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 3,
+                            padding: "0px 5px 0px 1px",
+                            borderRadius: 999,
+                            background: "rgba(255,255,255,0.025)",
+                            border: "1px solid rgba(255,255,255,0.07)",
+                            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                            fontSize: 7,
+                            color: "rgba(190,205,215,0.78)",
+                            letterSpacing: "0.02em",
+                            lineHeight: 1.4,
+                            whiteSpace: "nowrap",
+                          }}>
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: 11, height: 11,
+                              borderRadius: 2,
+                              background: `${tint}1f`,
+                              border: `1px solid ${tint}55`,
+                              color: tint,
+                              lineHeight: 1,
+                            }}>
+                              <Icon size={7} strokeWidth={2} />
+                            </span>
+                            {node.nodeType!.toLowerCase()}
+                          </div>
+                        );
+                      })()}
+                      {hasEdges && Array.from(types!).map((t) => {
+                        const ec = colorForEdgeType(t);
+                        return (
+                          <div key={t} style={{
+                            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                            fontSize: 7,
+                            color: rgbToCss(ec, 0.95),
+                            background: rgbToCss(ec, 0.12),
+                            border: `1px solid ${rgbToCss(ec, 0.55)}`,
+                            padding: "0px 4px",
+                            borderRadius: 999,
+                            letterSpacing: "0.06em",
+                            lineHeight: 1.4,
+                            whiteSpace: "nowrap",
+                            textShadow: "0 0 4px rgba(0,0,0,0.9)",
+                          }}>
+                            {t}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })()}
@@ -1912,121 +2031,6 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             />
           </Html>
         );
-      })()}
-
-      {/* Relation chips at edge midpoints — relation type only, no node names. */}
-      {!minimap && (() => {
-        if (highlightedEdges.length === 0) return null;
-
-        // Place each chip at the curve midpoint (semantic 50%) using static node
-        // positions so chips don't shift during view transitions. Lane offsets
-        // already separate parallel edges; for everything else we apply a small
-        // screen-space jitter via the precomputed control point.
-        const tes = graph.treeEdgeSet;
-
-        // Pre-compute screen-space anchors for collision avoidance: for each chip,
-        // we know its 3D anchor and the in-plane perpendicular direction. We then
-        // offset overlapping chips along their perpendicular by half the overlap.
-        type Chip = {
-          key: string;
-          label: string;
-          pos: [number, number, number];
-          perp: { x: number; y: number; z: number };
-        };
-        const chips: Chip[] = [];
-
-        for (let i = 0; i < highlightedEdges.length; i++) {
-          const e = highlightedEdges[i];
-          if (!e.label) continue;
-
-          const a = graph.nodes[e.src]?.position;
-          const b = graph.nodes[e.dst]?.position;
-          if (!a || !b) continue;
-
-          const isCross = tes ? !tes.has(edgeKey(e.src, e.dst)) : false;
-          const lane = isCross ? (edgeLaneInfo.get(e)?.lane ?? 0) : 0;
-
-          let cx: number, cy: number, cz: number;
-          if (isCross) {
-            const ctrl = computeBezierControl(a.x, a.y, a.z, b.x, b.y, b.z, lane);
-            cx = ctrl.cx; cy = ctrl.cy; cz = ctrl.cz;
-          } else {
-            cx = (a.x + b.x) * 0.5;
-            cy = (a.y + b.y) * 0.5;
-            cz = (a.z + b.z) * 0.5;
-          }
-
-          // Midpoint at t=0.5 — independent of semantic direction (chip text is
-          // direction-agnostic; pulses + chevrons carry the direction).
-          const mid = sampleBezier(a.x, a.y, a.z, cx, cy, cz, b.x, b.y, b.z, 0.5);
-
-          // Perpendicular to chord in XZ — used for collision spreading.
-          const dx = b.x - a.x;
-          const dz = b.z - a.z;
-          const plen = Math.sqrt(dx * dx + dz * dz) || 1;
-          const perp = { x: -dz / plen, y: 0, z: dx / plen };
-
-          chips.push({
-            key: `chip-${e.src}-${e.dst}-${i}`,
-            label: e.label,
-            pos: [mid.x, mid.y + 0.4, mid.z],
-            perp,
-          });
-        }
-
-        // Simple O(n²) collision pass: any two chips closer than `MIN_DIST`
-        // in XZ get pushed apart along their perpendicular axes.
-        const MIN_DIST = 1.6;
-        for (let pass = 0; pass < 3; pass++) {
-          for (let i = 0; i < chips.length; i++) {
-            for (let j = i + 1; j < chips.length; j++) {
-              const a = chips[i].pos, b = chips[j].pos;
-              const dx = b[0] - a[0];
-              const dz = b[2] - a[2];
-              const d = Math.sqrt(dx * dx + dz * dz);
-              if (d >= MIN_DIST) continue;
-              const overlap = (MIN_DIST - d) * 0.5;
-              chips[i].pos = [
-                a[0] - chips[i].perp.x * overlap,
-                a[1],
-                a[2] - chips[i].perp.z * overlap,
-              ];
-              chips[j].pos = [
-                b[0] + chips[j].perp.x * overlap,
-                b[1],
-                b[2] + chips[j].perp.z * overlap,
-              ];
-            }
-          }
-        }
-
-        return chips.map((c) => (
-          <Html
-            key={c.key}
-            position={c.pos}
-            center
-            style={{ pointerEvents: "none" }}
-          >
-            <div
-              style={{
-                fontSize: 9,
-                fontFamily: "'JetBrains Mono', monospace",
-                color: "rgba(190, 240, 255, 0.95)",
-                background: "rgba(5, 10, 22, 0.7)",
-                padding: "2px 6px",
-                borderRadius: 3,
-                border: "1px solid rgba(120, 200, 230, 0.25)",
-                letterSpacing: "0.6px",
-                whiteSpace: "nowrap",
-                textShadow: "0 0 6px rgba(0,0,0,0.9)",
-                boxShadow: "0 0 10px rgba(120, 200, 230, 0.08)",
-                userSelect: "none",
-              }}
-            >
-              {c.label}
-            </div>
-          </Html>
-        ));
       })()}
 
     </>
