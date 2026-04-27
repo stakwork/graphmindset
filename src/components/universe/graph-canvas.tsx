@@ -20,8 +20,7 @@ import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api
 import { useGraphStore } from "@/stores/graph-store"
 import type { SchemaNode } from "@/app/ontology/page"
 import { HoverPreviewCard } from "./hover-preview-card"
-
-const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
+import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 
 function nodeLabel(node: ApiNode, schemas: SchemaNode[]): string {
   const props = node.properties
