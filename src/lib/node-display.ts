@@ -1,4 +1,4 @@
-export const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
+export const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body", "source_link"] as const
 
 export function pickString(
   props: Record<string, unknown> | undefined,

@@ -5,8 +5,7 @@ import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
-
-const DISPLAY_KEY_FALLBACKS = ["name", "title", "label", "text", "content", "body"] as const
+import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 const SNIPPET_KEYS = ["description", "text", "bio", "content", "body"] as const
 const CARD_WIDTH = 280
 const CARD_HEIGHT_EST = 150
