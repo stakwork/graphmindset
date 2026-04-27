@@ -17,6 +17,7 @@ import type { Graph, GraphEdge, ViewState } from "./types";
 import { edgeKey, isStructuralEdge } from "./types";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { PulseLayer } from "./PulseLayer";
+import { getSchemaIcon } from "@/lib/schema-icons";
 
 export interface Pulse {
   src: number;
@@ -46,6 +47,10 @@ interface GraphViewProps {
   externalSelectedId?: number | null;
   /** Called when the user clicks directly in the graph (before onNodeClick) */
   onGraphClick?: () => void;
+  /** Optional schema-driven icon name per node type (lowercase node_type →
+   *  schema icon string like "EpisodeIcon"). Resolved through schema-icons
+   *  to a Lucide component for the type pill. */
+  nodeTypeIcons?: Record<string, string>;
 }
 
 const tmpObj = new THREE.Object3D();
@@ -148,7 +153,10 @@ const glowFragmentShader = /* glsl */ `
     if (alpha < 0.01) discard;
 
     float brightness = centerDot + ring + ringGlow * 0.7 + outerGlow * 0.4 + innerFill;
-    brightness = min(brightness, 1.6);
+    // 1.0 cap (was 1.6) — past 1.0, color * brightness saturates the dominant
+    // channel and pushes the orb toward white. The original cyan tolerated 1.6
+    // because its R channel was low; warm/violet colors lose hue.
+    brightness = min(brightness, 1.0);
 
     vec3 color = vColor;
 
@@ -172,6 +180,30 @@ const glowFragmentShader = /* glsl */ `
     gl_FragColor = vec4(color * brightness, alpha * vAlpha);
   }
 `;
+
+// Per-type RGB palette for node coloring. Lowercase node_type keys; unknown
+// types fall back to NODE_DEFAULT_COLOR which keeps the original cyan.
+type RGB = { r: number; g: number; b: number };
+const NODE_DEFAULT_COLOR: RGB = { r: 0.45, g: 0.85, b: 0.95 };
+const NODE_TYPE_COLORS: Record<string, RGB> = {
+  episode: { r: 0.96, g: 0.71, b: 0.38 },
+  show: { r: 0.36, g: 0.84, b: 1.0 },
+  chapter: { r: 0.49, g: 0.83, b: 0.66 },
+  claim: { r: 0.91, g: 0.47, b: 0.66 },
+  person: { r: 0.65, g: 0.55, b: 0.98 },
+  topic: { r: 0.4, g: 0.85, b: 0.97 },
+  organization: { r: 1.0, g: 0.58, b: 0.27 },
+  place: { r: 0.49, g: 0.83, b: 0.66 },
+  product: { r: 0.99, g: 0.83, b: 0.30 },
+  section: { r: 0.62, g: 0.75, b: 0.82 },
+  document: { r: 0.55, g: 0.71, b: 0.85 },
+  tweet: { r: 0.36, g: 0.84, b: 1.0 },
+  video: { r: 0.86, g: 0.40, b: 0.40 },
+};
+function colorForNodeType(t?: string): RGB {
+  if (!t) return NODE_DEFAULT_COLOR;
+  return NODE_TYPE_COLORS[t.toLowerCase()] ?? NODE_DEFAULT_COLOR;
+}
 
 // --------- Edge glow material (matches ring style) ---------
 const edgeGlowVertexShader = /* glsl */ `
@@ -278,7 +310,7 @@ function sampleBezier(
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -522,7 +554,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           scales[i] = baseScale * (1 + 0.5 * w);
           const baseA = alphaByDepth(depth);
           const a = baseA + (1.0 - baseA) * w * 0.6;
-          colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
+          const c = colorForNodeType(graph.nodes[i].nodeType);
+          colors[i3] = c.r * a; colors[i3 + 1] = c.g * a; colors[i3 + 2] = c.b * a;
           alphas[i] = a;
         }
       }
@@ -558,7 +591,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           scales[i] = baseScale * (1 + 0.5 * w);
           const baseA = relDepth === -1 ? 0.3 : alphaByDepth(relDepth);
           const a = baseA + (1.0 - baseA) * w * 0.6;
-          colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
+          const c = colorForNodeType(graph.nodes[i].nodeType);
+          colors[i3] = c.r * a; colors[i3 + 1] = c.g * a; colors[i3 + 2] = c.b * a;
           alphas[i] = a;
         }
       }
@@ -1711,22 +1745,67 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               <Html
                 position={[lx, ly, lz]}
                 style={{
+                  pointerEvents: isExpandedProxy ? "auto" : "none",
+                  userSelect: "none",
+                  cursor: isExpandedProxy ? "pointer" : undefined,
+                  transform: "translate(-50%, 20px)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 3,
+                }}
+              >
+                <div style={{
                   color: isExpandedProxy ? "rgba(100,220,255,0.95)" : labelColor,
                   fontSize: isExpandedProxy ? 13 : labelSize,
                   fontFamily: "'Barlow', sans-serif",
                   fontWeight: isHovered || isSelected || isExpandedProxy ? 600 : 500,
                   letterSpacing: "0.3px",
                   whiteSpace: "nowrap",
-                  pointerEvents: isExpandedProxy ? "auto" : "none",
-                  userSelect: "none",
-                  cursor: isExpandedProxy ? "pointer" : undefined,
                   textShadow: "0 0 6px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.7)",
-                  transform: "translate(-50%, 20px)",
-                }}
-              >
-                {isExpandedProxy
-                  ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>
-                  : node.label}
+                }}>
+                  {isExpandedProxy
+                    ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>
+                    : node.label}
+                </div>
+                {!isExpandedProxy && node.nodeType && node.nodeType !== "_group" && (() => {
+                  const tc = colorForNodeType(node.nodeType);
+                  const tint = `rgb(${Math.round(tc.r * 255)}, ${Math.round(tc.g * 255)}, ${Math.round(tc.b * 255)})`;
+                  const iconName = nodeTypeIcons?.[node.nodeType.toLowerCase()];
+                  const Icon = getSchemaIcon(iconName);
+                  return (
+                    <div style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "1px 6px 1px 1px",
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,0.025)",
+                      border: "1px solid rgba(255,255,255,0.07)",
+                      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                      fontSize: 9.5,
+                      color: "rgba(190,205,215,0.78)",
+                      letterSpacing: "0.02em",
+                      lineHeight: 1,
+                      whiteSpace: "nowrap",
+                    }}>
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 14, height: 14,
+                        borderRadius: 3,
+                        background: `${tint}1f`,
+                        border: `1px solid ${tint}55`,
+                        color: tint,
+                        lineHeight: 1,
+                      }}>
+                        <Icon size={9} strokeWidth={2} />
+                      </span>
+                      {node.nodeType.toLowerCase()}
+                    </div>
+                  );
+                })()}
               </Html>
             </group>
           );
