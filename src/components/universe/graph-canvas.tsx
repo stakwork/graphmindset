@@ -168,6 +168,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return result
   }, [nodes, edges, schemas])
 
+  // Lowercase type → schema icon name (e.g. "EpisodeIcon"). The pill in
+  // GraphView resolves this through schema-icons to a Lucide component.
+  const nodeTypeIcons = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const s of schemas) {
+      if (s.icon) map[s.type.toLowerCase()] = s.icon
+    }
+    return map
+  }, [schemas])
+
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -297,6 +307,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           onHoverChange={handleHoverChange}
           externalHoveredId={externalHoveredId}
           externalSelectedId={externalSelectedId}
+          nodeTypeIcons={nodeTypeIcons}
           onGraphClick={() => {
             useGraphStore.getState().setSidebarSelectedNode(null)
             useGraphStore.getState().setHoveredNode(null)
