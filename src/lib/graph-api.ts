@@ -261,6 +261,23 @@ export async function updateHiddenTypes(
   )
 }
 
+// Free preflight — no payment required
+export async function checkTopicExists(
+  name: string,
+  signal?: AbortSignal
+): Promise<{ exists: boolean; ref_id: string | null }> {
+  const params = new URLSearchParams({ name })
+  return api.get(`/v2/nodes/topic-check?${params}`, undefined, signal)
+}
+
+// Paid topic creation via POST /v2/topic
+export async function createTopic(
+  data: { name: string; description?: string },
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
+  return api.post("/v2/topic", data, undefined, signal)
+}
+
 export async function deleteNodesByUniqueSourceId(uniqueSourceId: string, signal?: AbortSignal) {
   return api.delete(`/v2/nodes/run/${uniqueSourceId}`, undefined, signal)
 }
