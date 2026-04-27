@@ -9,6 +9,7 @@ import {
   CircleDot,
   Network,
   BookMarked,
+  Tag,
 } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { useUserStore } from "@/stores/user-store"
@@ -121,6 +122,11 @@ export function AppSidebar({
           icon={Plus}
           label="Add Content"
           onClick={() => openModal("addContent")}
+        />
+        <NavItem
+          icon={Tag}
+          label="Add Topic"
+          onClick={() => openModal("addTopic")}
         />
         {pubKey && (
           <NavItem
