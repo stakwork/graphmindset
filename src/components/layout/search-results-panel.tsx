@@ -81,8 +81,8 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
     })
   }
 
-  if (!searchTerm) return null
-
+  // No early return on empty searchTerm anymore — the panel also renders the
+  // initial "latest" load that populates the store before any user search.
   const filtering = activeTypes.size > 0
 
   return (
@@ -114,7 +114,9 @@ export function SearchResultsPanel({ onClose }: { onClose: () => void }) {
 
           <div className="relative z-10 px-4 py-2 border-b border-sidebar-border/50">
             <p className="text-xs text-muted-foreground">
-              Searching &ldquo;<span className="text-foreground">{searchTerm}</span>&rdquo;
+              {searchTerm
+                ? <>Searching &ldquo;<span className="text-foreground">{searchTerm}</span>&rdquo;</>
+                : <span>Latest activity</span>}
             </p>
           </div>
 
