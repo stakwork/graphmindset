@@ -173,6 +173,79 @@ const glowFragmentShader = /* glsl */ `
   }
 `;
 
+// Per-node-type color palette. Keys are case-insensitive node_type strings
+// from the API. Unknown types fall back to NODE_DEFAULT_COLOR.
+// Tuned for dark canvas: medium saturation, high luminance against #06090c.
+type RGB = { r: number; g: number; b: number };
+
+const NODE_DEFAULT_COLOR: RGB = { r: 0.45, g: 0.85, b: 0.95 };
+
+const NODE_TYPE_COLORS: Record<string, RGB> = {
+  episode: { r: 0.96, g: 0.71, b: 0.38 },        // warm orange
+  show: { r: 0.36, g: 0.84, b: 1.0 },            // bright cyan
+  chapter: { r: 0.49, g: 0.83, b: 0.66 },        // mint
+  claim: { r: 0.91, g: 0.47, b: 0.66 },          // pink
+  person: { r: 0.65, g: 0.55, b: 0.98 },         // violet
+  topic: { r: 0.4, g: 0.85, b: 0.97 },           // sky
+  organization: { r: 1.0, g: 0.58, b: 0.27 },    // amber-orange
+  place: { r: 0.49, g: 0.83, b: 0.66 },          // mint
+  product: { r: 0.99, g: 0.83, b: 0.30 },        // gold
+  section: { r: 0.62, g: 0.75, b: 0.82 },        // slate
+  document: { r: 0.55, g: 0.71, b: 0.85 },       // soft blue
+  tweet: { r: 0.36, g: 0.84, b: 1.0 },           // cyan
+  video: { r: 0.86, g: 0.40, b: 0.40 },          // red
+  podcast: { r: 0.65, g: 0.55, b: 0.98 },        // violet
+  clip: { r: 0.49, g: 0.83, b: 0.66 },           // mint
+  belief: { r: 0.91, g: 0.47, b: 0.66 },         // pink
+  thing: { r: 0.62, g: 0.75, b: 0.82 },          // slate
+  message: { r: 0.4, g: 0.85, b: 0.97 },         // sky
+};
+
+function colorForNodeType(t?: string): RGB {
+  if (!t) return NODE_DEFAULT_COLOR;
+  return NODE_TYPE_COLORS[t.toLowerCase()] ?? NODE_DEFAULT_COLOR;
+}
+
+// For synthetic "_group" nodes (top-level type-group bundlers), the label
+// already carries the underlying node type (e.g. "Episode"). Use it for color
+// lookup so the bundle renders in the same family as its children.
+function colorKeyForNode(n: { nodeType?: string; label?: string }): string | undefined {
+  if (n.nodeType === "_group") return n.label;
+  return n.nodeType;
+}
+
+// Per-edge-type color for the focus-highlight overlay. When a node is hovered
+// or selected, its edges colorize by type so a chip "MENTIONS × 12" and the
+// 12 orange edges that belong to it read as one bundle.
+const EDGE_DEFAULT_COLOR: RGB = { r: 1.0, g: 0.45, b: 0.5 };
+
+const EDGE_TYPE_COLORS: Record<string, RGB> = {
+  HAS: { r: 0.49, g: 0.83, b: 0.66 },             // mint
+  HAS_CLAIM: { r: 0.91, g: 0.47, b: 0.66 },       // pink
+  MENTIONS: { r: 0.96, g: 0.71, b: 0.38 },        // orange
+  MENTIONED: { r: 0.96, g: 0.71, b: 0.38 },       // orange
+  MENTIONED_IN: { r: 1.0, g: 0.58, b: 0.27 },     // amber
+  IS_HOST: { r: 0.65, g: 0.55, b: 0.98 },         // violet
+  IS_GUEST: { r: 0.55, g: 0.45, b: 0.95 },        // violet (deeper)
+  IS_SPEAKER: { r: 0.45, g: 0.40, b: 0.92 },      // indigo
+  SOURCE: { r: 0.91, g: 0.47, b: 0.66 },          // pink
+  MADE_CLAIM: { r: 0.99, g: 0.83, b: 0.30 },      // gold
+  RELATED_TO: { r: 0.62, g: 0.75, b: 0.82 },      // slate
+  SUPPORTS: { r: 0.49, g: 0.83, b: 0.66 },        // mint
+  CONTRADICTS: { r: 0.86, g: 0.40, b: 0.40 },     // red
+  SUPERSEDES: { r: 0.55, g: 0.71, b: 0.85 },      // soft blue
+  IDENTIFIED_AS: { r: 0.4, g: 0.85, b: 0.97 },    // sky
+};
+
+function colorForEdgeType(t?: string): RGB {
+  if (!t) return EDGE_DEFAULT_COLOR;
+  return EDGE_TYPE_COLORS[t.toUpperCase()] ?? EDGE_DEFAULT_COLOR;
+}
+
+function rgbToCss(c: RGB, alpha = 1): string {
+  return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${alpha})`;
+}
+
 // --------- Edge glow material (matches ring style) ---------
 const edgeGlowVertexShader = /* glsl */ `
   attribute float alpha;
@@ -191,6 +264,63 @@ const edgeGlowFragmentShader = /* glsl */ `
 
   void main() {
     gl_FragColor = vec4(color * 1.2, vOpacity);
+  }
+`;
+
+// Dashed variant — adds world-space-distance-based discard so cross-edges
+// (non-hierarchy) read as a different stroke style without re-coloring or
+// adding meshes. progress is the accumulated arc length at each vertex.
+const edgeDashedVertexShader = /* glsl */ `
+  attribute float alpha;
+  attribute float progress;
+  uniform float opacity;
+  varying float vOpacity;
+  varying float vProgress;
+
+  void main() {
+    vOpacity = opacity * alpha;
+    vProgress = progress;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const edgeDashedFragmentShader = /* glsl */ `
+  uniform vec3 color;
+  uniform float dashOn;
+  uniform float dashOff;
+  varying float vOpacity;
+  varying float vProgress;
+
+  void main() {
+    float cycle = dashOn + dashOff;
+    if (mod(vProgress, cycle) > dashOn) discard;
+    gl_FragColor = vec4(color * 1.2, vOpacity);
+  }
+`;
+
+// Highlight overlay — reads color from a per-vertex attribute so each focused
+// edge colorizes by its edge type. Lets the user visually associate a chip
+// like "MENTIONS × 12" with the bundle of orange edges it represents.
+const edgeHighlightVertexShader = /* glsl */ `
+  attribute float alpha;
+  attribute vec3 vertexColor;
+  uniform float opacity;
+  varying float vOpacity;
+  varying vec3 vColor;
+
+  void main() {
+    vOpacity = opacity * alpha;
+    vColor = vertexColor;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const edgeHighlightFragmentShader = /* glsl */ `
+  varying float vOpacity;
+  varying vec3 vColor;
+
+  void main() {
+    gl_FragColor = vec4(vColor * 1.3, vOpacity);
   }
 `;
 
@@ -286,6 +416,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const crossLinesRef = useRef<THREE.LineSegments>(null);
 
   const [hovered, setHovered] = useState<number | null>(null);
+  // When the user hovers a relation chip (e.g. "MENTIONS × 12"), narrow the
+  // focused-edge highlight to only edges of that type.
+  const [hoveredChipType, setHoveredChipType] = useState<string | null>(null);
   const detailPanelOpacity = useRef(0);
   const wbNodeId = whiteboardNodeId ?? null;
 
@@ -434,11 +567,13 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const edgeAlphaRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 2));
   const hlEdgePosRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 6));
   const hlEdgeAlphaRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 2));
+  const hlEdgeColorRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 6));
   const trailEdgePosRef = useRef<Float32Array>(new Float32Array(64 * 6));
   const trailEdgeAlphaRef = useRef<Float32Array>(new Float32Array(64 * 2));
   // Cross-edge Bézier buffers (8 segments per edge)
   const crossEdgePosRef = useRef<Float32Array>(new Float32Array(256 * 6));
   const crossEdgeAlphaRef = useRef<Float32Array>(new Float32Array(256 * 2));
+  const crossEdgeProgressRef = useRef<Float32Array>(new Float32Array(256 * 2));
 
   // Grow edge buffers when edge count increases
   const edgeCount = graph.edges.length;
@@ -483,7 +618,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     const alphaByDepth = (d: number) =>
       d === 0 ? 1.0 : d === 1 ? 0.85 : d === 2 ? 0.35 : 0.15;
 
-    // Base color for all nodes — alpha controls depth fading via color multiply
+    // Base color (used only for cluster cloud dots and unknown types)
     const BASE_R = 0.45, BASE_G = 0.85, BASE_B = 0.95;
     // Build cloud member set — cloud dots render small until proxy is selected
     const cloudMembers = new Set<number>();
@@ -522,7 +657,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           scales[i] = baseScale * (1 + 0.5 * w);
           const baseA = alphaByDepth(depth);
           const a = baseA + (1.0 - baseA) * w * 0.6;
-          colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
+          const c = colorForNodeType(colorKeyForNode(graph.nodes[i]));
+          colors[i3] = c.r * a; colors[i3 + 1] = c.g * a; colors[i3 + 2] = c.b * a;
           alphas[i] = a;
         }
       }
@@ -558,7 +694,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           scales[i] = baseScale * (1 + 0.5 * w);
           const baseA = relDepth === -1 ? 0.3 : alphaByDepth(relDepth);
           const a = baseA + (1.0 - baseA) * w * 0.6;
-          colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
+          const c = colorForNodeType(colorKeyForNode(graph.nodes[i]));
+          colors[i3] = c.r * a; colors[i3 + 1] = c.g * a; colors[i3 + 2] = c.b * a;
           alphas[i] = a;
         }
       }
@@ -1090,6 +1227,15 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         edgeAlphaRef.current = eAlpha;
       }
 
+      // Focus behavior:
+      //   - no focus            → full alpha
+      //   - focused (connected) → 0; the type-colored highlight overlay paints
+      //                           this edge, and showing the underlying cyan
+      //                           on top would wash out the type color
+      //   - not connected       → TREE_DIM, so the focused subtree reads cleanly
+      const focusActive = hovered !== null || selectedId !== null;
+      const TREE_DIM = 0.15;
+
       for (let i = 0; i < edgeCount; i++) {
         const e = treeEdges[i];
         const s3 = e.src * 3;
@@ -1102,8 +1248,15 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         pos[base + 4] = currentPos.current[d3 + 1];
         pos[base + 5] = currentPos.current[d3 + 2];
         const ab = i * 2;
-        eAlpha[ab] = currentAlpha.current[e.src];
-        eAlpha[ab + 1] = currentAlpha.current[e.dst];
+        const isConnected =
+          e.src === hovered || e.dst === hovered ||
+          e.src === selectedId || e.dst === selectedId;
+        let dim: number;
+        if (!focusActive) dim = 1.0;
+        else if (isConnected) dim = 0.0;
+        else dim = TREE_DIM;
+        eAlpha[ab] = currentAlpha.current[e.src] * dim;
+        eAlpha[ab + 1] = currentAlpha.current[e.dst] * dim;
       }
 
       const geom = lines.geometry as THREE.BufferGeometry;
@@ -1114,10 +1267,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       geom.setDrawRange(0, edgeCount * 2);
     }
 
-    // Cross-edges (Bézier curves — 8 line segments per edge)
+    // Cross-edges (Bézier curves — 16 line segments per edge for smoothness)
     const crossLines = crossLinesRef.current;
     if (crossLines) {
-      const SUBDIVS = 8;
+      const SUBDIVS = 16;
       const crossCount = crossEdges.length;
       const segCount = crossCount * SUBDIVS;
       let cPos = crossEdgePosRef.current;
@@ -1129,6 +1282,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       if (cAlpha.length < segCount * 2) {
         cAlpha = new Float32Array(segCount * 2);
         crossEdgeAlphaRef.current = cAlpha;
+      }
+      let cProgress = crossEdgeProgressRef.current;
+      if (cProgress.length < segCount * 2) {
+        cProgress = new Float32Array(segCount * 2);
+        crossEdgeProgressRef.current = cProgress;
       }
 
       for (let i = 0; i < crossCount; i++) {
@@ -1143,13 +1301,21 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         const lane = edgeLaneInfo.get(e)?.lane ?? 0;
         const { cx, cy, cz, edgeLen } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
 
-        // Progressive disclosure: bright on hover, dim otherwise
+        // Hide cross-edges that touch the focused node: the type-colored highlight
+        // overlay traces them with the right color/style, so showing the dashed
+        // purple underneath only muddies the result. Other cross-edges stay
+        // visible at the dim baseline so the broader graph context isn't lost.
         const nodeAlpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
-        const isHoverEdge = (e.src === hovered || e.dst === hovered);
-        const isSelectedEdge = (e.src === selectedId || e.dst === selectedId);
-        const interactionFactor = isHoverEdge ? 1.0 : isSelectedEdge ? 0.4 : 0.15;
+        const isHighlighted =
+          e.src === hovered || e.dst === hovered ||
+          e.src === selectedId || e.dst === selectedId;
+        const interactionFactor = isHighlighted ? 0.0 : 0.15;
         const alpha = nodeAlpha * interactionFactor;
         const baseIdx = i * SUBDIVS;
+
+        // Accumulate per-edge arc length so dashing continues uniformly across
+        // the 8 sub-segments rather than restarting at each segment break.
+        let cumDist = 0;
 
         for (let s = 0; s < SUBDIVS; s++) {
           const t0 = s / SUBDIVS;
@@ -1169,14 +1335,25 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const ai = (baseIdx + s) * 2;
           cAlpha[ai] = alpha;
           cAlpha[ai + 1] = alpha;
+
+          const segDist = Math.sqrt(
+            (p1x - p0x) * (p1x - p0x) +
+            (p1y - p0y) * (p1y - p0y) +
+            (p1z - p0z) * (p1z - p0z)
+          );
+          cProgress[ai] = cumDist;
+          cProgress[ai + 1] = cumDist + segDist;
+          cumDist += segDist;
         }
       }
 
       const crossGeom = crossLines.geometry as THREE.BufferGeometry;
       crossGeom.setAttribute("position", new THREE.BufferAttribute(cPos, 3));
       crossGeom.setAttribute("alpha", new THREE.BufferAttribute(cAlpha, 1));
+      crossGeom.setAttribute("progress", new THREE.BufferAttribute(cProgress, 1));
       crossGeom.attributes.position.needsUpdate = true;
       crossGeom.attributes.alpha.needsUpdate = true;
+      crossGeom.attributes.progress.needsUpdate = true;
       crossGeom.setDrawRange(0, segCount * 2);
     }
 
@@ -1192,8 +1369,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         : highlightedEdges;
       const hlCount = combinedEdges.length;
       if (hlCount > 0) {
-        // Cross-edges need Bézier segments, so allocate for worst case (8 segs per edge)
-        const HL_SUBDIVS = 8;
+        // Cross-edges need Bézier segments — match the cross-edge layer's SUBDIVS so the
+        // highlight overlay traces the same curve at the same fidelity.
+        const HL_SUBDIVS = 16;
         const maxSegs = hlCount * HL_SUBDIVS;
         let hlPos = hlEdgePosRef.current;
         if (hlPos.length < maxSegs * 6) {
@@ -1204,6 +1382,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         if (hlAlpha.length < maxSegs * 2) {
           hlAlpha = new Float32Array(maxSegs * 2);
           hlEdgeAlphaRef.current = hlAlpha;
+        }
+        let hlColor = hlEdgeColorRef.current;
+        if (hlColor.length < maxSegs * 6) {
+          hlColor = new Float32Array(maxSegs * 6);
+          hlEdgeColorRef.current = hlColor;
         }
 
         // Build cross-edge lookup
@@ -1222,7 +1405,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const d3 = e.dst * 3;
           const ax = currentPos.current[s3], ay = currentPos.current[s3 + 1], az = currentPos.current[s3 + 2];
           const bx = currentPos.current[d3], by = currentPos.current[d3 + 1], bz = currentPos.current[d3 + 2];
-          const alpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
+          const baseAlpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
+          // When the user hovers a relation chip, narrow the overlay to only
+          // edges of that type — others fade to 0 so the bundle stands alone.
+          const matchesChip =
+            hoveredChipType === null ||
+            (e.label && e.label === hoveredChipType);
+          const alpha = matchesChip ? baseAlpha : 0;
+          const ec = colorForEdgeType(e.type ?? e.label);
 
           const isCross = crossKeys.has(edgeKey(e.src, e.dst));
 
@@ -1233,6 +1423,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             hlPos[vi + 3] = bx; hlPos[vi + 4] = by; hlPos[vi + 5] = bz;
             const ai = segIdx * 2;
             hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+            const ci = segIdx * 6;
+            hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+            hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
             segIdx++;
           } else {
             // Bézier curve — match the cross-edge control point exactly so the
@@ -1252,6 +1445,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               hlPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
               const ai = segIdx * 2;
               hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+              const ci = segIdx * 6;
+              hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+              hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
               segIdx++;
             }
           }
@@ -1260,8 +1456,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         const hlGeom = hl.geometry as THREE.BufferGeometry;
         hlGeom.setAttribute("position", new THREE.BufferAttribute(hlPos, 3));
         hlGeom.setAttribute("alpha", new THREE.BufferAttribute(hlAlpha, 1));
+        hlGeom.setAttribute("vertexColor", new THREE.BufferAttribute(hlColor, 3));
         hlGeom.attributes.position.needsUpdate = true;
         hlGeom.attributes.alpha.needsUpdate = true;
+        hlGeom.attributes.vertexColor.needsUpdate = true;
         hlGeom.setDrawRange(0, segIdx * 2);
       } else {
         (hl.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
@@ -1531,8 +1729,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       <lineSegments ref={crossLinesRef} frustumCulled={false}>
         <bufferGeometry />
         <shaderMaterial
-          vertexShader={edgeGlowVertexShader}
-          fragmentShader={edgeGlowFragmentShader}
+          vertexShader={edgeDashedVertexShader}
+          fragmentShader={edgeDashedFragmentShader}
           transparent
           blending={THREE.AdditiveBlending}
           depthWrite={false}
@@ -1540,6 +1738,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           uniforms={{
             color: { value: new THREE.Color(0.6, 0.3, 0.9) },
             opacity: { value: viewState.mode === "overview" ? 0.15 : 0.5 },
+            dashOn: { value: 1.6 },
+            dashOff: { value: 1.0 },
           }}
         />
       </lineSegments>
@@ -1547,15 +1747,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       <lineSegments ref={highlightLinesRef} frustumCulled={false}>
         <bufferGeometry />
         <shaderMaterial
-          vertexShader={edgeGlowVertexShader}
-          fragmentShader={edgeGlowFragmentShader}
+          vertexShader={edgeHighlightVertexShader}
+          fragmentShader={edgeHighlightFragmentShader}
           transparent
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false}
           uniforms={{
-            color: { value: new THREE.Color(1.0, 0.2, 0.2) },
-            opacity: { value: 0.45 },
+            opacity: { value: 0.95 },
           }}
         />
       </lineSegments>
@@ -1711,22 +1910,42 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               <Html
                 position={[lx, ly, lz]}
                 style={{
+                  pointerEvents: isExpandedProxy ? "auto" : "none",
+                  userSelect: "none",
+                  cursor: isExpandedProxy ? "pointer" : undefined,
+                  transform: "translate(-50%, 20px)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 2,
+                }}
+              >
+                <div style={{
                   color: isExpandedProxy ? "rgba(100,220,255,0.95)" : labelColor,
                   fontSize: isExpandedProxy ? 13 : labelSize,
                   fontFamily: "'Barlow', sans-serif",
                   fontWeight: isHovered || isSelected || isExpandedProxy ? 600 : 500,
                   letterSpacing: "0.3px",
                   whiteSpace: "nowrap",
-                  pointerEvents: isExpandedProxy ? "auto" : "none",
-                  userSelect: "none",
-                  cursor: isExpandedProxy ? "pointer" : undefined,
                   textShadow: "0 0 6px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.7)",
-                  transform: "translate(-50%, 20px)",
-                }}
-              >
-                {isExpandedProxy
-                  ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>
-                  : node.label}
+                }}>
+                  {isExpandedProxy
+                    ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>
+                    : node.label}
+                </div>
+                {node.nodeType && node.nodeType !== "_group" && !isExpandedProxy && (
+                  <div style={{
+                    fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                    fontSize: Math.max(8.5, (labelSize ?? 11) - 2.5),
+                    color: `rgb(${Math.round(currentColor.current[i3] * 255 * 0.85)}, ${Math.round(currentColor.current[i3 + 1] * 255 * 0.85)}, ${Math.round(currentColor.current[i3 + 2] * 255 * 0.85)})`,
+                    letterSpacing: "0.06em",
+                    whiteSpace: "nowrap",
+                    textShadow: "0 0 6px rgba(0,0,0,0.9)",
+                    opacity: 0.78,
+                  }}>
+                    {node.nodeType.toLowerCase()}
+                  </div>
+                )}
               </Html>
             </group>
           );
@@ -1854,7 +2073,18 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           pos: [number, number, number];
           perp: { x: number; y: number; z: number };
         };
-        const chips: Chip[] = [];
+
+        // Group highlighted edges by label (edge type) and build one chip per
+        // group at the centroid of that group's edge midpoints. Avoids the
+        // "12× MENTIONS stacked on top of each other" cluster you'd otherwise
+        // see when a focused node has many edges of the same type.
+        type AggKey = string;
+        const groups = new Map<AggKey, {
+          label: string;
+          midSum: [number, number, number];
+          perpSum: { x: number; y: number; z: number };
+          count: number;
+        }>();
 
         for (let i = 0; i < highlightedEdges.length; i++) {
           const e = highlightedEdges[i];
@@ -1876,22 +2106,45 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             cy = (a.y + b.y) * 0.5;
             cz = (a.z + b.z) * 0.5;
           }
-
-          // Midpoint at t=0.5 — independent of semantic direction (chip text is
-          // direction-agnostic; pulses + chevrons carry the direction).
           const mid = sampleBezier(a.x, a.y, a.z, cx, cy, cz, b.x, b.y, b.z, 0.5);
-
-          // Perpendicular to chord in XZ — used for collision spreading.
           const dx = b.x - a.x;
           const dz = b.z - a.z;
           const plen = Math.sqrt(dx * dx + dz * dz) || 1;
           const perp = { x: -dz / plen, y: 0, z: dx / plen };
 
+          // Aggregate by edge label only — collapses N parallel "MENTIONS" edges
+          // (different src/dst pairs but same kind) into one chip with a count.
+          const key = e.label;
+          const g = groups.get(key);
+          if (g) {
+            g.midSum[0] += mid.x;
+            g.midSum[1] += mid.y + 0.4;
+            g.midSum[2] += mid.z;
+            g.perpSum.x += perp.x;
+            g.perpSum.y += perp.y;
+            g.perpSum.z += perp.z;
+            g.count += 1;
+          } else {
+            groups.set(key, {
+              label: e.label,
+              midSum: [mid.x, mid.y + 0.4, mid.z],
+              perpSum: { ...perp },
+              count: 1,
+            });
+          }
+        }
+
+        const chips: Chip[] = [];
+        for (const [key, g] of groups) {
+          const inv = 1 / g.count;
+          const px = g.perpSum.x * inv;
+          const pz = g.perpSum.z * inv;
+          const plen = Math.sqrt(px * px + pz * pz) || 1;
           chips.push({
-            key: `chip-${e.src}-${e.dst}-${i}`,
-            label: e.label,
-            pos: [mid.x, mid.y + 0.4, mid.z],
-            perp,
+            key: `chip-${key}`,
+            label: g.count > 1 ? `${g.label} × ${g.count}` : g.label,
+            pos: [g.midSum[0] * inv, g.midSum[1] * inv, g.midSum[2] * inv],
+            perp: { x: px / plen, y: 0, z: pz / plen },
           });
         }
 
@@ -1921,33 +2174,47 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           }
         }
 
-        return chips.map((c) => (
-          <Html
-            key={c.key}
-            position={c.pos}
-            center
-            style={{ pointerEvents: "none" }}
-          >
-            <div
-              style={{
-                fontSize: 9,
-                fontFamily: "'JetBrains Mono', monospace",
-                color: "rgba(190, 240, 255, 0.95)",
-                background: "rgba(5, 10, 22, 0.7)",
-                padding: "2px 6px",
-                borderRadius: 3,
-                border: "1px solid rgba(120, 200, 230, 0.25)",
-                letterSpacing: "0.6px",
-                whiteSpace: "nowrap",
-                textShadow: "0 0 6px rgba(0,0,0,0.9)",
-                boxShadow: "0 0 10px rgba(120, 200, 230, 0.08)",
-                userSelect: "none",
-              }}
+        return chips.map((c) => {
+          // Strip the " × N" suffix to get the underlying edge type for tinting.
+          const edgeType = c.label.split(" × ")[0];
+          const tint = colorForEdgeType(edgeType);
+          const isActive = hoveredChipType === edgeType;
+          const isFiltered = hoveredChipType !== null && !isActive;
+          return (
+            <Html
+              key={c.key}
+              position={c.pos}
+              center
+              style={{ pointerEvents: "auto" }}
             >
-              {c.label}
-            </div>
-          </Html>
-        ));
+              <div
+                onPointerEnter={() => setHoveredChipType(edgeType)}
+                onPointerLeave={() => setHoveredChipType(null)}
+                style={{
+                  fontSize: 9,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  color: rgbToCss(tint, isActive ? 1.0 : 0.95),
+                  background: isActive
+                    ? rgbToCss(tint, 0.18)
+                    : "rgba(5, 10, 22, 0.78)",
+                  padding: "2px 6px",
+                  borderRadius: 3,
+                  border: `1px solid ${rgbToCss(tint, isActive ? 0.85 : 0.45)}`,
+                  letterSpacing: "0.6px",
+                  whiteSpace: "nowrap",
+                  textShadow: "0 0 6px rgba(0,0,0,0.9)",
+                  boxShadow: `0 0 ${isActive ? 16 : 10}px ${rgbToCss(tint, isActive ? 0.35 : 0.18)}`,
+                  userSelect: "none",
+                  opacity: isFiltered ? 0.3 : 1,
+                  cursor: "default",
+                  transition: "opacity 120ms, background 120ms, border-color 120ms",
+                }}
+              >
+                {c.label}
+              </div>
+            </Html>
+          );
+        });
       })()}
 
     </>
