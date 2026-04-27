@@ -49,6 +49,11 @@ function truncateLabel(label: string): string {
   return label.length > MAX_LABEL_LENGTH ? label.slice(0, MAX_LABEL_LENGTH) + "\u2026" : label
 }
 
+// When a single source has this many neighbors of the same (edge_type,
+// target_type), insert a synthetic cluster junction so the bundle reads as
+// "source → cluster → 20 leaves" instead of 20 individual lines fanning out.
+const CLUSTER_THRESHOLD = 6
+
 function apiToGraph(
   nodes: ApiNode[],
   edges: ApiEdge[],
@@ -59,16 +64,52 @@ function apiToGraph(
     label: truncateLabel(nodeLabel(n, schemas)),
   }))
 
-  const rawEdges: RawEdge[] = edges.map((e) => ({
-    source: e.source,
-    target: e.target,
-    label: e.edge_type,
-  }))
+  // Group edges by (source, edge_type, target_type) so we can spot bundles
+  // worth clustering. Resolved target_type comes from the node lookup.
+  const nodeTypeById = new Map(nodes.map((n) => [n.ref_id, n.node_type || "Unknown"]))
+  const bundles = new Map<string, ApiEdge[]>()
+  for (const e of edges) {
+    const tgtType = nodeTypeById.get(e.target)
+    if (!tgtType) continue
+    const key = `${e.source}::${e.edge_type}::${tgtType}`
+    let arr = bundles.get(key)
+    if (!arr) {
+      arr = []
+      bundles.set(key, arr)
+    }
+    arr.push(e)
+  }
 
-  // Find root nodes (no incoming edges from within the result set)
+  // Build a set of edges that should be rerouted through a cluster, plus the
+  // cluster nodes + replacement edges they spawn.
+  const clusterizedEdges = new Set<ApiEdge>()
+  const extraNodes: RawNode[] = []
+  const extraEdges: RawEdge[] = []
+  for (const [key, arr] of bundles) {
+    if (arr.length < CLUSTER_THRESHOLD) continue
+    const [source, edge_type, target_type] = key.split("::")
+    const clusterId = `__cluster_${source}_${edge_type}_${target_type}`
+    extraNodes.push({ id: clusterId, label: `${target_type} × ${arr.length}` })
+    extraEdges.push({ source, target: clusterId, label: edge_type })
+    for (const e of arr) {
+      extraEdges.push({ source: clusterId, target: e.target, label: edge_type })
+      clusterizedEdges.add(e)
+    }
+  }
+
+  const rawEdges: RawEdge[] = []
+  for (const e of edges) {
+    if (clusterizedEdges.has(e)) continue
+    rawEdges.push({ source: e.source, target: e.target, label: e.edge_type })
+  }
+  rawNodes.push(...extraNodes)
+  rawEdges.push(...extraEdges)
+
+  // Find root nodes (no incoming edges from within the result set, after
+  // any cluster rerouting — cluster edges count as incoming for their targets).
   const nodeIds = new Set(nodes.map((n) => n.ref_id))
   const hasIncoming = new Set<string>()
-  for (const e of edges) {
+  for (const e of rawEdges) {
     if (nodeIds.has(e.target)) hasIncoming.add(e.target)
   }
   const roots = nodes.filter((n) => !hasIncoming.has(n.ref_id))
@@ -98,12 +139,14 @@ function apiToGraph(
   for (let i = 0; i < nodes.length; i++) {
     graph.nodes[i].nodeType = nodes[i].node_type
   }
-  // Mark synthetic group nodes
+  // Mark synthetic nodes — clusters get their own marker so renderers can
+  // distinguish them from the older top-level type bundlers (`_group`).
   for (let i = nodes.length; i < graph.nodes.length; i++) {
-    graph.nodes[i].nodeType = "_group"
+    const id = rawNodes[i].id
+    graph.nodes[i].nodeType = id.startsWith("__cluster_") ? "_cluster" : "_group"
   }
 
-  // Only map real nodes — group nodes have no API counterpart
+  // Only map real nodes — synthetic nodes have no API counterpart
   const indexMap = new Map<number, string>()
   const refIdToIndex = new Map<string, number>()
   for (let i = 0; i < nodes.length; i++) {

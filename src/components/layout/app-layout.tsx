@@ -29,7 +29,9 @@ export function AppLayout() {
   const schemas = useSchemaStore((s) => s.schemas)
   const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
-  const searchPanelOpen = !!searchTerm && hasResults
+  // Show the results sidebar whenever the canvas has nodes, regardless of
+  // whether they came from a search query or the latest-on-init fetch.
+  const searchPanelOpen = hasResults
 
   // Schemas power display-name resolution (title_key / index) for search
   // results and any other node chrome — load once on mount if not already

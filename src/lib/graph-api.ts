@@ -69,6 +69,14 @@ export async function searchNodes(
   )
 }
 
+// Latest 100 nodes added to the graph + their 1-hop edges. Used to populate
+// the canvas on initial mount before the user has issued a search.
+// `skip_cache=1` bypasses the backend's Redis response cache so we get a
+// fresh answer instead of a stale empty payload from a prior cold start.
+export async function getLatestNodes(signal?: AbortSignal): Promise<NodesListResponse> {
+  return api.get<NodesListResponse>("/v2/nodes/latest?skip_cache=1", undefined, signal)
+}
+
 // List nodes (no search query)
 export async function listNodes(
   opts?: { limit?: number; skip?: number; node_type?: string },

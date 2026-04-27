@@ -1852,7 +1852,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                     : node.label}
                 </div>
                 {!isExpandedProxy && (() => {
-                  const showTypePill = node.nodeType && node.nodeType !== "_group";
+                  const showTypePill =
+                    node.nodeType &&
+                    node.nodeType !== "_group" &&
+                    node.nodeType !== "_cluster";
                   const types = edgeTypesByNeighbor.get(i);
                   const hasEdges = types && types.size > 0;
                   if (!showTypePill && !hasEdges) return null;
