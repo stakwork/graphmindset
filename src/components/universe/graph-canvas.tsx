@@ -62,6 +62,7 @@ function apiToGraph(
   const rawNodes: RawNode[] = nodes.map((n) => ({
     id: n.ref_id,
     label: truncateLabel(nodeLabel(n, schemas)),
+    ...(n.properties.image_url != null && { imageUrl: n.properties.image_url as string }),
   }))
 
   const nodeTypeById = new Map(nodes.map((n) => [n.ref_id, n.node_type || "Unknown"]))

@@ -5,6 +5,7 @@ export interface RawNode {
   label: string;
   link?: string;
   icon?: string;
+  imageUrl?: string;
   status?: "executing" | "done" | "idle";
   progress?: number;
   content?: string;
@@ -49,6 +50,7 @@ export function buildGraph(nodes: RawNode[], edges: RawEdge[]): Graph {
     degree: adj[i].length,
     ...(node.link != null && { link: node.link }),
     ...(node.icon != null && { icon: node.icon }),
+    ...(node.imageUrl != null && { imageUrl: node.imageUrl }),
     ...(node.status != null && { status: node.status }),
     ...(node.progress != null && { progress: node.progress }),
     ...(node.content != null && { content: node.content }),

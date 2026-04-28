@@ -343,6 +343,52 @@ function sampleBezier(
 }
 
 
+// ─── Image billboard sub-component ─────────────────────────────────────────
+// Mounts a textured plane mesh for a node that has image_url set.
+// TextureLoader is called inside useEffect so hooks rules are satisfied
+// and @react-three/drei's texture cache is not needed here.
+function ImageNodeMesh({
+  url,
+  position,
+  size,
+}: {
+  url: string;
+  position: [number, number, number];
+  size: number;
+}) {
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin("anonymous");
+    loader.load(
+      url,
+      (tex) => setTexture(tex),
+      undefined,
+      () => setFailed(true), // graceful fallback: don't render
+    );
+    return () => {
+      // no cleanup needed — THREE.TextureLoader manages its own requests
+    };
+  }, [url]);
+
+  if (!texture || failed) return null;
+
+  const imgSize = Math.min(Math.max(size, 2), 12);
+  return (
+    <mesh position={position} frustumCulled={false}>
+      <planeGeometry args={[imgSize, imgSize]} />
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        alphaTest={0.05}
+        toneMapped={false}
+      />
+    </mesh>
+  );
+}
+
 export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
@@ -358,6 +404,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   // Approach indicator state (node id + 0-1 progress for "zoom to inspect" hint)
   const approachRef = useRef<{ nodeId: number; progress: number }>({ nodeId: -1, progress: 0 });
   const [approachState, setApproachState] = useState<{ nodeId: number; progress: number }>({ nodeId: -1, progress: 0 });
+
+  // Image billboard proximity tracking — updated every 10 frames, no per-frame setState
+  const closeNodes = useRef<Set<number>>(new Set());
+  const frameCount = useRef(0);
+  const [imageNodesVisible, setImageNodesVisible] = useState<Set<number>>(new Set());
 
   const nodeCount = graph.nodes.length;
 
@@ -918,6 +969,16 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         s *= 0.01;
       }
 
+      // Suppress glow billboard when image mesh is visible for this node
+      if (
+        graph.nodes[i].imageUrl &&
+        graph.nodes[i].nodeType !== "_cluster" &&
+        graph.nodes[i].nodeType !== "_group" &&
+        (closeNodes.current.has(i) || i === hovered || i === (externalSelectedRef.current ?? -1))
+      ) {
+        s *= 0.05;
+      }
+
       tmpObj.position.set(
         currentPos.current[i3],
         currentPos.current[i3 + 1],
@@ -996,6 +1057,38 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       mesh.setColorAt(i, tmpColor);
+    }
+
+    // Camera proximity detection for image billboards (throttled to every 10 frames)
+    frameCount.current += 1;
+    if (frameCount.current % 10 === 0) {
+      const IMAGE_PROXIMITY_THRESHOLD = 20;
+      const prevClose = closeNodes.current;
+      const nextClose = new Set<number>();
+      for (let i = 0; i < nodeCount; i++) {
+        const node = graph.nodes[i];
+        if (!node.imageUrl) continue;
+        if (node.nodeType === "_cluster" || node.nodeType === "_group") continue;
+        const i3 = i * 3;
+        const nx = currentPos.current[i3];
+        const ny = currentPos.current[i3 + 1];
+        const nz = currentPos.current[i3 + 2];
+        const dist = camera.position.distanceTo(new THREE.Vector3(nx, ny, nz));
+        if (dist < IMAGE_PROXIMITY_THRESHOLD) {
+          nextClose.add(i);
+        }
+      }
+      // Only update state when the set actually changes
+      let changed = nextClose.size !== prevClose.size;
+      if (!changed) {
+        for (const id of nextClose) {
+          if (!prevClose.has(id)) { changed = true; break; }
+        }
+      }
+      if (changed) {
+        closeNodes.current = nextClose;
+        setImageNodesVisible(new Set(nextClose));
+      }
     }
 
     // Semantic zoom disabled for performance
@@ -1452,6 +1545,30 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           toneMapped={false}
         />
       </instancedMesh>
+
+      {/* Per-node image billboard meshes — only for nodes with imageUrl that are visible */}
+      {graph.nodes.map((node, i) => {
+        if (!node.imageUrl) return null;
+        if (node.nodeType === "_cluster" || node.nodeType === "_group") return null;
+        const isVisible =
+          i === hovered ||
+          i === (externalSelectedId ?? -1) ||
+          imageNodesVisible.has(i);
+        if (!isVisible) return null;
+        const i3 = i * 3;
+        const lx = i3 + 2 < labelPos.length ? labelPos[i3] : targets.positions[i3];
+        const ly = i3 + 2 < labelPos.length ? labelPos[i3 + 1] : targets.positions[i3 + 1];
+        const lz = i3 + 2 < labelPos.length ? labelPos[i3 + 2] : targets.positions[i3 + 2];
+        const size = Math.min(Math.max(currentScale.current[i] * 8, 2), 12);
+        return (
+          <ImageNodeMesh
+            key={node.id}
+            url={node.imageUrl}
+            position={[lx, ly, lz]}
+            size={size}
+          />
+        );
+      })}
 
       <lineSegments ref={linesRef} frustumCulled={false}>
         <bufferGeometry />
