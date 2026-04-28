@@ -64,9 +64,66 @@ function apiToGraph(
     label: truncateLabel(nodeLabel(n, schemas)),
   }))
 
-  // Group edges by (source, edge_type, target_type) so we can spot bundles
-  // worth clustering. Resolved target_type comes from the node lookup.
   const nodeTypeById = new Map(nodes.map((n) => [n.ref_id, n.node_type || "Unknown"]))
+
+  // ─── 1. Roots + orphan reachability ────────────────────────────────────
+  // Compute on the original `edges` (cluster routing happens later and
+  // doesn't change reachability).
+  const incomingCount = new Map<string, number>()
+  for (const n of nodes) incomingCount.set(n.ref_id, 0)
+  for (const e of edges) {
+    if (incomingCount.has(e.target)) {
+      incomingCount.set(e.target, (incomingCount.get(e.target) ?? 0) + 1)
+    }
+  }
+  const roots = nodes.filter((n) => (incomingCount.get(n.ref_id) ?? 0) === 0)
+
+  const undAdj = new Map<string, string[]>()
+  for (const n of nodes) undAdj.set(n.ref_id, [])
+  for (const e of edges) {
+    if (undAdj.has(e.source) && undAdj.has(e.target)) {
+      undAdj.get(e.source)!.push(e.target)
+      undAdj.get(e.target)!.push(e.source)
+    }
+  }
+  const reached = new Set<string>()
+  const reachQ: string[] = []
+  for (const r of roots) {
+    reached.add(r.ref_id)
+    reachQ.push(r.ref_id)
+  }
+  let reachI = 0
+  while (reachI < reachQ.length) {
+    const cur = reachQ[reachI++]
+    for (const nb of undAdj.get(cur) ?? []) {
+      if (!reached.has(nb)) {
+        reached.add(nb)
+        reachQ.push(nb)
+      }
+    }
+  }
+  const orphans = nodes.filter((n) => !reached.has(n.ref_id))
+
+  // ─── 2. Decide which types get a __group_<type> ────────────────────────
+  // A type gets its own synthetic group node when it either has orphans or
+  // — under the existing crowd-control rule — when there are >10 roots and
+  // the type has ≥2 of them. Determined up-front so the cluster pass can
+  // absorb same-type bundles into the group and avoid duplicate visuals.
+  const orphanTypes = new Set(orphans.map((o) => o.node_type || "Unknown"))
+  const crowdGroupedTypes = new Set<string>()
+  if (roots.length > 10) {
+    const rootCountByType = new Map<string, number>()
+    for (const r of roots) {
+      const type = r.node_type || "Unknown"
+      rootCountByType.set(type, (rootCountByType.get(type) ?? 0) + 1)
+    }
+    for (const [type, count] of rootCountByType) {
+      if (count >= 2) crowdGroupedTypes.add(type)
+    }
+  }
+  const groupedTypes = new Set([...orphanTypes, ...crowdGroupedTypes])
+
+  // ─── 3. Bundle by (source, edge_type, target_type) ─────────────────────
   const bundles = new Map<string, ApiEdge[]>()
   for (const e of edges) {
     const tgtType = nodeTypeById.get(e.target)
@@ -80,14 +137,28 @@ function apiToGraph(
     arr.push(e)
   }
 
-  // Build a set of edges that should be rerouted through a cluster, plus the
-  // cluster nodes + replacement edges they spawn.
+  // ─── 4. Process bundles ────────────────────────────────────────────────
+  // Bundles whose target_type already has a __group_<type> get absorbed
+  // into that group: source-to-leaf edges are dropped (clusterized), and
+  // the leaves are added to the group's member set. This keeps a single
+  // visual home per type — no `Product × 9` next to `Product`.
+  // Other bundles ≥ CLUSTER_THRESHOLD become a per-source cluster as before.
   const clusterizedEdges = new Set<ApiEdge>()
   const extraNodes: RawNode[] = []
   const extraEdges: RawEdge[] = []
+  const absorbedIntoGroup = new Map<string, Set<string>>()
+  for (const t of groupedTypes) absorbedIntoGroup.set(t, new Set())
+
   for (const [key, arr] of bundles) {
     if (arr.length < CLUSTER_THRESHOLD) continue
     const [source, edge_type, target_type] = key.split("::")
+    if (groupedTypes.has(target_type)) {
+      for (const e of arr) {
+        clusterizedEdges.add(e)
+        absorbedIntoGroup.get(target_type)!.add(e.target)
+      }
+      continue
+    }
     const clusterId = `__cluster_${source}_${edge_type}_${target_type}`
     extraNodes.push({ id: clusterId, label: `${target_type} × ${arr.length}` })
     extraEdges.push({ source, target: clusterId, label: edge_type })
@@ -97,6 +168,7 @@ function apiToGraph(
     }
   }
 
+  // ─── 5. Build rawEdges (excluding clusterized) ─────────────────────────
   const rawEdges: RawEdge[] = []
   for (const e of edges) {
     if (clusterizedEdges.has(e)) continue
@@ -105,30 +177,29 @@ function apiToGraph(
   rawNodes.push(...extraNodes)
   rawEdges.push(...extraEdges)
 
-  // Find root nodes (no incoming edges from within the result set, after
-  // any cluster rerouting — cluster edges count as incoming for their targets).
-  const nodeIds = new Set(nodes.map((n) => n.ref_id))
-  const hasIncoming = new Set<string>()
-  for (const e of rawEdges) {
-    if (nodeIds.has(e.target)) hasIncoming.add(e.target)
-  }
-  const roots = nodes.filter((n) => !hasIncoming.has(n.ref_id))
-
-  // Group roots by node_type when there are too many top-level nodes
-  if (roots.length > 10) {
-    const groups = new Map<string, ApiNode[]>()
-    for (const root of roots) {
-      const type = root.node_type || "Unknown"
-      if (!groups.has(type)) groups.set(type, [])
-      groups.get(type)!.push(root)
+  // ─── 6. Add __group_<type> nodes + member edges ────────────────────────
+  // Members = roots of type + orphans of type + leaves absorbed via cluster.
+  if (groupedTypes.size > 0) {
+    const memberByType = new Map<string, Set<string>>()
+    for (const t of groupedTypes) memberByType.set(t, new Set())
+    for (const r of roots) {
+      const t = r.node_type || "Unknown"
+      if (groupedTypes.has(t)) memberByType.get(t)!.add(r.ref_id)
     }
-
-    for (const [type, members] of groups) {
-      if (members.length < 2) continue
-      const groupId = `__group_${type}`
-      rawNodes.push({ id: groupId, label: type })
-      for (const member of members) {
-        rawEdges.push({ source: groupId, target: member.ref_id })
+    for (const o of orphans) {
+      const t = o.node_type || "Unknown"
+      if (groupedTypes.has(t)) memberByType.get(t)!.add(o.ref_id)
+    }
+    for (const [t, leaves] of absorbedIntoGroup) {
+      const set = memberByType.get(t)!
+      for (const leaf of leaves) set.add(leaf)
+    }
+    for (const [t, members] of memberByType) {
+      if (members.size === 0) continue
+      const groupId = `__group_${t}`
+      rawNodes.push({ id: groupId, label: t })
+      for (const m of members) {
+        rawEdges.push({ source: groupId, target: m })
       }
     }
   }
