@@ -56,22 +56,6 @@ interface GraphViewProps {
 const tmpObj = new THREE.Object3D();
 const tmpColor = new THREE.Color();
 
-// Fisheye: module-level reusable objects
-const _fishRaycaster = new THREE.Raycaster();
-const _fishPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const _fishHit = new THREE.Vector3();
-const _fishPointer = new THREE.Vector2();
-const FISHEYE_D = 2; // Sarkar-Brown distortion strength for labels
-const FISHEYE_MIN_CHILDREN = 15;
-
-interface RingData {
-  onRing: Uint8Array;
-  centerX: Float32Array;
-  centerZ: Float32Array;
-  baseAngle: Float32Array;
-  radius: Float32Array;
-}
-
 function smoothstep(t: number): number {
   const c = Math.max(0, Math.min(1, t));
   // Quintic smoothstep — smoother acceleration and deceleration
@@ -415,10 +399,6 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   // Labels follow animation (updated at low fps)
   const [labelPos, setLabelPos] = useState(() => new Float32Array(nodeCount * 3));
   const labelAccum = useRef(0);
-  // Fisheye label offsets: distorted positions for labels only (nodes stay fixed)
-  const fisheyeLabelPos = useRef(new Float32Array(nodeCount * 3));
-  // Per-node nimbus scale (cursor proximity on ring)
-  const nimbusScale = useRef(new Float32Array(nodeCount).fill(1));
 
   // Resize buffers when nodeCount grows (streaming support)
   const prevNodeCount = useRef(nodeCount);
@@ -439,76 +419,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     currentColor.current = grow(currentColor.current, 3);
     currentAlpha.current = grow(currentAlpha.current, 1, 1);
     progressArray.current = grow(progressArray.current, 1, -1);
-    fisheyeLabelPos.current = grow(fisheyeLabelPos.current, 3);
-    nimbusScale.current = grow(nimbusScale.current, 1, 1);
     buffersGrewRef.current = true;
 
     prevNodeCount.current = nodeCount;
   }
-
-  // Cursor-reveal: cursor world position on XZ plane
-  const cursorXZ = useRef({ x: 0, z: 0 });
-  const [fisheyeRevealed, setFisheyeRevealed] = useState<Set<number>>(() => new Set());
-  const fisheyeRevealedRef = useRef<Set<number>>(new Set());
-
-  // Clear fisheye state when view mode or selected node changes
-  const viewKey = viewState.mode === "subgraph" ? viewState.selectedNodeId : -1;
-  useEffect(() => {
-    fisheyeRevealedRef.current = new Set();
-    setFisheyeRevealed(new Set());
-  }, [viewKey]);
-
-  // Fisheye: precompute ring polar data from layout's childrenOf
-  const ringData = useMemo((): RingData | null => {
-    const childrenOf = graph.childrenOf;
-    if (!childrenOf) return null;
-
-    // Determine the active parent: selected node in subgraph mode, or virtual center / single root in overview
-    let activeParentId: number | undefined;
-    if (viewState.mode === "subgraph") {
-      activeParentId = viewState.selectedNodeId;
-    } else {
-      // Overview: use virtual center if it exists, otherwise the layout root
-      if (graph.initialDepthMap?.has(VIRTUAL_CENTER)) {
-        activeParentId = VIRTUAL_CENTER;
-      } else {
-        // Single root: find it (depth 0 node)
-        for (const [id, depth] of graph.initialDepthMap ?? []) {
-          if (depth === 0) { activeParentId = id; break; }
-        }
-      }
-    }
-
-    if (activeParentId === undefined) return null;
-    const children = childrenOf.get(activeParentId);
-    if (!children || children.length < FISHEYE_MIN_CHILDREN) return null;
-
-    const onRing = new Uint8Array(nodeCount);
-    const centerX = new Float32Array(nodeCount);
-    const centerZ = new Float32Array(nodeCount);
-    const baseAngle = new Float32Array(nodeCount);
-    const radius = new Float32Array(nodeCount);
-
-    const cx = activeParentId === VIRTUAL_CENTER ? 0 : graph.nodes[activeParentId].position.x;
-    const cz = activeParentId === VIRTUAL_CENTER ? 0 : graph.nodes[activeParentId].position.z;
-
-    for (const childId of children) {
-      const nx = graph.nodes[childId].position.x;
-      const nz = graph.nodes[childId].position.z;
-      const dx = nx - cx;
-      const dz = nz - cz;
-      const r = Math.sqrt(dx * dx + dz * dz);
-      if (r < 0.01) continue;
-
-      onRing[childId] = 1;
-      centerX[childId] = cx;
-      centerZ[childId] = cz;
-      baseAngle[childId] = Math.atan2(dz, dx);
-      radius[childId] = r;
-    }
-
-    return { onRing, centerX, centerZ, baseAngle, radius };
-  }, [graph, viewState, nodeCount]);
 
   // Reuse edge buffers (avoid per-frame allocations) — grow as needed
   const edgePosRef = useRef<Float32Array>(new Float32Array(Math.max(1, graph.edges.length) * 6));
@@ -927,16 +841,6 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
     }
 
-    // Fisheye: project cursor onto XZ ground plane
-    if (ringData && !minimap) {
-      _fishPointer.set(pointer.x, pointer.y);
-      _fishRaycaster.setFromCamera(_fishPointer, camera);
-      if (_fishRaycaster.ray.intersectPlane(_fishPlane, _fishHit)) {
-        cursorXZ.current.x = _fishHit.x;
-        cursorXZ.current.z = _fishHit.z;
-      }
-    }
-
     if (transitionProgress.current < 1) {
       transitionProgress.current = Math.min(1, transitionProgress.current + delta / 1.2);
     }
@@ -957,13 +861,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     for (let i = 0; i < nodeCount; i++) {
       const i3 = i * 3;
 
-      // Default: label at node position, nimbus = 1
-      fisheyeLabelPos.current[i3] = targets.positions[i3];
-      fisheyeLabelPos.current[i3 + 1] = targets.positions[i3 + 1];
-      fisheyeLabelPos.current[i3 + 2] = targets.positions[i3 + 2];
-      nimbusScale.current[i] += (1 - nimbusScale.current[i]) * 0.1;
-
-      // Animate position (no distortion, always lerp to target)
+      // Animate position (always lerp to target)
       currentPos.current[i3] += (targets.positions[i3] - currentPos.current[i3]) * t;
       currentPos.current[i3 + 1] += (targets.positions[i3 + 1] - currentPos.current[i3 + 1]) * t;
       currentPos.current[i3 + 2] += (targets.positions[i3 + 2] - currentPos.current[i3 + 2]) * t;
@@ -1008,9 +906,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         currentAlpha.current[i] += (a - currentAlpha.current[i]) * t;
       }
 
-      // Apply nimbus scale (fisheye proximity effect)
-      const nimbus = nimbusScale.current[i];
-      let s = graph.nodes[i].icon ? Math.max(currentScale.current[i] * nimbus * 0.3, 0.001) : Math.max(currentScale.current[i] * nimbus, 0.001);
+      let s = graph.nodes[i].icon ? Math.max(currentScale.current[i] * 0.3, 0.001) : Math.max(currentScale.current[i], 0.001);
 
       // Boost glow when camera is approaching this node
       if (approachRef.current.nodeId === i && approachRef.current.progress > 0) {
@@ -1104,86 +1000,6 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
     // Semantic zoom disabled for performance
     approachRef.current = { nodeId: -1, progress: 0 };
-
-    // Fisheye pass: find nearest ring nodes to cursor, enlarge them, shrink the rest
-    if (ringData && !minimap) {
-      const REVEAL_COUNT = 12;
-      const REVEAL_ANGLE = Math.PI * 0.18; // angular window for reveal
-
-      // Collect ring nodes with angular distance to cursor
-      const ringCandidates: { idx: number; ad: number }[] = [];
-      for (let i = 0; i < nodeCount; i++) {
-        if (!ringData.onRing[i] || targets.scales[i] < 0.01) continue;
-        const cx = ringData.centerX[i];
-        const cz = ringData.centerZ[i];
-        const focusAngle = Math.atan2(cursorXZ.current.z - cz, cursorXZ.current.x - cx);
-        let ad = ringData.baseAngle[i] - focusAngle;
-        if (ad > Math.PI) ad -= Math.PI * 2;
-        if (ad < -Math.PI) ad += Math.PI * 2;
-        ringCandidates.push({ idx: i, ad: Math.abs(ad) });
-      }
-
-      // Sort by angular distance, pick nearest
-      ringCandidates.sort((a, b) => a.ad - b.ad);
-      const revealed = new Set<number>();
-      for (let j = 0; j < Math.min(REVEAL_COUNT, ringCandidates.length); j++) {
-        if (ringCandidates[j].ad < REVEAL_ANGLE) {
-          revealed.add(ringCandidates[j].idx);
-        }
-      }
-
-      fisheyeRevealedRef.current = revealed;
-
-      // Apply nimbus only when cursor is actually near the ring (has revealed nodes)
-      if (revealed.size > 0) {
-        for (const c of ringCandidates) {
-          const ri = c.idx;
-          const ri3 = ri * 3;
-          if (revealed.has(ri)) {
-            // Grow nimbus + compute distorted label position
-            nimbusScale.current[ri] += (1.8 - nimbusScale.current[ri]) * 0.15;
-
-            // Distorted label: spread revealed labels apart
-            const cx = ringData.centerX[ri];
-            const cz = ringData.centerZ[ri];
-            const focusAngle = Math.atan2(cursorXZ.current.z - cz, cursorXZ.current.x - cx);
-            let ad = ringData.baseAngle[ri] - focusAngle;
-            if (ad > Math.PI) ad -= Math.PI * 2;
-            if (ad < -Math.PI) ad += Math.PI * 2;
-            const sign = ad >= 0 ? 1 : -1;
-            const norm = Math.abs(ad) / Math.PI;
-            const distorted = (FISHEYE_D + 1) * norm / (FISHEYE_D * norm + 1);
-            const labelAngle = focusAngle + sign * Math.PI * distorted;
-            const r = ringData.radius[ri];
-            fisheyeLabelPos.current[ri3] = cx + Math.cos(labelAngle) * (r * 1.15);
-            fisheyeLabelPos.current[ri3 + 2] = cz + Math.sin(labelAngle) * (r * 1.15);
-          } else {
-            // Gentle shrink for non-revealed ring nodes
-            nimbusScale.current[ri] += (0.7 - nimbusScale.current[ri]) * 0.1;
-          }
-
-          // Re-apply nimbus to instance matrix
-          const nimbus = nimbusScale.current[ri];
-          const baseScale = currentScale.current[ri];
-          const s = graph.nodes[ri].icon
-            ? Math.max(baseScale * nimbus * 0.3, 0.001)
-            : Math.max(baseScale * nimbus, 0.001);
-          tmpObj.position.set(
-            currentPos.current[ri3],
-            currentPos.current[ri3 + 1],
-            currentPos.current[ri3 + 2]
-          );
-          tmpObj.scale.setScalar(s);
-          tmpObj.updateMatrix();
-          mesh.setMatrixAt(ri, tmpObj.matrix);
-        }
-      } else {
-        // Cursor not near any ring — restore all nimbus to 1.0
-        for (const c of ringCandidates) {
-          nimbusScale.current[c.idx] += (1 - nimbusScale.current[c.idx]) * 0.1;
-        }
-      }
-    }
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -1572,18 +1388,15 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     labelAccum.current += delta;
     if (labelAccum.current > 0.033) {
       labelAccum.current = 0;
-      // Labels use fisheye-distorted positions (nodes stay fixed)
+      // Labels track node positions exactly.
       const lp = new Float32Array(nodeCount * 3);
       for (let i = 0; i < nodeCount; i++) {
         const i3 = i * 3;
-        // Lerp label toward fisheye target position
-        lp[i3] = currentPos.current[i3] + (fisheyeLabelPos.current[i3] - currentPos.current[i3]) * 0.5;
+        lp[i3] = currentPos.current[i3];
         lp[i3 + 1] = currentPos.current[i3 + 1];
-        lp[i3 + 2] = currentPos.current[i3 + 2] + (fisheyeLabelPos.current[i3 + 2] - currentPos.current[i3 + 2]) * 0.5;
+        lp[i3 + 2] = currentPos.current[i3 + 2];
       }
       setLabelPos(lp);
-      // Sync fisheye-revealed nodes for label display
-      setFisheyeRevealed(new Set(fisheyeRevealedRef.current));
       // Sync approach indicator to React state
       setApproachState({ ...approachRef.current });
     }
@@ -1760,11 +1573,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const isHoverNeighbor = useFilteredHover
             ? shownHoverNeighbors.has(i)
             : (hoveredRelated?.has(i) ?? false);
-          const isCursorRevealed = fisheyeRevealed.has(i);
           const isSearchMatch = searchMatches?.has(i) ?? false;
           const isRecentNode = recentNodes?.has(i) ?? false;
           const isHighWeight = (graph.nodes[i].weight ?? 0) > 0.5;
-          const isProminent = isSelected || isHovered || isHoverNeighbor || isCursorRevealed || isSearchMatch || isRecentNode || isExpandedProxy || isHighWeight;
+          const isProminent = isSelected || isHovered || isHoverNeighbor || isSearchMatch || isRecentNode || isExpandedProxy || isHighWeight;
 
           // Unstructured nodes: no label unless hovered, selected, or neighbor of selected
           if ((graph.unstructuredNodeIds?.has(i) ?? false) && !isHovered && !isSelected && !isHoverNeighbor) return null;
@@ -1789,7 +1601,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const lz = i3 + 2 < labelPos.length ? labelPos[i3 + 2] : targets.positions[i3 + 2];
           const isExecuting = node.status === "executing";
 
-          // Style tiers: search > hovered > selected > recent > cursor-revealed > default
+          // Style tiers: search > hovered > selected > hover-neighbor > recent > default
           const recentAge = isRecentNode ? (Date.now() - recentNodes!.get(i)!) / 3000 : 1;
           const recentOpacity = Math.max(0, 1 - recentAge);
           const labelColor = isSearchMatch ? "rgba(255,220,80,0.95)"
@@ -1797,12 +1609,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               : isSelected ? "rgba(100,220,255,0.95)"
                 : isHoverNeighbor ? "rgba(200,200,200,0.85)"
                   : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
-                    : isCursorRevealed ? "rgba(180,210,240,0.85)"
-                      : "rgba(190,200,210,0.75)";
+                    : "rgba(190,200,210,0.75)";
           const labelSize = isSearchMatch ? 14
             : isHovered || isSelected ? 14
               : isRecentNode ? 13
-                : isCursorRevealed || isHoverNeighbor ? 12
+                : isHoverNeighbor ? 12
                   : 11;
 
           const iconColor = node.icon
