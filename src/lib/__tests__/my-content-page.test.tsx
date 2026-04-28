@@ -9,10 +9,8 @@ vi.mock("@/lib/api", () => ({
 }))
 
 // --- mock graph-api delete functions ---
-const mockDeleteNodesByUniqueSourceId = vi.fn().mockResolvedValue({})
 const mockDeleteNode = vi.fn().mockResolvedValue({})
 vi.mock("@/lib/graph-api", () => ({
-  deleteNodesByUniqueSourceId: (...args: unknown[]) => mockDeleteNodesByUniqueSourceId(...args),
   deleteNode: (...args: unknown[]) => mockDeleteNode(...args),
 }))
 
@@ -301,26 +299,8 @@ describe("MyContentPanel – delete button", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     myContentUserOverrides = {}
-    mockDeleteNodesByUniqueSourceId.mockResolvedValue({})
     mockDeleteNode.mockResolvedValue({})
   })
-
-  const NODE_WITH_UID = {
-    nodes: [
-      {
-        node_type: "Tweet",
-        ref_id: "ref-1",
-        properties: { name: "Node A", status: "complete", pubkey: "03abc123testkey", unique_source_id: "uid-42" },
-      },
-      {
-        node_type: "Podcast",
-        ref_id: "ref-2",
-        properties: { name: "Node B", status: "complete", pubkey: "03abc123testkey", unique_source_id: "uid-42" },
-      },
-    ],
-    totalCount: 2,
-    totalProcessing: 0,
-  }
 
   const NODE_WITHOUT_UID = {
     nodes: [
@@ -382,32 +362,10 @@ describe("MyContentPanel – delete button", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }))
     expect(screen.queryByRole("button", { name: /confirm delete/i })).toBeNull()
-    expect(mockDeleteNodesByUniqueSourceId).not.toHaveBeenCalled()
     expect(mockDeleteNode).not.toHaveBeenCalled()
   })
 
-  it("confirm with unique_source_id calls deleteNodesByUniqueSourceId and removes all matching nodes", async () => {
-    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
-    mockApiGet.mockResolvedValue(NODE_WITH_UID)
-    render(<MyContentPanel onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByText("Node A")).toBeInTheDocument())
-    expect(screen.getByText("Node B")).toBeInTheDocument()
-
-    const trashButtons = screen.getAllByRole("button", { name: /delete node/i })
-    fireEvent.click(trashButtons[0])
-    fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }))
-
-    await waitFor(() => {
-      expect(mockDeleteNodesByUniqueSourceId).toHaveBeenCalledWith("uid-42")
-    })
-    await waitFor(() => {
-      expect(screen.queryByText("Node A")).not.toBeInTheDocument()
-      expect(screen.queryByText("Node B")).not.toBeInTheDocument()
-    })
-    expect(mockDeleteNode).not.toHaveBeenCalled()
-  })
-
-  it("confirm with no unique_source_id calls deleteNode(ref_id) and removes only that node", async () => {
+  it("confirm calls deleteNode(ref_id) and removes only that node", async () => {
     myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
     mockApiGet.mockResolvedValue(NODE_WITHOUT_UID)
     render(<MyContentPanel onClose={() => {}} />)
@@ -422,6 +380,5 @@ describe("MyContentPanel – delete button", () => {
     await waitFor(() => {
       expect(screen.queryByText("Orphan Node")).not.toBeInTheDocument()
     })
-    expect(mockDeleteNodesByUniqueSourceId).not.toHaveBeenCalled()
   })
 })

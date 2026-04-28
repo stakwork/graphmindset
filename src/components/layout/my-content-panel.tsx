@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { NodeRow } from "./node-row"
 import { api } from "@/lib/api"
-import { deleteNodesByUniqueSourceId, deleteNode } from "@/lib/graph-api"
+import { deleteNode } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_CONTENT } from "@/lib/mock-data"
 import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -186,14 +186,8 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                   const isConfirming = deletingId === node.ref_id
 
                   const handleConfirmDelete = async () => {
-                    const uid = node.properties?.unique_source_id as string | undefined
-                    if (uid) {
-                      await deleteNodesByUniqueSourceId(uid)
-                      setNodes((prev) => prev.filter((n) => n.properties?.unique_source_id !== uid))
-                    } else {
-                      await deleteNode(node.ref_id)
-                      setNodes((prev) => prev.filter((n) => n.ref_id !== node.ref_id))
-                    }
+                    await deleteNode(node.ref_id)
+                    setNodes((prev) => prev.filter((n) => n.ref_id !== node.ref_id))
                     setDeletingId(null)
                   }
 
