@@ -286,10 +286,6 @@ export async function createTopic(
   return api.post("/v2/topic", data, undefined, signal)
 }
 
-export async function deleteNodesByUniqueSourceId(uniqueSourceId: string, signal?: AbortSignal) {
-  return api.delete(`/v2/nodes/run/${uniqueSourceId}`, undefined, signal)
-}
-
 export async function runRadarNow(
   sourceType: RadarSourceType,
   signal?: AbortSignal
