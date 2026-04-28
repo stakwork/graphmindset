@@ -718,12 +718,22 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
   const highlightedEdges = useMemo(() => {
     if (hovered === null && selectedId === null) return [];
-    return targetEdges.filter(
-      (e) =>
+    // Source from graph.edges (not targetEdges) so cross-edges touching the
+    // hovered/selected node surface here even when the subgraph-mode filter
+    // strips them out of the base render. Still respect visibleNodeIds so
+    // we don't highlight edges to collapsed/hidden nodes.
+    const visibleSet = viewState.mode === "subgraph"
+      ? new Set(viewState.visibleNodeIds)
+      : null;
+    return graph.edges.filter((e) => {
+      const touches =
         e.src === hovered || e.dst === hovered ||
-        e.src === selectedId || e.dst === selectedId
-    );
-  }, [hovered, selectedId, targetEdges]);
+        e.src === selectedId || e.dst === selectedId;
+      if (!touches) return false;
+      if (visibleSet && (!visibleSet.has(e.src) || !visibleSet.has(e.dst))) return false;
+      return true;
+    });
+  }, [hovered, selectedId, graph.edges, viewState]);
 
   // For each neighbor of the focused node, the set of edge types connecting
   // it to the focused node. Lets the label render show "via MENTIONS" etc.
