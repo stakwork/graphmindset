@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
-import { getSchemaDomains, updateHiddenTypes } from "@/lib/graph-api"
+import { getSchemaDomains, updateHiddenLists } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_DOMAINS } from "@/lib/mock-data"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useAppStore } from "@/stores/app-store"
@@ -26,6 +26,8 @@ export function DomainSettings({ open, title, description }: DomainSettingsProps
   const [availableDomains, setAvailableDomains] = useState<string[]>([])
   const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set())
   const [originalHidden, setOriginalHidden] = useState<Set<string>>(new Set())
+  const [hiddenDomainSet, setHiddenDomainSet] = useState<Set<string>>(new Set())
+  const [originalHiddenDomains, setOriginalHiddenDomains] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,15 +40,21 @@ export function DomainSettings({ open, title, description }: DomainSettingsProps
     try {
       if (isMocksEnabled()) {
         setAvailableDomains(MOCK_DOMAINS.domains)
-        const hidden = new Set(MOCK_DOMAINS.hidden)
-        setHiddenSet(new Set(hidden))
-        setOriginalHidden(new Set(hidden))
+        const hiddenTypes = new Set(MOCK_DOMAINS.hidden_types)
+        const hiddenDomains = new Set(MOCK_DOMAINS.hidden_domains)
+        setHiddenSet(new Set(hiddenTypes))
+        setOriginalHidden(new Set(hiddenTypes))
+        setHiddenDomainSet(new Set(hiddenDomains))
+        setOriginalHiddenDomains(new Set(hiddenDomains))
       } else {
         const res = await getSchemaDomains()
         setAvailableDomains(res.domains ?? [])
-        const hidden = new Set(res.hidden ?? [])
-        setHiddenSet(new Set(hidden))
-        setOriginalHidden(new Set(hidden))
+        const hiddenTypes = new Set(res.hidden_types ?? [])
+        const hiddenDomains = new Set(res.hidden_domains ?? [])
+        setHiddenSet(new Set(hiddenTypes))
+        setOriginalHidden(new Set(hiddenTypes))
+        setHiddenDomainSet(new Set(hiddenDomains))
+        setOriginalHiddenDomains(new Set(hiddenDomains))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load domains")
@@ -85,35 +93,62 @@ export function DomainSettings({ open, title, description }: DomainSettingsProps
     setSavedMessage(null)
   }
 
-  const dirty = useMemo(() => {
-    if (hiddenSet.size !== originalHidden.size) return true
-    for (const t of hiddenSet) if (!originalHidden.has(t)) return true
-    return false
-  }, [hiddenSet, originalHidden])
+  const toggleDomain = (domain: string) => {
+    setHiddenDomainSet((prev) => {
+      const next = new Set(prev)
+      if (next.has(domain)) next.delete(domain)
+      else next.add(domain)
+      return next
+    })
+    setSavedMessage(null)
+  }
+
+  const setsEqual = (a: Set<string>, b: Set<string>) => {
+    if (a.size !== b.size) return false
+    for (const x of a) if (!b.has(x)) return false
+    return true
+  }
+
+  const typesDirty = useMemo(
+    () => !setsEqual(hiddenSet, originalHidden),
+    [hiddenSet, originalHidden]
+  )
+  const domainsDirty = useMemo(
+    () => !setsEqual(hiddenDomainSet, originalHiddenDomains),
+    [hiddenDomainSet, originalHiddenDomains]
+  )
+  const dirty = typesDirty || domainsDirty
 
   const handleSave = useCallback(async () => {
     setSaving(true)
     setError(null)
     setSavedMessage(null)
-    const next = Array.from(hiddenSet).sort()
+    const nextTypes = Array.from(hiddenSet).sort()
+    const nextDomains = Array.from(hiddenDomainSet).sort()
     try {
       if (!isMocksEnabled()) {
-        await updateHiddenTypes(title, description, next)
+        await updateHiddenLists(
+          title,
+          description,
+          typesDirty ? nextTypes : undefined,
+          domainsDirty ? nextDomains : undefined,
+        )
       }
       setGraphMeta(title, description)
-      setOriginalHidden(new Set(next))
+      setOriginalHidden(new Set(nextTypes))
+      setOriginalHiddenDomains(new Set(nextDomains))
+      const relabel = typesDirty || domainsDirty
       setSavedMessage(
-        next.length === originalHidden.size &&
-          [...originalHidden].every((t) => hiddenSet.has(t))
-          ? "Saved."
-          : "Saved — nodes are being relabeled in the background."
+        relabel
+          ? "Saved — nodes are being relabeled in the background."
+          : "Saved."
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save hidden types")
+      setError(err instanceof Error ? err.message : "Failed to save")
     } finally {
       setSaving(false)
     }
-  }, [hiddenSet, originalHidden, title, description, setGraphMeta])
+  }, [hiddenSet, hiddenDomainSet, typesDirty, domainsDirty, title, description, setGraphMeta])
 
   if (loading) {
     return (
@@ -137,8 +172,17 @@ export function DomainSettings({ open, title, description }: DomainSettingsProps
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <p className="text-[11px] uppercase tracking-wider font-heading text-muted-foreground">
-          Available domains
+        <div className="flex items-baseline justify-between">
+          <p className="text-[11px] uppercase tracking-wider font-heading text-muted-foreground">
+            Available domains
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            {hiddenDomainSet.size} hidden
+          </p>
+        </div>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          Click a domain to hide/show it. Hidden domains (and their descendants)
+          are excluded from search.
         </p>
         {availableDomains.length === 0 ? (
           <p className="text-xs text-muted-foreground">
@@ -146,15 +190,35 @@ export function DomainSettings({ open, title, description }: DomainSettingsProps
           </p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {availableDomains.map((d) => (
-              <span
-                key={d}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2 py-1 text-[11px] font-mono text-foreground"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
-                {d}
-              </span>
-            ))}
+            {availableDomains.map((d) => {
+              const hidden = hiddenDomainSet.has(d)
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleDomain(d)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-mono transition-colors cursor-pointer",
+                    hidden
+                      ? "border-amber-400/40 bg-amber-400/10 text-amber-200/90 hover:bg-amber-400/20"
+                      : "border-border/50 bg-muted/30 text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      hidden ? "bg-amber-400/70" : "bg-primary/70"
+                    )}
+                  />
+                  {d}
+                  {hidden && (
+                    <span className="text-[9px] uppercase tracking-wider text-amber-400/80">
+                      hidden
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
@@ -239,7 +303,11 @@ export function DomainSettings({ open, title, description }: DomainSettingsProps
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => { setHiddenSet(new Set(originalHidden)); setSavedMessage(null) }}
+          onClick={() => {
+            setHiddenSet(new Set(originalHidden))
+            setHiddenDomainSet(new Set(originalHiddenDomains))
+            setSavedMessage(null)
+          }}
           disabled={!dirty || saving}
           className="text-xs"
         >
@@ -251,7 +319,7 @@ export function DomainSettings({ open, title, description }: DomainSettingsProps
           disabled={!dirty || saving}
           className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
         >
-          {saving ? "Saving..." : "Save Hidden Types"}
+          {saving ? "Saving..." : "Save"}
         </Button>
       </div>
     </div>
