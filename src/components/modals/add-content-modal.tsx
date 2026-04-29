@@ -37,7 +37,7 @@ const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
 
 export function AddContentModal() {
   const { activeModal, close, open: openModal } = useModalStore()
-  const { budget, setBudget, pubKey, routeHint } = useUserStore()
+  const { budget, setBudget, pubKey, routeHint, isAdmin } = useUserStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
@@ -199,6 +199,8 @@ export function AddContentModal() {
     setTopics((prev) => prev.filter((x) => x !== t))
   }, [])
 
+  const isSubscriptionBlocked = !!detectedType && isSubscriptionSource(detectedType) && !isAdmin
+
   const formattedBudget = budget !== null ? budget.toLocaleString() : "--"
 
   return (
@@ -308,6 +310,12 @@ export function AddContentModal() {
             <p className="text-xs text-destructive">{error}</p>
           )}
 
+          {isSubscriptionBlocked && (
+            <p className="text-xs text-muted-foreground">
+              Adding subscription sources requires admin access.
+            </p>
+          )}
+
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
             <Button
@@ -319,7 +327,7 @@ export function AddContentModal() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={submitting || !detectedType || !sourceUrl.trim()}
+              disabled={submitting || !detectedType || !sourceUrl.trim() || isSubscriptionBlocked}
               className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {success ? (
