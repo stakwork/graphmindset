@@ -44,7 +44,7 @@ interface StatsResponse {
 // Domains used by default search. Backend's namespace schema decides what's
 // available. Callers can pass `opts.domains` to scope the search; passing an
 // unknown domain returns 400 INVALID_DOMAIN.
-export const DEFAULT_SEARCH_DOMAINS: readonly string[] = ["content"]
+export const DEFAULT_SEARCH_DOMAINS: readonly string[] = []
 
 // Search nodes via v2 endpoint
 export async function searchNodes(
@@ -240,11 +240,12 @@ export async function updateRadarConfig(
 
 export interface SchemaDomainsResponse {
   domains: string[]
-  hidden: string[]
+  hidden_types: string[]
+  hidden_domains: string[]
 }
 
-// Returns the available domain roots for this namespace and the current
-// hidden_types list (schema types excluded from Domain_* labeling).
+// Returns the available domain roots for this namespace plus the hidden_types
+// and hidden_domains lists (schema types/domains excluded from Domain_* labeling).
 export async function getSchemaDomains(
   signal?: AbortSignal
 ): Promise<SchemaDomainsResponse> {
@@ -255,20 +256,20 @@ export async function getSchemaDomains(
   )
 }
 
-// Write the hidden_types list (and required title/description) via /about.
-// The backend diffs old vs new and re-labels affected nodes in the background.
-export async function updateHiddenTypes(
+// Write the hidden_types and hidden_domains lists (with required title/description)
+// via /about. The backend diffs old vs new and re-labels affected nodes in the
+// background. Pass `undefined` for either list to leave it untouched.
+export async function updateHiddenLists(
   title: string,
   description: string,
-  hiddenTypes: string[],
+  hiddenTypes: string[] | undefined,
+  hiddenDomains: string[] | undefined,
   signal?: AbortSignal
 ): Promise<{ status: string }> {
-  return api.post<{ status: string }>(
-    "/about",
-    { title, description, hidden_types: hiddenTypes },
-    undefined,
-    signal
-  )
+  const body: Record<string, unknown> = { title, description }
+  if (hiddenTypes !== undefined) body.hidden_types = hiddenTypes
+  if (hiddenDomains !== undefined) body.hidden_domains = hiddenDomains
+  return api.post<{ status: string }>("/about", body, undefined, signal)
 }
 
 // Free preflight — no payment required

@@ -306,7 +306,8 @@ export const MOCK_RADAR_CONFIGS = [
 
 export const MOCK_DOMAINS = {
   domains: ["content", "codegraph", "workflow"],
-  hidden: [] as string[],
+  hidden_types: [] as string[],
+  hidden_domains: [] as string[],
 }
 
 export function isMocksEnabled(): boolean {
