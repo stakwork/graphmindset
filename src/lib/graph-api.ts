@@ -41,10 +41,10 @@ interface StatsResponse {
   [key: string]: number
 }
 
-// Domains used by default search. Empty by default — backend's namespace
-// schema decides what's available. Callers can pass `opts.domains` to scope
-// the search; passing an unknown domain returns 400 INVALID_DOMAIN.
-export const DEFAULT_SEARCH_DOMAINS: readonly string[] = []
+// Domains used by default search. Backend's namespace schema decides what's
+// available. Callers can pass `opts.domains` to scope the search; passing an
+// unknown domain returns 400 INVALID_DOMAIN.
+export const DEFAULT_SEARCH_DOMAINS: readonly string[] = ["content"]
 
 // Search nodes via v2 endpoint
 export async function searchNodes(

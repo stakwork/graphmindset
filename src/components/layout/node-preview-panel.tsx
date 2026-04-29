@@ -19,6 +19,7 @@ import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
+import { ConnectionsSection } from "./connections-section"
 
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "node_type", "date_added_to_graph", "status",
@@ -588,6 +589,10 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               )}
             </div>
           )}
+          {/* Connections — always visible regardless of unlock state */}
+          <div className="pt-2 border-t border-border/30">
+            <ConnectionsSection nodeRefId={node.ref_id} schemas={schemas} />
+          </div>
         </div>
       </ScrollArea>
     </div>

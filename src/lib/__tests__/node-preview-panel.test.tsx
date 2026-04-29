@@ -57,9 +57,11 @@ vi.mock("@/stores/modal-store", () => ({
 }))
 
 vi.mock("@/stores/graph-store", () => ({
-  useGraphStore: {
-    getState: () => ({ addNodes: vi.fn() }),
-  },
+  useGraphStore: Object.assign(
+    (sel: (s: { nodes: never[]; edges: never[]; addNodes: () => void }) => unknown) =>
+      sel({ nodes: [], edges: [], addNodes: vi.fn() }),
+    { getState: () => ({ addNodes: vi.fn() }) },
+  ),
 }))
 
 vi.mock("@/stores/player-store", () => ({
@@ -95,6 +97,29 @@ const NODE_B: GraphNode = {
 function makeGraphData(node: GraphNode) {
   return { nodes: [node], edges: [] }
 }
+
+describe("NodePreviewPanel – Connections section smoke test", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    // Resolve the probe immediately so unlocked state is reached
+    mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
+  })
+
+  it("renders the Connections heading for any node", async () => {
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => {
+      expect(screen.getByText("Connections")).toBeInTheDocument()
+    })
+  })
+
+  it("shows 'No connections' empty state when store has no edges for this node", async () => {
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => {
+      expect(screen.getByText("No connections")).toBeInTheDocument()
+    })
+  })
+})
 
 describe("NodePreviewPanel – price display", () => {
   beforeEach(() => {
