@@ -166,8 +166,8 @@ export function AppRail({
         />
       </nav>
 
-      {/* Footer */}
-      <div className="relative z-10 flex flex-col items-center gap-1 border-t border-sidebar-border py-3 w-full">
+      {/* Footer — bottom padding mirrors the header's top padding so the rail looks symmetric, with extra room for the host app's reload button */}
+      <div className="relative z-10 flex flex-col items-center gap-1 border-t border-sidebar-border pt-3 pb-12 w-full">
         {isAdmin && (
           <RailIcon
             icon={Network}
