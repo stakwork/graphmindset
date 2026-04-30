@@ -18,6 +18,7 @@ import {
 import type { Graph, ViewState, RawNode, RawEdge } from "@/graph-viz-kit"
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
 import { useGraphStore } from "@/stores/graph-store"
+import { useAppStore } from "@/stores/app-store"
 import type { SchemaNode } from "@/app/ontology/page"
 import { HoverPreviewCard } from "./hover-preview-card"
 import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
@@ -225,6 +226,19 @@ function apiToGraph(
     refIdToIndex.set(nodes[i].ref_id, i)
   }
 
+  // Resolve cluster-absorbed edges against the same index map and stash them
+  // on the graph as `extraEdges` so the hover/select highlight can surface
+  // them without polluting the base render or layout.
+  const idToIndex = new Map<string, number>()
+  for (let i = 0; i < rawNodes.length; i++) idToIndex.set(rawNodes[i].id, i)
+  graph.extraEdges = []
+  for (const e of clusterizedEdges) {
+    const src = idToIndex.get(e.source)
+    const dst = idToIndex.get(e.target)
+    if (src === undefined || dst === undefined) continue
+    graph.extraEdges.push({ src, dst, label: e.edge_type })
+  }
+
   return { graph, indexMap, refIdToIndex }
 }
 
@@ -275,6 +289,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const sidebarHoveredNode = useGraphStore((s) => s.hoveredNode)
   const sidebarSelectedNode = useGraphStore((s) => s.sidebarSelectedNode)
   const dataVersion = useGraphStore((s) => s.dataVersion)
+  const searchTerm = useAppStore((s) => s.searchTerm)
 
   const { graph, indexMap, refIdToIndex } = useMemo(() => {
     const result = apiToGraph(nodes, edges, schemas)
@@ -308,6 +323,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
   const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
+
+  // Backend sets `matched_property` on actual search hits; expanded 1-hop
+  // neighbors don't have it. Map those onto graph indices for the spotlight.
+  const searchMatches = useMemo(() => {
+    const set = new Set<number>()
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].matched_property !== undefined) set.add(i)
+    }
+    return set.size > 0 ? set : null
+  }, [nodes])
 
   const handleHoverChange = useCallback(
     (nodeId: number | null) => {
@@ -345,6 +370,34 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       }
 
       const sub = extractSubgraph(graph, nodeId, 30, { useAdj: "undirected" })
+
+      // extractSubgraph walks graph.adj only — it doesn't know about
+      // absorbed/extra edges. Patch in the 1-hop absorbed neighbors so the
+      // highlight, label gate (depth ≤ 1), and offscreen indicators
+      // (which iterate depthMap looking for depth === 1) all see them.
+      // Absorbed edges are direct connections, so always promote their
+      // endpoints to depth 1 — even if BFS already reached them via a
+      // longer path through cluster/group nodes (which would otherwise
+      // leave them at depth ≥ 2 and hide their labels).
+      if (graph.extraEdges && graph.extraEdges.length > 0) {
+        const inSub = new Set(sub.nodeIds)
+        const addNeighbor = (other: number) => {
+          if (!inSub.has(other)) {
+            sub.nodeIds.push(other)
+            inSub.add(other)
+            if (!sub.neighborsByDepth[0]) sub.neighborsByDepth[0] = []
+            sub.neighborsByDepth[0].push(other)
+          }
+          const existing = sub.depthMap.get(other)
+          if (existing === undefined || existing > 1) {
+            sub.depthMap.set(other, 1)
+          }
+        }
+        for (const e of graph.extraEdges) {
+          if (e.src === nodeId) addNeighbor(e.dst)
+          else if (e.dst === nodeId) addNeighbor(e.src)
+        }
+      }
 
       setViewState((prev) => {
         const prevHistory = prev.mode === "subgraph" ? prev.navigationHistory : []
@@ -421,6 +474,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           onHoverChange={handleHoverChange}
           externalHoveredId={externalHoveredId}
           externalSelectedId={externalSelectedId}
+          searchMatches={searchMatches}
+          searchTerm={searchTerm}
           nodeTypeIcons={nodeTypeIcons}
           onGraphClick={() => {
             useGraphStore.getState().setSidebarSelectedNode(null)

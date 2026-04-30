@@ -56,6 +56,9 @@ export interface Graph {
   initialDepthMap?: Map<number, number>;
   treeEdgeSet?: Set<string>;
   childrenOf?: Map<number, number[]>;
+  /** Edges intentionally excluded from `edges` (and the layout) but still
+   * surfaced when their endpoints are hovered or selected. */
+  extraEdges?: GraphEdge[];
 }
 
 /** Undirected edge key (order-independent) */
