@@ -72,8 +72,8 @@ vi.mock("@/stores/modal-store", () => ({
 }))
 
 // --- mock child components ---
-vi.mock("@/components/layout/app-sidebar", () => ({
-  AppSidebar: ({
+vi.mock("@/components/layout/app-rail", () => ({
+  AppRail: ({
     onToggleMyContent,
     myContentOpen: mco,
   }: {
@@ -85,10 +85,7 @@ vi.mock("@/components/layout/app-sidebar", () => ({
     </button>
   ),
 }))
-vi.mock("@/components/layout/sources-panel", () => ({ SourcesPanel: () => <div>Sources</div> }))
-vi.mock("@/components/layout/search-results-panel", () => ({ SearchResultsPanel: () => <div>Search Results</div> }))
-vi.mock("@/components/layout/my-content-panel", () => ({ MyContentPanel: () => <div>My Content Panel</div> }))
-vi.mock("@/components/search/search-bar", () => ({ SearchBar: () => <div>SearchBar</div> }))
+vi.mock("@/components/layout/unified-panel", () => ({ UnifiedPanel: () => <div>Unified Panel</div> }))
 vi.mock("@/components/universe", () => ({ Universe: () => <div>Universe</div> }))
 vi.mock("@/components/modals/settings-modal", () => ({ SettingsModal: () => null }))
 vi.mock("@/components/modals/add-content-modal", () => ({ AddContentModal: () => null }))

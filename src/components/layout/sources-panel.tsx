@@ -146,7 +146,7 @@ export function SourcesPanel({ onClose }: { onClose: () => void }) {
   }, [setSources, setLoading])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
+    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
       <div className="relative z-10 flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
         <div>
           <h3 className="text-sm font-heading font-semibold tracking-wide text-sidebar-foreground">

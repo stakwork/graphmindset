@@ -124,7 +124,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   }, [hasInProgress, mocksEnabled, pubKey, fetchFromApi, applyResponse])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-sidebar border-r border-sidebar-border w-[300px] noise-bg">
+    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
       {selectedNode ? (
         <NodePreviewPanel
           node={selectedNode}
