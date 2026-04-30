@@ -1,10 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import cronstrue from "cronstrue"
 import { formatDistanceToNow } from "date-fns"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { SelectNative } from "@/components/ui/select-native"
 import { Switch } from "@/components/ui/switch"
 import {
   type RadarConfig,
@@ -23,13 +22,20 @@ const SOURCE_TYPE_LABELS: Record<RadarSourceType, string> = {
   topic: "Topics",
 }
 
-function describeCron(cron: string): string {
-  if (!cron?.trim()) return "—"
-  try {
-    return cronstrue.toString(cron, { use24HourTimeFormat: false })
-  } catch {
-    return "Invalid cron"
-  }
+const CADENCE_PRESETS: { label: string; value: string }[] = [
+  { label: "Every 10 minutes", value: "*/10 * * * *" },
+  { label: "Every hour",       value: "0 * * * *" },
+  { label: "Every 3 hours",    value: "0 */3 * * *" },
+  { label: "Every 6 hours",    value: "0 */6 * * *" },
+  { label: "Every 12 hours",   value: "0 */12 * * *" },
+  { label: "Weekly",           value: "0 0 * * 0" },
+]
+
+function snapToPreset(cron: string): string {
+  const match = CADENCE_PRESETS.find((p) => p.value === cron)
+  if (match) return cron
+  // Default to "Every 6 hours" as a safe fallback
+  return "0 */6 * * *"
 }
 
 function formatLastRun(ts?: number): string {
@@ -136,22 +142,13 @@ function RadarRow({
   ) => Promise<void>
   isAdmin: boolean
 }) {
-  const [cadence, setCadence] = useState(config.cadence)
+  const [cadence, setCadence] = useState(snapToPreset(config.cadence))
   const [running, setRunning] = useState(false)
   const [runMessage, setRunMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    setCadence(config.cadence)
+    setCadence(snapToPreset(config.cadence))
   }, [config.cadence])
-
-  const cadenceDescription = describeCron(cadence)
-  const cadenceInvalid = cadenceDescription === "Invalid cron"
-
-  const commitCadence = useCallback(() => {
-    const trimmed = cadence.trim()
-    if (!trimmed || trimmed === config.cadence || cadenceInvalid) return
-    onUpdate(config.source_type, { cadence: trimmed })
-  }, [cadence, config.cadence, config.source_type, cadenceInvalid, onUpdate])
 
   const handleRunNow = useCallback(async () => {
     if (!isAdmin) return
@@ -186,31 +183,19 @@ function RadarRow({
         />
       </div>
 
-      <div className="flex items-start gap-2">
-        <div className="flex-1 space-y-1">
-          <Input
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <SelectNative
+            options={CADENCE_PRESETS}
             value={cadence}
-            onChange={(e) => setCadence(e.target.value)}
-            onBlur={commitCadence}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault()
-                commitCadence()
-              }
-            }}
             disabled={!config.enabled}
-            placeholder="0 */6 * * *"
-            className="h-8 text-xs font-mono bg-background/50"
+            className="h-8 text-xs"
+            onChange={(e) => {
+              const val = e.target.value
+              setCadence(val)
+              onUpdate(config.source_type, { cadence: val })
+            }}
           />
-          <p
-            className={
-              cadenceInvalid
-                ? "text-[10px] text-destructive"
-                : "text-[10px] text-muted-foreground"
-            }
-          >
-            {cadenceDescription}
-          </p>
         </div>
         <Button
           variant="ghost"
