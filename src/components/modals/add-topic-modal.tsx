@@ -19,6 +19,7 @@ type Status = "idle" | "checking" | "submitting" | "success" | "error"
 export function AddTopicModal() {
   const { activeModal, close } = useModalStore()
   const setBudget = useUserStore((s) => s.setBudget)
+  const pubKey = useUserStore((s) => s.pubKey)
 
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -162,6 +163,13 @@ export function AddTopicModal() {
           {/* Error */}
           {errorMsg && (
             <p className="text-xs text-destructive">{errorMsg}</p>
+          )}
+
+          {/* Anon-loss disclosure */}
+          {!pubKey && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your sats.
+            </p>
           )}
 
           {/* Price + Submit */}

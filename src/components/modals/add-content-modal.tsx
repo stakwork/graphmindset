@@ -316,6 +316,13 @@ export function AddContentModal() {
             </p>
           )}
 
+          {/* Anon-loss disclosure */}
+          {!pubKey && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your sats.
+            </p>
+          )}
+
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
             <Button
