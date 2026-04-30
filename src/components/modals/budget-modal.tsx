@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, topUpStatus, fetchTransactionHistory, pollPaymentStatus, buyLsat, TransactionRow } from "@/lib/sphinx"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, TransactionRow } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 
@@ -44,11 +44,8 @@ export function BudgetModal() {
 
   // First-purchase state (non-Sphinx, non-WebLN, no existing L402)
   const [firstPurchaseAmount, setFirstPurchaseAmount] = useState<number>(1000)
-  const [firstPurchaseMacaroon, setFirstPurchaseMacaroon] = useState("")
-  const [firstPurchaseHash, setFirstPurchaseHash] = useState("")
   const [firstPurchaseRequest, setFirstPurchaseRequest] = useState("")
   const [firstPurchaseCopied, setFirstPurchaseCopied] = useState(false)
-  const firstPurchaseConfirmedRef = useRef(false)
 
   const sphinxConnected = typeof window !== "undefined" && isSphinx()
   const weblnAvailable = typeof window !== "undefined" && hasWebLN()
@@ -73,11 +70,8 @@ export function BudgetModal() {
     setHistoryLoading(false)
     setHistoryScope(null)
     setFirstPurchaseAmount(1000)
-    setFirstPurchaseMacaroon("")
-    setFirstPurchaseHash("")
     setFirstPurchaseRequest("")
     setFirstPurchaseCopied(false)
-    firstPurchaseConfirmedRef.current = false
   }, [])
 
   useEffect(() => {
@@ -137,7 +131,20 @@ export function BudgetModal() {
     }
   }, [sphinxConnected, weblnAvailable, setBudget, refreshBalance])
 
-  // First-purchase: generate invoice via /buy_lsat and show QR
+  // First-purchase QR flow (non-Sphinx, non-WebLN, no existing L402).
+  //
+  // Standard L402 protocol:
+  //   1. POST /buy_lsat → server returns 402 with LSAT challenge in
+  //      www-authenticate (parsed via lsat-js into { invoice, baseMacaroon, paymentHash, id }).
+  //   2. Display the invoice as a QR + copyable text.
+  //   3. Poll /top_up_status/:paymentHash. The route falls back to Lightning
+  //      when no top_up row exists, so it works for the 402 challenge case.
+  //   4. Persist the L402 with empty preimage. The QR user can't capture a
+  //      preimage from an external wallet — fine here, because Boltwall's
+  //      auth path looks up by macaroon string and ensureDynamicLsat
+  //      activates by Lightning lookup, not preimage proof.
+  //   5. refreshBalance → /balance → ensureDynamicLsat activates the LSAT
+  //      server-side (creates the DynamicLsat row + initial_purchase credit).
   const handleFirstPurchaseInvoice = useCallback(async () => {
     if (!firstPurchaseAmount || firstPurchaseAmount < 1) {
       setError("Enter a valid amount.")
@@ -146,32 +153,26 @@ export function BudgetModal() {
     setError("")
     setLoading(true)
     try {
-      const result = await buyLsat(firstPurchaseAmount)
-      setFirstPurchaseMacaroon(result.macaroon)
-      setFirstPurchaseHash(result.payment_hash)
-      setFirstPurchaseRequest(result.payment_request)
-      firstPurchaseConfirmedRef.current = false
+      const challenge = await fetchBuyLsatChallenge(firstPurchaseAmount)
+      setFirstPurchaseRequest(challenge.invoice)
       setStep("first-invoice")
 
-      // Poll for payment
-      const paid = await pollPaymentStatus(result.payment_hash)
+      const paid = await pollPaymentStatus(challenge.paymentHash)
       if (!paid) {
         setError("Payment not detected. Try again.")
         setStep("first-purchase")
         return
       }
-      // Confirm exactly once
-      if (!firstPurchaseConfirmedRef.current) {
-        firstPurchaseConfirmedRef.current = true
-        const confirmRes = await topUpConfirm(result.payment_hash, result.macaroon)
-        // Persist the L402 to localStorage
-        // The macaroon from /buy_lsat is the credential; preimage not available here so we use empty string
-        const confirmedMacaroon = (confirmRes as unknown as { macaroon?: string })?.macaroon ?? result.macaroon
-        localStorage.setItem(
-          "l402",
-          JSON.stringify({ macaroon: confirmedMacaroon, identifier: "", preimage: "" })
-        )
-      }
+
+      localStorage.setItem(
+        "l402",
+        JSON.stringify({
+          macaroon: challenge.baseMacaroon,
+          identifier: challenge.id,
+          preimage: "",
+        }),
+      )
+
       await refreshBalance()
       setStep("success")
     } catch {

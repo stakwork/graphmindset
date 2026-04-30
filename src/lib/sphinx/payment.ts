@@ -164,15 +164,37 @@ export async function pollPaymentStatus(
   return false
 }
 
-export type BuyLsatResponse = {
-  payment_request: string
-  payment_hash: string
-  macaroon: string
+export type BuyLsatChallenge = {
+  invoice: string
+  baseMacaroon: string
+  paymentHash: string
+  id: string
 }
 
-export async function buyLsat(amount: number): Promise<BuyLsatResponse> {
-  const res = await api.post<BuyLsatResponse>("/buy_lsat", { amount })
-  return res
+/**
+ * Request a fresh L402 challenge from /buy_lsat. The endpoint returns 402 with
+ * an LSAT challenge (macaroon + invoice) per the L402 protocol; we parse and
+ * return it. Used by the QR first-purchase flow — Sphinx and WebLN paths catch
+ * the 402 inline because they need the parsed LSAT alongside their wallet call.
+ */
+export async function fetchBuyLsatChallenge(amount: number): Promise<BuyLsatChallenge> {
+  try {
+    await api.post("/buy_lsat", { amount })
+    throw new Error("Expected 402 challenge from /buy_lsat, got 200")
+  } catch (err: unknown) {
+    if (err instanceof Response && err.status === 402) {
+      const header = err.headers.get("www-authenticate")
+      if (!header) throw new Error("No www-authenticate header in 402")
+      const lsat = Lsat.fromHeader(header)
+      return {
+        invoice: lsat.invoice,
+        baseMacaroon: lsat.baseMacaroon,
+        paymentHash: lsat.paymentHash,
+        id: lsat.id,
+      }
+    }
+    throw err
+  }
 }
 
 export interface TransactionRow {
