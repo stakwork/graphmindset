@@ -36,6 +36,9 @@ interface GraphViewProps {
   onExitWhiteboard?: () => void;
   onDetailNavigate?: (id: number) => void;
   searchMatches?: Set<number> | null;
+  /** Active search query — when set, only the matching substring of a search-hit's
+   *  label is highlighted; the rest of the label uses the base match color. */
+  searchTerm?: string;
   pulses?: Pulse[];
   /** Recently added node IDs → timestamp (for streaming highlight) */
   recentNodes?: Map<number, number>;
@@ -342,8 +345,23 @@ function sampleBezier(
   };
 }
 
+// Splits `label` around case-insensitive occurrences of `term` and bolds the
+// matching substrings so the user can see which part of the label triggered
+// the search hit. Color is inherited from the parent label style.
+function renderHighlightedLabel(label: string, term: string): React.ReactNode {
+  if (!term) return label;
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = label.split(new RegExp(`(${escaped})`, "gi"));
+  const matchRe = new RegExp(`^${escaped}$`, "i");
+  return parts.map((part, i) =>
+    matchRe.test(part)
+      ? <strong key={i} style={{ fontWeight: 800 }}>{part}</strong>
+      : <span key={i}>{part}</span>
+  );
+}
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons }: GraphViewProps) {
+
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -375,10 +393,22 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const externalSelectedRef = useRef<number | null>(null);
   externalSelectedRef.current = externalSelectedId ?? null;
 
+  // Adjacency that includes `extraEdges` endpoints so absorbed edges (hidden
+  // from the base render) still count as neighbors for the focus-dim pass.
+  const highlightAdj = useMemo<number[][]>(() => {
+    if (!graph.extraEdges || graph.extraEdges.length === 0) return graph.adj;
+    const out = graph.adj.map((row) => row.slice());
+    for (const e of graph.extraEdges) {
+      if (out[e.src]) out[e.src].push(e.dst);
+      if (out[e.dst]) out[e.dst].push(e.src);
+    }
+    return out;
+  }, [graph.adj, graph.extraEdges]);
+
   const hoveredRelated = useMemo<Set<number> | null>(() => {
     if (hovered === null) return null;
-    return new Set(graph.adj[hovered]);
-  }, [hovered, graph.adj]);
+    return new Set(highlightAdj[hovered]);
+  }, [hovered, highlightAdj]);
 
   useEffect(() => {
     onHoverChange?.(hovered);
@@ -634,12 +664,17 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     if (hovered === null && selectedId === null) return [];
     // Source from graph.edges (not targetEdges) so cross-edges touching the
     // hovered/selected node surface here even when the subgraph-mode filter
-    // strips them out of the base render. Still respect visibleNodeIds so
-    // we don't highlight edges to collapsed/hidden nodes.
+    // strips them out of the base render. Also include `extraEdges` — edges
+    // intentionally hidden from the base render (e.g. cluster-absorbed) but
+    // worth surfacing on focus. Still respect visibleNodeIds so we don't
+    // highlight edges to collapsed/hidden nodes.
     const visibleSet = viewState.mode === "subgraph"
       ? new Set(viewState.visibleNodeIds)
       : null;
-    return graph.edges.filter((e) => {
+    const candidates = graph.extraEdges
+      ? [...graph.edges, ...graph.extraEdges]
+      : graph.edges;
+    return candidates.filter((e) => {
       const touches =
         e.src === hovered || e.dst === hovered ||
         e.src === selectedId || e.dst === selectedId;
@@ -647,7 +682,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       if (visibleSet && (!visibleSet.has(e.src) || !visibleSet.has(e.dst))) return false;
       return true;
     });
-  }, [hovered, selectedId, graph.edges, viewState]);
+  }, [hovered, selectedId, graph.edges, graph.extraEdges, viewState]);
 
   // For each neighbor of the focused node, the set of edge types connecting
   // it to the focused node. Lets the label render show "via MENTIONS" etc.
@@ -929,7 +964,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
       const extHov = externalHoveredRef.current;
       const extSelNode = externalSelectedRef.current;
-      const extHovAdj = extHov !== null ? (graphRef.current.adj[extHov] ?? []) : null;
+      const extHovAdj = extHov !== null ? (highlightAdj[extHov] ?? []) : null;
       const isPrimaryHighlight =
         i === hovered ||
         (extHov !== null && i === extHov) ||
@@ -959,11 +994,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         tmpColor.multiplyScalar(0.35);
       }
 
-      // Search match: bright pulsing highlight
+      // Search dim: non-matches dim so the hits read by contrast. The focus
+      // highlight (primary/neighbor) is exempt so hovering/selecting still
+      // pops, and the dim layers with the focus dim above so non-focus
+      // non-matches end up *more* recessive on hover, not less.
       if (searchMatches && searchMatches.size > 0) {
-        if (searchMatches.has(i)) {
-          tmpColor.setRGB(1.0, 0.85, 0.2);
-        } else {
+        if (!searchMatches.has(i) && !isPrimaryHighlight && !isNeighborHighlight) {
           tmpColor.multiplyScalar(0.15);
         }
       }
@@ -1604,17 +1640,15 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           // Style tiers: search > hovered > selected > hover-neighbor > recent > default
           const recentAge = isRecentNode ? (Date.now() - recentNodes!.get(i)!) / 3000 : 1;
           const recentOpacity = Math.max(0, 1 - recentAge);
-          const labelColor = isSearchMatch ? "rgba(255,220,80,0.95)"
-            : isHovered ? "rgba(255,255,255,0.95)"
-              : isSelected ? "rgba(100,220,255,0.95)"
-                : isHoverNeighbor ? "rgba(200,200,200,0.85)"
-                  : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
-                    : "rgba(190,200,210,0.75)";
-          const labelSize = isSearchMatch ? 14
-            : isHovered || isSelected ? 14
-              : isRecentNode ? 13
-                : isHoverNeighbor ? 12
-                  : 11;
+          const labelColor = isHovered ? "rgba(255,255,255,0.95)"
+            : isSelected ? "rgba(100,220,255,0.95)"
+              : isHoverNeighbor ? "rgba(200,200,200,0.85)"
+                : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
+                  : "rgba(190,200,210,0.75)";
+          const labelSize = isHovered || isSelected ? 14
+            : isRecentNode ? 13
+              : isHoverNeighbor ? 12
+                : 11;
 
           const iconColor = node.icon
             ? isHovered
@@ -1670,7 +1704,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                 }}>
                   {isExpandedProxy
                     ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>
-                    : node.label}
+                    : (isSearchMatch && searchTerm)
+                      ? renderHighlightedLabel(node.label, searchTerm)
+                      : node.label}
                 </div>
                 {!isExpandedProxy && (() => {
                   const showTypePill =
