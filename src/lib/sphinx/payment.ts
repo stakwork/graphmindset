@@ -147,6 +147,34 @@ export async function topUpStatus(paymentHash: string): Promise<boolean> {
   return res.paid
 }
 
+export async function pollPaymentStatus(
+  paymentHash: string,
+  maxAttempts = 20,
+  intervalMs = 2000
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const paid = await topUpStatus(paymentHash)
+      if (paid) return true
+    } catch {
+      // status check failed — keep polling
+    }
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+  return false
+}
+
+export type BuyLsatResponse = {
+  payment_request: string
+  payment_hash: string
+  macaroon: string
+}
+
+export async function buyLsat(amount: number): Promise<BuyLsatResponse> {
+  const res = await api.post<BuyLsatResponse>("/buy_lsat", { amount })
+  return res
+}
+
 export interface TransactionRow {
   action: string
   type: 'debit' | 'credit'

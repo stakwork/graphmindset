@@ -14,11 +14,11 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, topUpStatus, fetchTransactionHistory, TransactionRow } from "@/lib/sphinx"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, topUpStatus, fetchTransactionHistory, pollPaymentStatus, buyLsat, TransactionRow } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 
-type Step = "balance" | "amount" | "invoice" | "success" | "history"
+type Step = "balance" | "first-purchase" | "first-invoice" | "amount" | "invoice" | "success" | "history"
 
 const PRESET_AMOUNTS = [50, 100, 500, 1000]
 
@@ -42,6 +42,14 @@ export function BudgetModal() {
   const [copied, setCopied] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // First-purchase state (non-Sphinx, non-WebLN, no existing L402)
+  const [firstPurchaseAmount, setFirstPurchaseAmount] = useState<number>(1000)
+  const [firstPurchaseMacaroon, setFirstPurchaseMacaroon] = useState("")
+  const [firstPurchaseHash, setFirstPurchaseHash] = useState("")
+  const [firstPurchaseRequest, setFirstPurchaseRequest] = useState("")
+  const [firstPurchaseCopied, setFirstPurchaseCopied] = useState(false)
+  const firstPurchaseConfirmedRef = useRef(false)
+
   const sphinxConnected = typeof window !== "undefined" && isSphinx()
   const weblnAvailable = typeof window !== "undefined" && hasWebLN()
   const hasExistingL402 =
@@ -64,6 +72,12 @@ export function BudgetModal() {
     setTransactions([])
     setHistoryLoading(false)
     setHistoryScope(null)
+    setFirstPurchaseAmount(1000)
+    setFirstPurchaseMacaroon("")
+    setFirstPurchaseHash("")
+    setFirstPurchaseRequest("")
+    setFirstPurchaseCopied(false)
+    firstPurchaseConfirmedRef.current = false
   }, [])
 
   useEffect(() => {
@@ -105,9 +119,9 @@ export function BudgetModal() {
       return
     }
 
-    // No L402 — need to buy one first
+    // No L402, no Sphinx, no WebLN → first-purchase QR flow
     if (!sphinxConnected && !weblnAvailable) {
-      setError("Connect a Lightning wallet to get started.")
+      setStep("first-purchase")
       return
     }
 
@@ -122,6 +136,51 @@ export function BudgetModal() {
       setLoading(false)
     }
   }, [sphinxConnected, weblnAvailable, setBudget, refreshBalance])
+
+  // First-purchase: generate invoice via /buy_lsat and show QR
+  const handleFirstPurchaseInvoice = useCallback(async () => {
+    if (!firstPurchaseAmount || firstPurchaseAmount < 1) {
+      setError("Enter a valid amount.")
+      return
+    }
+    setError("")
+    setLoading(true)
+    try {
+      const result = await buyLsat(firstPurchaseAmount)
+      setFirstPurchaseMacaroon(result.macaroon)
+      setFirstPurchaseHash(result.payment_hash)
+      setFirstPurchaseRequest(result.payment_request)
+      firstPurchaseConfirmedRef.current = false
+      setStep("first-invoice")
+
+      // Poll for payment
+      const paid = await pollPaymentStatus(result.payment_hash)
+      if (!paid) {
+        setError("Payment not detected. Try again.")
+        setStep("first-purchase")
+        return
+      }
+      // Confirm exactly once
+      if (!firstPurchaseConfirmedRef.current) {
+        firstPurchaseConfirmedRef.current = true
+        const confirmRes = await topUpConfirm(result.payment_hash, result.macaroon)
+        // Persist the L402 to localStorage
+        // The macaroon from /buy_lsat is the credential; preimage not available here so we use empty string
+        const confirmedMacaroon = (confirmRes as unknown as { macaroon?: string })?.macaroon ?? result.macaroon
+        localStorage.setItem(
+          "l402",
+          JSON.stringify({ macaroon: confirmedMacaroon, identifier: "", preimage: "" })
+        )
+      }
+      await refreshBalance()
+      setStep("success")
+    } catch {
+      setError("Failed to generate invoice. Try again.")
+      setStep("first-purchase")
+    } finally {
+      setLoading(false)
+    }
+  }, [firstPurchaseAmount, refreshBalance])
 
   // Pay with selected amount — same flow for Sphinx, WebLN, and manual
   const handlePay = useCallback(async () => {
@@ -155,17 +214,7 @@ export function BudgetModal() {
           return
         }
         console.log("[topUp] payment succeeded, waiting for LN confirmation...")
-        // Poll status until paid, then confirm exactly once
-        let paid = false
-        for (let i = 0; i < 20; i++) {
-          try {
-            paid = await topUpStatus(result.payment_hash)
-            if (paid) break
-          } catch {
-            // status check failed — keep polling
-          }
-          await new Promise((r) => setTimeout(r, 2000))
-        }
+        const paid = await pollPaymentStatus(result.payment_hash)
         if (!paid) {
           setError("Payment sent but confirmation timed out. Try refreshing balance.")
           setLoading(false)
@@ -183,32 +232,25 @@ export function BudgetModal() {
       setPaymentHash(result.payment_hash)
       setStep("invoice")
 
-      let attempts = 0
       let confirming = false
-      intervalRef.current = setInterval(async () => {
-        if (confirming) return
-        if (++attempts > 100) {
-          if (intervalRef.current) clearInterval(intervalRef.current)
-          setError("Payment not detected. Try again.")
-          setStep("amount")
-          return
-        }
+      const paid = await pollPaymentStatus(result.payment_hash, 100, 3000)
+      if (!paid) {
+        if (intervalRef.current) clearInterval(intervalRef.current)
+        setError("Payment not detected. Try again.")
+        setStep("amount")
+        return
+      }
+      if (!confirming) {
+        confirming = true
         try {
-          const paid = await topUpStatus(result.payment_hash)
-          if (!paid) return
-          // Payment detected — confirm exactly once
-          if (intervalRef.current) clearInterval(intervalRef.current)
-          confirming = true
           await topUpConfirm(result.payment_hash, macaroon)
           await refreshBalance()
           setStep("success")
         } catch {
-          if (!confirming) return // status check failed — keep polling
-          // confirm failed — stop and surface the error
           setError("Payment received but confirmation failed. Try refreshing balance.")
           setStep("amount")
         }
-      }, 3000)
+      }
     } catch (err) {
       console.error("[topUp] error:", err)
       setError("Failed to generate invoice. Try again.")
@@ -232,7 +274,12 @@ export function BudgetModal() {
     }
   }, [refreshBalance])
 
-  const canTopUp = sphinxConnected || weblnAvailable || hasExistingL402
+  const handleFirstPurchaseCopy = useCallback(async () => {
+    await navigator.clipboard.writeText(firstPurchaseRequest)
+    setFirstPurchaseCopied(true)
+    setTimeout(() => setFirstPurchaseCopied(false), 2000)
+  }, [firstPurchaseRequest])
+
 
   return (
     <Dialog open={activeModal === "budget"} onOpenChange={() => close()}>
@@ -246,6 +293,8 @@ export function BudgetModal() {
                     clearInterval(intervalRef.current)
                   if (step === "history") {
                     setStep("balance")
+                  } else if (step === "first-invoice") {
+                    setStep("first-purchase")
                   } else {
                     setStep(step === "invoice" ? "amount" : "balance")
                     if (step === "amount") setAmount(null)
@@ -259,6 +308,8 @@ export function BudgetModal() {
               </button>
             )}
             {step === "balance" && "Budget"}
+            {step === "first-purchase" && "Get Started"}
+            {step === "first-invoice" && "Pay Invoice"}
             {step === "amount" && "Top Up"}
             {step === "invoice" && "Pay Invoice"}
             {step === "success" && "Budget"}
@@ -266,6 +317,8 @@ export function BudgetModal() {
           </DialogTitle>
           <DialogDescription>
             {step === "balance" && "Manage your Lightning L402 balance."}
+            {step === "first-purchase" && "Buy your first L402 with any Lightning wallet."}
+            {step === "first-invoice" && "Scan or copy the invoice to pay."}
             {step === "amount" && "Choose an amount to add."}
             {step === "invoice" && "Scan or copy the invoice to pay."}
             {step === "success" && "Your balance has been updated."}
@@ -306,7 +359,7 @@ export function BudgetModal() {
                       ? "WebLN detected (Alby, etc.)"
                       : hasExistingL402
                         ? "L402 token active"
-                        : "No Lightning wallet detected"}
+                        : "Pay via Lightning invoice (any wallet)"}
                 </span>
               </div>
 
@@ -317,25 +370,18 @@ export function BudgetModal() {
               <Separator className="bg-border/30" />
 
               <div className="flex flex-col gap-2">
-                {canTopUp ? (
-                  <Button
-                    onClick={handleTopUp}
-                    disabled={loading}
-                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs"
-                  >
-                    {loading ? (
-                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Zap className="mr-2 h-3.5 w-3.5" />
-                    )}
-                    {loading ? "Processing..." : "Top Up"}
-                  </Button>
-                ) : (
-                  <p className="text-xs text-muted-foreground text-center py-2">
-                    Install a Lightning wallet extension (like Alby) or connect
-                    via the Sphinx app to top up your balance.
-                  </p>
-                )}
+                <Button
+                  onClick={handleTopUp}
+                  disabled={loading}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs"
+                >
+                  {loading ? (
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  {loading ? "Processing..." : "Top Up"}
+                </Button>
 
                 <Button
                   variant="ghost"
@@ -355,6 +401,100 @@ export function BudgetModal() {
                   <History className="mr-2 h-3.5 w-3.5" />
                   History
                 </Button>
+              </div>
+            </>
+          )}
+
+          {/* Step: First Purchase — amount input */}
+          {step === "first-purchase" && (
+            <>
+              <p className="text-xs text-muted-foreground text-center">
+                Pay a Lightning invoice with any wallet to create your L402 balance.
+              </p>
+
+              <div className="grid grid-cols-4 gap-2">
+                {PRESET_AMOUNTS.map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => setFirstPurchaseAmount(preset)}
+                    className={`rounded-lg border px-3 py-3 text-center transition-all ${
+                      firstPurchaseAmount === preset
+                        ? "border-primary/60 bg-primary/10 text-primary shadow-[0_0_8px_oklch(0.72_0.14_200/0.15)]"
+                        : "border-border/40 bg-muted/20 text-muted-foreground hover:border-border/60 hover:text-foreground"
+                    }`}
+                  >
+                    <span className="block text-lg font-heading font-bold">{preset}</span>
+                    <span className="block text-[10px] font-mono uppercase tracking-wider opacity-60">sats</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={firstPurchaseAmount}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9]/g, "")
+                    setFirstPurchaseAmount(v ? Number(v) : 1000)
+                  }}
+                  placeholder="Custom amount"
+                  className="h-10 w-full rounded-md border border-border/50 bg-muted/30 px-3 pr-12 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:border-primary/40 focus:outline-none"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground/50">sats</span>
+              </div>
+
+              {error && <p className="text-xs text-destructive text-center">{error}</p>}
+
+              <Button
+                onClick={handleFirstPurchaseInvoice}
+                disabled={loading || !firstPurchaseAmount}
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs"
+              >
+                {loading ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Zap className="mr-2 h-3.5 w-3.5" />
+                )}
+                {loading ? "Generating Invoice..." : "Generate Invoice"}
+              </Button>
+            </>
+          )}
+
+          {/* Step: First Invoice — QR + poll */}
+          {step === "first-invoice" && (
+            <>
+              <div className="flex flex-col items-center gap-4">
+                <div className="rounded-xl bg-white p-3">
+                  <QRCodeSVG
+                    value={firstPurchaseRequest}
+                    size={200}
+                    level="M"
+                    bgColor="#ffffff"
+                    fgColor="#0a0a14"
+                  />
+                </div>
+
+                <div className="flex w-full items-center gap-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2.5">
+                  <code className="flex-1 truncate text-xs font-mono text-muted-foreground">
+                    {firstPurchaseRequest.slice(0, 20)}…{firstPurchaseRequest.slice(-8)}
+                  </code>
+                  <button
+                    onClick={handleFirstPurchaseCopy}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {firstPurchaseCopied ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-amber" />
+                  <span className="text-xs text-muted-foreground">Waiting for payment...</span>
+                </div>
               </div>
             </>
           )}

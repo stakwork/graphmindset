@@ -6,6 +6,7 @@ const ACTION_LABELS: Record<string, string> = {
   refund: 'Refund',
   add_content: 'Add Content',
   add_source: 'Add Source',
+  payout: 'Earnings',
   other: 'Other',
 }
 
@@ -17,6 +18,7 @@ const ACTION_BADGE_COLORS: Record<string, string> = {
   refund: 'bg-amber/10 text-amber',
   add_content: 'bg-emerald-500/10 text-emerald-400',
   add_source: 'bg-teal-500/10 text-teal-400',
+  payout: 'bg-green-500/10 text-green-400',
   other: 'bg-muted/40 text-muted-foreground',
 }
 
