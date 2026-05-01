@@ -344,11 +344,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         return
       }
       try {
-        // Probe without L402: lets admin/contributor bypass return 200 directly,
-        // while users with an LSAT balance get 402 + price so they can confirm the spend.
+        // Send L402 (if any) with preview=1 so the backend can run hasPurchasedNode /
+        // contributor checks without ever debiting the user. Admin/contributor still
+        // bypass via signed query params; first-time users get 402 + price as before.
         const result = await api.get<GraphData>(
-          `/v2/nodes/${node.ref_id}`,
-          { Authorization: "" },
+          `/v2/nodes/${node.ref_id}?preview=1`,
+          undefined,
           controller.signal,
         )
         if (controller.signal.aborted) return

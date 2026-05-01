@@ -9,6 +9,7 @@ import { NodeRow } from "./node-row"
 import { api } from "@/lib/api"
 import { deleteNode } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_CONTENT } from "@/lib/mock-data"
+import { getL402 } from "@/lib/sphinx"
 import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
@@ -51,11 +52,20 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchFromApi = useCallback(async (): Promise<ContentResponse | null> => {
-    if (!pubKey) return null
-    const fullPubkey = routeHint ? `${pubKey}_${routeHint}` : pubKey
-    return api.get<ContentResponse>(
-      `/v2/content?pubkey=${fullPubkey}&sort_by=date&limit=100`
-    )
+    // Sphinx path — pubkey-keyed query (unchanged)
+    if (pubKey) {
+      const fullPubkey = routeHint ? `${pubKey}_${routeHint}` : pubKey
+      return api.get<ContentResponse>(
+        `/v2/content?pubkey=${fullPubkey}&sort_by=date&limit=100`
+      )
+    }
+    // L402 path — api wrapper auto-attaches Authorization header
+    const l402 = await getL402()
+    if (l402) {
+      return api.get<ContentResponse>(`/v2/content?sort_by=date&limit=100`)
+    }
+    // No identity — return empty payload; panel renders empty state
+    return { nodes: [], totalCount: 0, totalProcessing: 0 }
   }, [pubKey, routeHint])
 
   const applyResponse = useCallback((res: ContentResponse | null) => {
@@ -100,12 +110,14 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const hasInProgress =
     totalProcessing > 0 || nodes.some((n) => isInProgress(n.properties?.status))
 
+  const hasIdentity = !!pubKey || !!(typeof window !== "undefined" && localStorage.getItem("l402"))
+
   useEffect(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current)
       pollTimerRef.current = null
     }
-    if (!hasInProgress || mocksEnabled || !pubKey) return
+    if (!hasInProgress || mocksEnabled || !hasIdentity) return
 
     pollTimerRef.current = setInterval(async () => {
       try {
@@ -121,7 +133,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
         pollTimerRef.current = null
       }
     }
-  }, [hasInProgress, mocksEnabled, pubKey, fetchFromApi, applyResponse])
+  }, [hasInProgress, mocksEnabled, hasIdentity, fetchFromApi, applyResponse])
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
