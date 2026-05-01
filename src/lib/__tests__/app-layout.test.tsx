@@ -89,7 +89,7 @@ vi.mock("@/components/layout/unified-panel", () => ({ UnifiedPanel: () => <div>U
 vi.mock("@/components/universe", () => ({ Universe: () => <div>Universe</div> }))
 vi.mock("@/components/modals/settings-modal", () => ({ SettingsModal: () => null }))
 vi.mock("@/components/modals/add-content-modal", () => ({ AddContentModal: () => null }))
-vi.mock("@/components/modals/add-topic-modal", () => ({ AddTopicModal: () => null }))
+vi.mock("@/components/modals/add-node-modal", () => ({ AddNodeModal: () => null }))
 vi.mock("@/components/modals/budget-modal", () => ({ BudgetModal: () => null }))
 vi.mock("@/components/player/media-player", () => ({ MediaPlayer: () => null }))
 vi.mock("@/hooks/use-sidebar-neighbor-fetch", () => ({ useSidebarNeighborFetch: () => {} }))
