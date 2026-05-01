@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import React from "react"
 
+// --- mock getL402 ---
+const { mockGetL402 } = vi.hoisted(() => ({ mockGetL402: vi.fn(() => "") }))
+vi.mock("@/lib/sphinx/bridge", () => ({
+  getL402: () => mockGetL402(),
+  hasWebLN: vi.fn(),
+  payInvoice: vi.fn(),
+  enable: vi.fn(),
+  getSignedMessage: vi.fn(),
+}))
+
 // --- mock api (hoisted so vi.mock can reference it) ---
 const { mockApiGet } = vi.hoisted(() => ({ mockApiGet: vi.fn() }))
 vi.mock("@/lib/api", () => ({
@@ -570,6 +580,90 @@ describe("NodePreviewPanel – Stakwork project link", () => {
       unmount()
     }
   )
+})
+
+describe("NodePreviewPanel – preview=1 probe behaviour", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  it("includes ?preview=1 in probe URL and no Authorization override when L402 exists", async () => {
+    mockGetL402.mockReturnValue("LSAT abc123:def456")
+    mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith(
+        "/v2/nodes/abc?preview=1",
+        undefined,
+        expect.any(AbortSignal),
+      )
+    })
+  })
+
+  it("includes ?preview=1 in probe URL when no L402 token is present", async () => {
+    mockGetL402.mockReturnValue("")
+    mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith(
+        "/v2/nodes/abc?preview=1",
+        undefined,
+        expect.any(AbortSignal),
+      )
+    })
+  })
+
+  it("sets unlockState to 'unlocked' and hides Unlock button when probe returns 200", async () => {
+    mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+  })
+
+  it("sets unlockState to 'preview' and shows Unlock button when probe returns 402", async () => {
+    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
+    mockGetPrice.mockResolvedValue(15)
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Unlock for 15 sats/i })).toBeInTheDocument()
+    })
+  })
+
+  it("handleUnlock does NOT include ?preview=1", async () => {
+    // First probe returns 402 so Unlock button appears
+    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
+    mockGetPrice.mockResolvedValue(5)
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Unlock for 5 sats/i })).toBeInTheDocument()
+    })
+
+    // Now make the handleUnlock call succeed
+    mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
+
+    screen.getByRole("button", { name: /Unlock for 5 sats/i }).click()
+
+    await waitFor(() => {
+      // The handleUnlock call should be to the path WITHOUT ?preview=1
+      const calls = mockApiGet.mock.calls
+      const unlockCall = calls.find(
+        (c) => c[0] === `/v2/nodes/abc` && c[1] === undefined
+      )
+      expect(unlockCall).toBeTruthy()
+    })
+  })
 })
 
 describe("NodePreviewPanel – paid_properties lock placeholders", () => {
