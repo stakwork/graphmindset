@@ -123,12 +123,13 @@ export async function getNode(
   )
 }
 
-// Create node(s)
+// Create a node via the generic paid endpoint (POST /v2/nodes)
 export async function createNode(
-  data: Record<string, unknown> | Record<string, unknown>[],
+  nodeType: string,
+  nodeData: Record<string, unknown>,
   signal?: AbortSignal
-) {
-  return api.post("/v2/nodes", data, undefined, signal)
+): Promise<Record<string, unknown>> {
+  return api.post("/v2/nodes", { node_type: nodeType, node_data: nodeData }, undefined, signal)
 }
 
 // Update a node
@@ -281,13 +282,6 @@ export async function checkTopicExists(
   return api.get(`/v2/nodes/topic-check?${params}`, undefined, signal)
 }
 
-// Paid topic creation via POST /v2/topic
-export async function createTopic(
-  data: { name: string; description?: string },
-  signal?: AbortSignal
-): Promise<Record<string, unknown>> {
-  return api.post("/v2/topic", data, undefined, signal)
-}
 
 export async function runRadarNow(
   sourceType: RadarSourceType,

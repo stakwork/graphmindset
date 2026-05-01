@@ -2,7 +2,7 @@
 
 import { create } from "zustand"
 
-type ModalId = "settings" | "addContent" | "budget" | "addTopic" | null
+type ModalId = "settings" | "addContent" | "budget" | "addNode" | null
 
 interface ModalState {
   activeModal: ModalId

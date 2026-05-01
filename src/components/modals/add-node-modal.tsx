@@ -12,11 +12,11 @@ import { Button } from "@/components/ui/button"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
 import { getPrice, payL402 } from "@/lib/sphinx"
-import { checkTopicExists, createTopic } from "@/lib/graph-api"
+import { checkTopicExists, createNode } from "@/lib/graph-api"
 
 type Status = "idle" | "checking" | "submitting" | "success" | "error"
 
-export function AddTopicModal() {
+export function AddNodeModal() {
   const { activeModal, close } = useModalStore()
   const setBudget = useUserStore((s) => s.setBudget)
   const pubKey = useUserStore((s) => s.pubKey)
@@ -30,13 +30,13 @@ export function AddTopicModal() {
 
   // Fetch price on open
   useEffect(() => {
-    if (activeModal !== "addTopic") return
-    getPrice("v2/topic").then(setPrice).catch(() => setPrice(null))
+    if (activeModal !== "addNode") return
+    getPrice("v2/nodes", "post").then(setPrice).catch(() => setPrice(null))
   }, [activeModal])
 
   // Reset on close
   useEffect(() => {
-    if (activeModal !== "addTopic") {
+    if (activeModal !== "addNode") {
       setName("")
       setDescription("")
       setErrorMsg(null)
@@ -75,7 +75,8 @@ export function AddTopicModal() {
 
       // 2. Submit with payment
       const doCreate = async () => {
-        const response = await createTopic(
+        const response = await createNode(
+          "Topic",
           { name: trimmedName, description: description.trim() || undefined },
           controller.signal
         )
@@ -111,7 +112,7 @@ export function AddTopicModal() {
     [name, description, setBudget, close]
   )
 
-  const isOpen = activeModal === "addTopic"
+  const isOpen = activeModal === "addNode"
   const busy = status === "checking" || status === "submitting" || status === "success"
 
   return (
