@@ -7,7 +7,7 @@ import { Universe } from "@/components/universe"
 import { SettingsModal } from "@/components/modals/settings-modal"
 import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
-import { AddTopicModal } from "@/components/modals/add-topic-modal"
+import { AddNodeModal } from "@/components/modals/add-node-modal"
 import { MediaPlayer } from "@/components/player/media-player"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
@@ -85,7 +85,7 @@ export function AppLayout() {
       {/* Modals — outside flex layout so they overlay properly */}
       <SettingsModal />
       <AddContentModal />
-      <AddTopicModal />
+      <AddNodeModal />
       <BudgetModal />
       <MediaPlayer />
     </>
