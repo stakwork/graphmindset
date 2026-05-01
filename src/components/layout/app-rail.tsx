@@ -72,7 +72,7 @@ export function AppRail({
   onToggleMyContent: () => void
 }) {
   const router = useRouter()
-  const { isAdmin, budget, pubKey } = useUserStore()
+  const { isAdmin, budget } = useUserStore()
   const { graphName } = useAppStore()
   const openModal = useModalStore((s) => s.open)
 
@@ -150,14 +150,12 @@ export function AppRail({
       <nav className="relative z-10 flex flex-1 flex-col items-center gap-1 py-3">
         <RailIcon icon={Plus} label="Add Content" onClick={() => openModal("addContent")} />
         <RailIcon icon={Tag} label="Add Topic" onClick={() => openModal("addNode")} />
-        {pubKey && (
-          <RailIcon
-            icon={BookMarked}
-            label="My Content"
-            onClick={onToggleMyContent}
-            active={myContentOpen}
-          />
-        )}
+        <RailIcon
+          icon={BookMarked}
+          label="My Content"
+          onClick={onToggleMyContent}
+          active={myContentOpen}
+        />
         <RailIcon
           icon={Layers}
           label="Sources"

@@ -8,6 +8,12 @@ vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => mockApiGet(...args) },
 }))
 
+// --- mock @/lib/sphinx (getL402) ---
+let mockGetL402Value = ""
+vi.mock("@/lib/sphinx", () => ({
+  getL402: () => Promise.resolve(mockGetL402Value),
+}))
+
 // --- mock graph-api delete functions ---
 const mockDeleteNode = vi.fn().mockResolvedValue({})
 vi.mock("@/lib/graph-api", () => ({
@@ -380,5 +386,61 @@ describe("MyContentPanel – delete button", () => {
     await waitFor(() => {
       expect(screen.queryByText("Orphan Node")).not.toBeInTheDocument()
     })
+  })
+})
+
+describe("MyContentPanel – L402 identity paths", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = {}
+    mockGetL402Value = ""
+  })
+
+  it("pubKey present: fetches with pubkey param (Sphinx path unchanged)", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(EMPTY_RESPONSE)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("No content yet")).toBeInTheDocument()
+    })
+
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/v2/content?pubkey=03abc123testkey&sort_by=date&limit=100"
+    )
+  })
+
+  it("no pubKey + L402 in localStorage: fetches without pubkey param", async () => {
+    myContentUserOverrides = { pubKey: "", routeHint: "", isAdmin: false }
+    mockGetL402Value = "LSAT sometoken:somepreimage"
+    mockApiGet.mockResolvedValue(TWO_NODES)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
+    })
+
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/v2/content?sort_by=date&limit=100"
+    )
+    // Must NOT include a pubkey param
+    expect(mockApiGet).not.toHaveBeenCalledWith(
+      expect.stringContaining("pubkey=")
+    )
+  })
+
+  it("no pubKey + no L402: renders empty state without making any API call", async () => {
+    myContentUserOverrides = { pubKey: "", routeHint: "", isAdmin: false }
+    mockGetL402Value = ""
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("No content yet")).toBeInTheDocument()
+    })
+
+    expect(mockApiGet).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole("button", { name: /add content/i })
+    ).toBeInTheDocument()
   })
 })
