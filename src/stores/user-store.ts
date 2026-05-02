@@ -3,6 +3,7 @@
 import { create } from "zustand"
 import { getL402 } from "@/lib/sphinx"
 import { api } from "@/lib/api"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 interface UserState {
   isAdmin: boolean
@@ -48,7 +49,7 @@ export const useUserStore = create<UserStore>((set) => ({
       const bal = await api.get<{ balance: number }>("/balance", { Authorization: l402 })
       set({ budget: bal.balance })
     } catch {
-      localStorage.removeItem("l402")
+      cookieStorage.removeItem("l402")
       set({ budget: 0 })
     }
   },

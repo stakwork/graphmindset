@@ -410,7 +410,7 @@ describe("MyContentPanel – L402 identity paths", () => {
     )
   })
 
-  it("no pubKey + L402 in localStorage: fetches without pubkey param", async () => {
+  it("no pubKey + L402 in cookie: fetches without pubkey param", async () => {
     myContentUserOverrides = { pubKey: "", routeHint: "", isAdmin: false }
     mockGetL402Value = "LSAT sometoken:somepreimage"
     mockApiGet.mockResolvedValue(TWO_NODES)

@@ -17,6 +17,7 @@ import { useUserStore } from "@/stores/user-store"
 import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, TransactionRow } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 type Step = "balance" | "first-purchase" | "first-invoice" | "amount" | "invoice" | "success" | "history"
 
@@ -50,7 +51,7 @@ export function BudgetModal() {
   const sphinxConnected = typeof window !== "undefined" && isSphinx()
   const weblnAvailable = typeof window !== "undefined" && hasWebLN()
   const hasExistingL402 =
-    typeof window !== "undefined" && !!localStorage.getItem("l402")
+    typeof window !== "undefined" && !!cookieStorage.getItem("l402")
 
   const formattedBudget =
     budget !== null && budget !== undefined
@@ -105,7 +106,7 @@ export function BudgetModal() {
 
   // Route "Top Up" to the right flow
   const handleTopUp = useCallback(async () => {
-    const stored = localStorage.getItem("l402")
+    const stored = cookieStorage.getItem("l402")
 
     if (stored) {
       // Has existing L402 — go to amount step to top up
@@ -165,7 +166,7 @@ export function BudgetModal() {
         return
       }
 
-      localStorage.setItem(
+      cookieStorage.setItem(
         "l402",
         JSON.stringify({
           macaroon: challenge.baseMacaroon,
@@ -194,7 +195,7 @@ export function BudgetModal() {
     setError("")
     setLoading(true)
 
-    const stored = localStorage.getItem("l402")
+    const stored = cookieStorage.getItem("l402")
     if (!stored) {
       // No L402 — shouldn't happen (handleTopUp guards this), but handle it
       setError("No L402 token. Go back and connect a wallet first.")

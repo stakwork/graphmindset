@@ -1,6 +1,7 @@
 import { Lsat } from "lsat-js"
 import { isSphinx } from "./detect"
 import { api } from "../api"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sphinx = require("sphinx-bridge")
@@ -21,9 +22,9 @@ async function payViaSphinx(
   setBudget: (value: number | null) => void
 ): Promise<void> {
   // Clear any existing expired L402
-  const existing = localStorage.getItem("l402")
+  const existing = cookieStorage.getItem("l402")
   if (existing) {
-    localStorage.removeItem("l402")
+    cookieStorage.removeItem("l402")
     const parsed = JSON.parse(existing)
     try {
       await sphinx.updateLsat(parsed.identifier, "expired")
@@ -67,7 +68,7 @@ async function payViaSphinx(
       const stored = await sphinx.getLsat(window.location.host)
       if (!stored?.preimage) throw new Error("getLsat returned no preimage after saveLsat")
 
-      localStorage.setItem(
+      cookieStorage.setItem(
         "l402",
         JSON.stringify({
           macaroon: lsat.baseMacaroon,
@@ -86,7 +87,7 @@ async function payViaWebLN(
   setBudget: (value: number | null) => void,
   amount?: number
 ): Promise<void> {
-  localStorage.removeItem("l402")
+  cookieStorage.removeItem("l402")
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webln = (window as any).webln
@@ -106,7 +107,7 @@ async function payViaWebLN(
       const payment = await webln.sendPayment(lsat.invoice)
 
       if (payment?.preimage) {
-        localStorage.setItem(
+        cookieStorage.setItem(
           "l402",
           JSON.stringify({
             macaroon: lsat.baseMacaroon,
