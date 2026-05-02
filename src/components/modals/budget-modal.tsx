@@ -124,6 +124,7 @@ export function BudgetModal() {
     try {
       await payL402(setBudget)
       await refreshBalance()
+      setStep("success")
     } catch {
       setError("Payment was cancelled or failed. Try again.")
     } finally {
