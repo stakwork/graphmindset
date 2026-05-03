@@ -214,17 +214,21 @@ export function computeRadialLayout(
 
   const R1 = r1;
 
-  // Fixed ring radii per depth — geometric series
+  // Fixed ring radii per depth — geometric series.
   const DEPTH_SHRINK = 0.45;
   const orbitR: number[] = [0, R1];
   for (let d = 2; d <= maxDepth + 1; d++) {
     orbitR[d] = orbitR[d - 1] * DEPTH_SHRINK;
   }
 
-  // Y-offset proportional to ring radius
+  // Y-offset proportional to the *unfloored* geometric ring radius — keeps
+  // the original tiered look where each layer drops a little less than the
+  // previous one, instead of a constant step driven by the MIN_ORBIT floor.
   const Y_RATIO = 0.35;
+  let yShrinkR = R1;
   for (let d = 2; d <= maxDepth + 1; d++) {
-    yOff[d] = yOff[d - 1] - orbitR[d] * Y_RATIO;
+    yShrinkR *= DEPTH_SHRINK;
+    yOff[d] = yOff[d - 1] - yShrinkR * Y_RATIO;
   }
 
   // Hop-1: EVEN angular spacing (not weighted)

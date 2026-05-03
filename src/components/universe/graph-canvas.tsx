@@ -1,9 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Canvas } from "@react-three/fiber"
+import { Canvas, useFrame } from "@react-three/fiber"
 import { CameraControls } from "@react-three/drei"
 import { EffectComposer, Bloom } from "@react-three/postprocessing"
+import { Vector3 } from "three"
 import type CameraControlsImpl from "camera-controls"
 import {
   buildGraph,
@@ -243,7 +244,9 @@ function apiToGraph(
 }
 
 function applyLayout(graph: Graph) {
-  const sub = extractInitialSubgraph(graph)
+  // Bumped from the 30 default — transcript/conversation graphs have chains
+  // 40+ deep; truncating leaves the tail at buildGraph's (0,0,0) default.
+  const sub = extractInitialSubgraph(graph, 1000)
   const { positions, treeEdgeSet, childrenOf } = computeRadialLayout(
     sub.centerId,
     sub.neighborsByDepth,
@@ -257,12 +260,92 @@ function applyLayout(graph: Graph) {
     }
   }
 
+  // Anything BFS never reached (cycle-only components, synthetic nodes the
+  // layout missed) keeps the (0,0,0) default from buildGraph and piles at the
+  // origin. Park them on an outer ring so they stay visible and selectable.
+  const stray: number[] = []
+  for (let i = 0; i < graph.nodes.length; i++) {
+    if (!positions.has(i)) stray.push(i)
+  }
+  if (stray.length > 0) {
+    let maxR = 0
+    for (const [id, p] of positions) {
+      if (id === VIRTUAL_CENTER) continue
+      const r = Math.hypot(p.x, p.z)
+      if (r > maxR) maxR = r
+    }
+    const ringR = (maxR || 22) * 1.5 + 30
+    const angleStep = (Math.PI * 2) / stray.length
+    for (let i = 0; i < stray.length; i++) {
+      const angle = i * angleStep
+      graph.nodes[stray[i]].position = {
+        x: Math.cos(angle) * ringR,
+        y: 0,
+        z: Math.sin(angle) * ringR,
+      }
+    }
+  }
+
   graph.initialDepthMap = sub.depthMap
   graph.treeEdgeSet = treeEdgeSet
   graph.childrenOf = childrenOf
+
+  // Snapshot every node's laid-out position. Click handler scales these by
+  // an inflation factor so deeper nodes get R1-sized rings without relaying out.
+  const snapshot = new Map<number, { x: number; y: number; z: number }>()
+  for (let i = 0; i < graph.nodes.length; i++) {
+    const p = graph.nodes[i].position
+    snapshot.set(i, { x: p.x, y: p.y, z: p.z })
+  }
+  graph.originalPositions = snapshot
 }
 
-function moveCameraToNode(cam: CameraControlsImpl, graph: Graph, nodeId: number) {
+// Matches DEPTH_SHRINK in computeRadialLayout. Click inflation is the
+// inverse: 1/0.45^d makes the ring around a depth-d node land at R1 again.
+const DEPTH_SHRINK = 0.45
+
+// Re-scale the graph about a fixed anchor node. The anchor (the clicked
+// node) stays at its current position; every other node's offset *from the
+// anchor* in the original layout is multiplied by `scale`. With
+// scale = 1/0.45^d, the anchor's children land on a true R1 ring while the
+// anchor itself doesn't move on screen — no camera motion required.
+function rescaleAroundAnchor(graph: Graph, anchorId: number, scale: number) {
+  if (!graph.originalPositions) return
+  const origAnchor = graph.originalPositions.get(anchorId)
+  const liveAnchor = graph.nodes[anchorId]?.position
+  if (!origAnchor || !liveAnchor) return
+  const ax = liveAnchor.x
+  const ay = liveAnchor.y
+  const az = liveAnchor.z
+  for (const [id, orig] of graph.originalPositions) {
+    if (id >= graph.nodes.length) continue
+    graph.nodes[id].position = {
+      x: ax + (orig.x - origAnchor.x) * scale,
+      y: ay + (orig.y - origAnchor.y) * scale,
+      z: az + (orig.z - origAnchor.z) * scale,
+    }
+  }
+}
+
+function restoreOriginalPositions(graph: Graph) {
+  if (!graph.originalPositions) return
+  for (const [id, orig] of graph.originalPositions) {
+    if (id < graph.nodes.length) {
+      graph.nodes[id].position = { x: orig.x, y: orig.y, z: orig.z }
+    }
+  }
+}
+
+interface CamTarget {
+  posX: number
+  posY: number
+  posZ: number
+  lookX: number
+  lookY: number
+  lookZ: number
+}
+
+function computeCamTarget(graph: Graph, nodeId: number): CamTarget {
   const p = graph.nodes[nodeId].position
   const treeKids = graph.childrenOf?.get(nodeId) ?? []
   const kidPts = treeKids.map((nid) => graph.nodes[nid]?.position).filter(Boolean)
@@ -274,7 +357,65 @@ function moveCameraToNode(cam: CameraControlsImpl, graph: Graph, nodeId: number)
   }
   const fovRad = (50 / 2) * (Math.PI / 180)
   const cameraHeight = Math.max(5, (maxRadius * 1.05) / Math.tan(fovRad))
-  cam.setLookAt(p.x, p.y + cameraHeight, p.z + 0.1, p.x, p.y, p.z, true)
+  return {
+    posX: p.x,
+    posY: p.y + cameraHeight,
+    posZ: p.z + 0.1,
+    lookX: p.x,
+    lookY: p.y,
+    lookZ: p.z,
+  }
+}
+
+const OVERVIEW_CAM: CamTarget = {
+  posX: 0, posY: 80, posZ: 0.1,
+  lookX: 0, lookY: 0, lookZ: 0,
+}
+
+function smoothstep(x: number) {
+  return x * x * (3 - 2 * x)
+}
+
+// Drives the camera with GraphView's exact lerp formula so the camera
+// arrives in lockstep with the geometry inflation. Without this the camera
+// (CameraControls smoothDamp) and the nodes (smoothstep + delta/1.2 in
+// GraphView) use different curves, and the selected node visibly drifts off
+// to the side mid-transition.
+function CameraSync({
+  camRef,
+  targetRef,
+}: {
+  camRef: React.RefObject<CameraControlsImpl | null>
+  targetRef: React.RefObject<{
+    target: CamTarget
+    progress: number
+    pos: [number, number, number]
+    look: [number, number, number]
+  }>
+}) {
+  useFrame((_, delta) => {
+    const cam = camRef.current
+    if (!cam) return
+    const state = targetRef.current
+    // Only drive the camera while a transition is in flight. Once it settles,
+    // hand control back to CameraControls so the user can orbit/pan/zoom.
+    if (state.progress >= 1) return
+    state.progress = Math.min(1, state.progress + delta / 1.2)
+    const t = smoothstep(state.progress)
+    const tgt = state.target
+    state.pos[0] += (tgt.posX - state.pos[0]) * t
+    state.pos[1] += (tgt.posY - state.pos[1]) * t
+    state.pos[2] += (tgt.posZ - state.pos[2]) * t
+    state.look[0] += (tgt.lookX - state.look[0]) * t
+    state.look[1] += (tgt.lookY - state.look[1]) * t
+    state.look[2] += (tgt.lookZ - state.look[2]) * t
+    cam.setLookAt(
+      state.pos[0], state.pos[1], state.pos[2],
+      state.look[0], state.look[1], state.look[2],
+      false,
+    )
+  })
+  return null
 }
 
 interface GraphCanvasProps {
@@ -311,15 +452,43 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
+  // CameraSync drives this each frame using the same lerp curve as GraphView,
+  // so geometry inflation and camera dolly stay in lockstep.
+  const camAnim = useRef<{
+    target: CamTarget
+    progress: number
+    pos: [number, number, number]
+    look: [number, number, number]
+  }>({
+    target: OVERVIEW_CAM,
+    progress: 1,
+    pos: [OVERVIEW_CAM.posX, OVERVIEW_CAM.posY, OVERVIEW_CAM.posZ],
+    look: [OVERVIEW_CAM.lookX, OVERVIEW_CAM.lookY, OVERVIEW_CAM.lookZ],
+  })
+
+  const setCamTarget = useCallback((target: CamTarget) => {
+    const cam = cameraRef.current
+    if (cam) {
+      // Seed from where the camera actually is right now — the user may have
+      // orbited since the last transition, so the previous interpolated
+      // values are stale.
+      const pos = cam.getPosition(new Vector3())
+      const tgt = cam.getTarget(new Vector3())
+      camAnim.current.pos = [pos.x, pos.y, pos.z]
+      camAnim.current.look = [tgt.x, tgt.y, tgt.z]
+    }
+    camAnim.current.target = target
+    camAnim.current.progress = 0
+  }, [])
+
   // Reset view only on full data replacement (new search), not on appends
   // from sidebar-driven neighbor fetches — otherwise focusing the camera on
   // a clicked node would be undone every time a neighborhood arrives.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- paired with an imperative camera reset; remount would drop GL state
     setViewState({ mode: "overview" })
-    const cam = cameraRef.current
-    if (cam) cam.setLookAt(0, 80, 0.1, 0, 0, 0, true)
-  }, [dataVersion])
+    setCamTarget(OVERVIEW_CAM)
+  }, [dataVersion, setCamTarget])
 
   const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
@@ -368,6 +537,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         const apiNode = nodes.find((n) => n.ref_id === refId)
         if (apiNode) onNodeSelect(apiNode)
       }
+
+      // Re-scale the world around the clicked node. Selected stays put on
+      // screen; descendants' offsets from selected grow to R1-sized rings,
+      // ancestors push outward. No camera motion — the anchor doesn't move.
+      const initialDepth = graph.initialDepthMap?.get(nodeId) ?? 0
+      const scale = Math.pow(1 / DEPTH_SHRINK, Math.max(0, initialDepth))
+      rescaleAroundAnchor(graph, nodeId, scale)
 
       const sub = extractSubgraph(graph, nodeId, 30, { useAdj: "undirected" })
 
@@ -436,17 +612,20 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         }
       })
 
-      const cam = cameraRef.current
-      if (cam) moveCameraToNode(cam, graph, nodeId)
+      // Camera dollies to look at selected. Anchor's world position is
+      // fixed by rescaleAroundAnchor, so the camera target is constant
+      // through the lerp — no drift like when both the camera and the
+      // anchor were moving in opposite directions.
+      setCamTarget(computeCamTarget(graph, nodeId))
     },
-    [graph, indexMap, nodes, onNodeSelect]
+    [graph, indexMap, nodes, onNodeSelect, setCamTarget]
   )
 
   const handleReset = useCallback(() => {
+    restoreOriginalPositions(graph)
     setViewState({ mode: "overview" })
-    const cam = cameraRef.current
-    if (cam) cam.setLookAt(0, 80, 0.1, 0, 0, 0, true)
-  }, [])
+    setCamTarget(OVERVIEW_CAM)
+  }, [graph, setCamTarget])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -499,6 +678,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           truckSpeed={1}
           dollyToCursor
         />
+        <CameraSync camRef={cameraRef} targetRef={camAnim} />
         <EffectComposer>
           <Bloom
             luminanceThreshold={0.2}
