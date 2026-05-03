@@ -56,6 +56,10 @@ export interface Graph {
   initialDepthMap?: Map<number, number>;
   treeEdgeSet?: Set<string>;
   childrenOf?: Map<number, number[]>;
+  /** Snapshot of the original radial layout. On click we set
+   * graph.nodes[i].position = originalPositions[i] × inflation, so deeper
+   * navigations keep stretching the world without re-layout. */
+  originalPositions?: Map<number, Vec3>;
   /** Edges intentionally excluded from `edges` (and the layout) but still
    * surfaced when their endpoints are hovered or selected. */
   extraEdges?: GraphEdge[];
