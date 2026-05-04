@@ -44,22 +44,24 @@ describe("snapToPreset", () => {
 // ---- Component tests ----
 // Mock modules before importing the component
 vi.mock("@/lib/graph-api", () => ({
-  getRadarConfig: vi.fn(),
-  updateRadarConfig: vi.fn(),
-  runRadarNow: vi.fn(),
+  getCronConfig: vi.fn(),
+  updateCronConfig: vi.fn(),
+  runCron: vi.fn(),
 }))
 
 vi.mock("@/lib/mock-data", () => ({
   isMocksEnabled: vi.fn(() => true),
-  MOCK_RADAR_CONFIGS: [
+  MOCK_CRON_CONFIGS: [
     {
       source_type: "twitter_handle",
+      kind: "source",
       enabled: true,
       cadence: "*/10 * * * *",
       updated_at: undefined,
     },
     {
       source_type: "rss",
+      kind: "source",
       enabled: false,
       cadence: "0 */12 * * *",
       updated_at: undefined,
@@ -87,16 +89,17 @@ describe("RadarRow", () => {
   })
 
   it("shows fallback preset for unknown cadence and does NOT call onUpdate on mount", async () => {
-    const { isMocksEnabled, MOCK_RADAR_CONFIGS: _ } = await import("@/lib/mock-data")
-    const { updateRadarConfig } = await import("@/lib/graph-api")
+    const { isMocksEnabled } = await import("@/lib/mock-data")
+    const { updateCronConfig } = await import("@/lib/graph-api")
 
     // Override mock to return an unknown cron
     vi.mocked(isMocksEnabled).mockReturnValue(false)
-    const { getRadarConfig } = await import("@/lib/graph-api")
-    vi.mocked(getRadarConfig).mockResolvedValue({
+    const { getCronConfig } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
       configs: [
         {
           source_type: "twitter_handle",
+          kind: "source",
           enabled: true,
           cadence: "5 4 * * *", // unknown cron
           updated_at: undefined,
@@ -110,29 +113,31 @@ describe("RadarRow", () => {
     const select = selects[0] as HTMLSelectElement
     // Should snap to fallback "Every 6 hours"
     expect(select.value).toBe("0 */6 * * *")
-    // updateRadarConfig should NOT have been called on mount
-    expect(updateRadarConfig).not.toHaveBeenCalled()
+    // updateCronConfig should NOT have been called on mount
+    expect(updateCronConfig).not.toHaveBeenCalled()
   })
 
   it("calls onUpdate with correct cron value when user changes selection", async () => {
-    const { updateRadarConfig } = await import("@/lib/graph-api")
+    const { updateCronConfig } = await import("@/lib/graph-api")
     const { isMocksEnabled } = await import("@/lib/mock-data")
     vi.mocked(isMocksEnabled).mockReturnValue(false)
 
-    const { getRadarConfig } = await import("@/lib/graph-api")
-    vi.mocked(getRadarConfig).mockResolvedValue({
+    const { getCronConfig } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
       configs: [
         {
           source_type: "twitter_handle",
+          kind: "source",
           enabled: true,
           cadence: "*/10 * * * *",
           updated_at: undefined,
         },
       ],
     } as never)
-    vi.mocked(updateRadarConfig).mockResolvedValue({
+    vi.mocked(updateCronConfig).mockResolvedValue({
       config: {
         source_type: "twitter_handle",
+        kind: "source",
         enabled: true,
         cadence: "0 * * * *",
         updated_at: undefined,
@@ -145,7 +150,7 @@ describe("RadarRow", () => {
     const selects = await screen.findAllByRole("combobox")
     await user.selectOptions(selects[0], "0 * * * *")
 
-    expect(updateRadarConfig).toHaveBeenCalledWith("twitter_handle", { cadence: "0 * * * *" })
+    expect(updateCronConfig).toHaveBeenCalledWith("twitter_handle", { cadence: "0 * * * *" })
   })
 
   it("disables dropdown and Run now button when source is disabled", async () => {

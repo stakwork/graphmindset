@@ -150,6 +150,11 @@ export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps)
         <span className="rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] font-semibold text-primary uppercase tracking-wide">
           {review.type}
         </span>
+        {review.run_ref_id && (
+          <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+            Run #{review.run_ref_id.slice(-5)}
+          </span>
+        )}
       </td>
 
       {/* Rationale */}
