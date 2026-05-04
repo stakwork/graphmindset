@@ -1,5 +1,6 @@
 import type { SignedMessage } from "./types"
 import { isSphinx } from "./detect"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 // sphinx-bridge communicates via postMessage with the Sphinx webview host
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -20,7 +21,7 @@ export async function enable(): Promise<{ pubkey: string; routeHint?: string } |
 }
 
 export async function getSignedMessage(): Promise<SignedMessage> {
-  const stored = localStorage.getItem("signature")
+  const stored = cookieStorage.getItem("signature")
   if (stored) {
     const parsed = JSON.parse(stored) as SignedMessage
     return parsed
@@ -37,7 +38,7 @@ export async function getSignedMessage(): Promise<SignedMessage> {
             const result = await webln.signMessage(message)
             if (result?.signature) {
               const signed = { message, signature: result.signature }
-              localStorage.setItem("signature", JSON.stringify(signed))
+              cookieStorage.setItem("signature", JSON.stringify(signed))
               return signed
             }
           } catch (error) {
@@ -62,7 +63,7 @@ export async function getSignedMessage(): Promise<SignedMessage> {
         )
         const result = await sphinx.signMessage(message)
         const signed = { message, signature: result.signature }
-        localStorage.setItem("signature", JSON.stringify(signed))
+        cookieStorage.setItem("signature", JSON.stringify(signed))
         return signed
       } catch (error) {
         console.error("Failed to sign message:", error)
@@ -79,7 +80,7 @@ export async function getSignedMessage(): Promise<SignedMessage> {
 export async function getL402(): Promise<string> {
   if (typeof window === "undefined") return ""
 
-  const stored = localStorage.getItem("l402")
+  const stored = cookieStorage.getItem("l402")
   if (stored) {
     const parsed = JSON.parse(stored)
     return `LSAT ${parsed.macaroon}:${parsed.preimage}`
@@ -93,7 +94,7 @@ export async function getL402(): Promise<string> {
       try {
         const token = await sphinx.getLsat(window.location.host)
         if (token?.macaroon) {
-          localStorage.setItem(
+          cookieStorage.setItem(
             "l402",
             JSON.stringify({
               macaroon: token.macaroon,

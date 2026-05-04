@@ -229,6 +229,7 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
   const show = (props.show_title ?? props.show) as string | undefined
   const channel = props.channel as string | undefined
   const epNum = typeof props.episode_number === "number" ? props.episode_number : undefined
+  const formattedDate = formatTweetDate(props.date)
   const isVideo = typeof mediaUrl === "string" && /\.(mp4|webm|mov)/i.test(mediaUrl)
 
   return (
@@ -265,10 +266,15 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
           </Button>
         )
       ) : null}
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
         {(show ?? channel) && <span>{show ?? channel}</span>}
         {epNum !== undefined && <span>Ep. {epNum}</span>}
         {duration !== undefined && !mediaUrl && <span>{formatDuration(duration)}</span>}
+        {formattedDate && (
+          <span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+            {formattedDate}
+          </span>
+        )}
       </div>
     </div>
   )

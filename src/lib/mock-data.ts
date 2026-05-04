@@ -9,7 +9,14 @@ export const MOCK_NODES: GraphNode[] = [
   {
     ref_id: "n2",
     node_type: "Tweet",
-    properties: { name: "Bitcoin is freedom tech", description: "Tweet by @jack about Bitcoin adoption", image_url: "https://picsum.photos/seed/tweet-jack/120" },
+    properties: {
+      name: "Jack Dorsey",
+      twitter_handle: "jack",
+      text: "Bitcoin is freedom tech. It’s the most important invention since the internet.",
+      tweet_id: "1725483021849382912",
+      date: 1700179200,
+      image_url: "https://picsum.photos/seed/tweet-jack/120",
+    },
   },
   {
     ref_id: "n3",
@@ -19,17 +26,35 @@ export const MOCK_NODES: GraphNode[] = [
   {
     ref_id: "n4",
     node_type: "Episode",
-    properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer about Bitcoin scaling", thumbnail: "https://picsum.photos/seed/wbd412/120" },
+    properties: {
+      episode_title: "What Bitcoin Did #412",
+      description: "Peter McCormack interviews a Lightning developer about Bitcoin scaling, Layer 2, and the future of payments.",
+      show_title: "What Bitcoin Did",
+      date: "2024-08-12",
+      thumbnail: "https://picsum.photos/seed/wbd412/120",
+    },
   },
   {
     ref_id: "n5",
     node_type: "Video",
-    properties: { name: "Bitcoin for Beginners", description: "An introductory video explaining how Bitcoin works and why it matters", image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/320px-Bitcoin.svg.png" },
+    properties: {
+      episode_title: "Bitcoin for Beginners",
+      description: "An introductory video explaining how Bitcoin works and why it matters",
+      date: "2024-03-04",
+      image_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/320px-Bitcoin.svg.png",
+    },
   },
   {
     ref_id: "n6",
     node_type: "Document",
-    properties: { name: "Bitcoin Whitepaper", description: "The original paper describing a peer-to-peer electronic cash system", image_url: "https://picsum.photos/seed/whitepaper/120" },
+    properties: {
+      title: "Bitcoin Whitepaper",
+      summary: "A purely peer-to-peer version of electronic cash without a financial intermediary.",
+      author: "Satoshi Nakamoto",
+      content_type: "paper",
+      source_link: "https://bitcoin.org/bitcoin.pdf",
+      image_url: "https://picsum.photos/seed/whitepaper/120",
+    },
   },
   {
     ref_id: "n7",
@@ -39,7 +64,12 @@ export const MOCK_NODES: GraphNode[] = [
   {
     ref_id: "n8",
     node_type: "Clip",
-    properties: { name: "Bitcoin Mining Explained", description: "A 3-minute clip explaining proof-of-work mining", thumbnail: "https://example.invalid/this-image-404.jpg" },
+    properties: {
+      episode_title: "Bitcoin Mining Explained",
+      description: "A 3-minute clip explaining proof-of-work mining, hash rates, and difficulty adjustments.",
+      date: "2024-09-19",
+      thumbnail: "https://example.invalid/this-image-404.jpg",
+    },
   },
   {
     ref_id: "n9",
@@ -48,6 +78,25 @@ export const MOCK_NODES: GraphNode[] = [
   },
   {
     ref_id: "n10",
+    node_type: "Section",
+    properties: {
+      text: "Section 4 — Proof-of-Work",
+      summary: "To implement a distributed timestamp server on a peer-to-peer basis, we will need to use a proof-of-work system similar to Adam Back's Hashcash.",
+      source_link: "https://bitcoin.org/bitcoin.pdf",
+    },
+  },
+  {
+    ref_id: "n11",
+    node_type: "Claim",
+    properties: {
+      name: "Lightning enables instant Bitcoin payments",
+      claim_text: "The Lightning Network allows Bitcoin transactions to settle instantly off-chain by routing payments through a network of bidirectional payment channels.",
+      speaker_name: "Lightning developer",
+      source_role: "guest",
+    },
+  },
+  {
+    ref_id: "n12",
     node_type: "WebPage",
     properties: { name: "Sphinx Chat Website", description: "Decentralised messaging on Lightning." },
   },
@@ -133,6 +182,8 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
           duration: 3840,
           episode_number: 412,
           show_title: "What Bitcoin Did",
+          date: "2024-08-12",
+          image_url: "https://picsum.photos/seed/wbd412/120",
           transcript: "Peter: Welcome to What Bitcoin Did. Today we\u2019re talking about Lightning, the Layer 2 scaling solution that\u2019s changing how we think about Bitcoin payments.\n\nGuest: Thanks for having me, Peter. Lightning is really about making Bitcoin usable for everyday transactions. The base layer gives us security and settlement, but Lightning gives us speed and low fees.\n\nPeter: Can you explain how it works for someone who\u2019s new to this?\n\nGuest: Sure. Imagine you and I open a payment channel. We lock some Bitcoin on-chain, and then we can send payments back and forth instantly, off-chain. When we\u2019re done, we settle back on the main chain. The magic is that these channels connect into a network, so I can pay anyone, not just you.",
         },
       },
@@ -236,10 +287,10 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
     ],
     edges: [],
   },
-  n10: {
+  n12: {
     nodes: [
       {
-        ref_id: "n10",
+        ref_id: "n12",
         node_type: "WebPage",
         properties: {
           name: "Sphinx Chat Website",
