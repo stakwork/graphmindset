@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button"
 import { SelectNative } from "@/components/ui/select-native"
 import { Switch } from "@/components/ui/switch"
 import {
-  type RadarConfig,
+  type CronConfig,
   type RadarSourceType,
-  getRadarConfig,
-  runRadarNow,
-  updateRadarConfig,
+  getCronConfig,
+  runCron,
+  updateCronConfig,
 } from "@/lib/graph-api"
-import { isMocksEnabled, MOCK_RADAR_CONFIGS } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_CRON_CONFIGS } from "@/lib/mock-data"
 
 const SOURCE_TYPE_LABELS: Record<RadarSourceType, string> = {
   twitter_handle: "Twitter handles",
@@ -43,7 +43,7 @@ function formatLastRun(ts?: number): string {
 }
 
 export function RadarSettings({ open }: { open: boolean }) {
-  const [configs, setConfigs] = useState<RadarConfig[] | null>(null)
+  const [configs, setConfigs] = useState<CronConfig[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -52,10 +52,10 @@ export function RadarSettings({ open }: { open: boolean }) {
     setError(null)
     try {
       if (isMocksEnabled()) {
-        setConfigs(MOCK_RADAR_CONFIGS as RadarConfig[])
+        setConfigs(MOCK_CRON_CONFIGS.filter((c) => c.kind === "source") as CronConfig[])
         return
       }
-      const { configs } = await getRadarConfig()
+      const { configs } = await getCronConfig({ kind: "source" })
       setConfigs(configs)
     } catch (err) {
       console.error("Failed to load radar config", err)
@@ -72,7 +72,7 @@ export function RadarSettings({ open }: { open: boolean }) {
   const handleUpdate = useCallback(
     async (
       sourceType: RadarSourceType,
-      fields: Partial<Pick<RadarConfig, "enabled" | "cadence" | "workflow_id">>
+      fields: Partial<Pick<CronConfig, "enabled" | "cadence" | "workflow_id">>
     ) => {
       // Optimistic update so the row reacts immediately on toggle/edit.
       setConfigs((prev) =>
@@ -84,7 +84,7 @@ export function RadarSettings({ open }: { open: boolean }) {
       )
       if (isMocksEnabled()) return
       try {
-        const { config } = await updateRadarConfig(sourceType, fields)
+        const { config } = await updateCronConfig(sourceType, fields)
         setConfigs((prev) =>
           prev
             ? prev.map((c) => (c.source_type === sourceType ? config : c))
@@ -131,10 +131,10 @@ function RadarRow({
   config,
   onUpdate,
 }: {
-  config: RadarConfig
+  config: CronConfig
   onUpdate: (
     sourceType: RadarSourceType,
-    fields: Partial<Pick<RadarConfig, "enabled" | "cadence" | "workflow_id">>
+    fields: Partial<Pick<CronConfig, "enabled" | "cadence" | "workflow_id">>
   ) => Promise<void>
 }) {
   const [cadence, setCadence] = useState(snapToPreset(config.cadence))
@@ -153,11 +153,8 @@ function RadarRow({
     setRunning(true)
     setRunMessage(null)
     try {
-      const result = await runRadarNow(config.source_type)
-      setRunMessage(
-        `${result.status}: dispatched ${result.dispatched}` +
-          (result.failed?.length ? `, ${result.failed.length} failed` : "")
-      )
+      await runCron(config.source_type)
+      setRunMessage("Dispatched")
     } catch (err) {
       setRunMessage(err instanceof Error ? err.message : "Run failed")
     } finally {
@@ -169,11 +166,11 @@ function RadarRow({
     <div className="rounded-lg border border-border/50 bg-muted/30 p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium">
-          {SOURCE_TYPE_LABELS[config.source_type]}
+          {SOURCE_TYPE_LABELS[config.source_type as RadarSourceType]}
         </span>
         <Switch
           checked={config.enabled}
-          onCheckedChange={(v) => onUpdate(config.source_type, { enabled: v })}
+          onCheckedChange={(v) => onUpdate(config.source_type as RadarSourceType, { enabled: v })}
         />
       </div>
 
@@ -187,7 +184,7 @@ function RadarRow({
             onChange={(e) => {
               const val = e.target.value
               setCadence(val)
-              onUpdate(config.source_type, { cadence: val })
+              onUpdate(config.source_type as RadarSourceType, { cadence: val })
             }}
           />
         </div>

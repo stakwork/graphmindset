@@ -25,6 +25,11 @@ const RadarSettings = dynamic(
   { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
 )
 
+const JanitorSettings = dynamic(
+  () => import("./janitor-settings").then((m) => m.JanitorSettings),
+  { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
+)
+
 const DomainSettings = dynamic(
   () => import("./domain-settings").then((m) => m.DomainSettings),
   { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
@@ -77,6 +82,7 @@ export function SettingsModal() {
           <TabsList className="w-full">
             <TabsTrigger value="general">General</TabsTrigger>
             {isAdmin && <TabsTrigger value="radar">Schedule</TabsTrigger>}
+            {isAdmin && <TabsTrigger value="janitor">Janitors</TabsTrigger>}
             {isAdmin && <TabsTrigger value="domains">Domains</TabsTrigger>}
           </TabsList>
 
@@ -135,6 +141,12 @@ export function SettingsModal() {
           {isAdmin && (
             <TabsContent value="radar" className="pt-4">
               <RadarSettings open={activeModal === "settings"} />
+            </TabsContent>
+          )}
+
+          {isAdmin && (
+            <TabsContent value="janitor" className="pt-4">
+              <JanitorSettings open={activeModal === "settings"} />
             </TabsContent>
           )}
 
