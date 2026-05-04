@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -22,13 +22,19 @@ import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
 
 const INTERNAL_FIELDS = new Set([
-  "ref_id", "pubkey", "node_type", "date_added_to_graph", "status",
+  "ref_id", "pubkey", "node_type", "date_added_to_graph", "status", "project_id",
   // Fields rendered by rich widgets — hide from the fallback key/value list
   "name", "title", "description", "text", "transcript", "summary", "media_url", "link",
   "image_url", "thumbnail", "source_link", "tweet_id", "author",
-  "twitter_handle", "like_count", "retweet_count", "verified", "date",
-  "bio", "duration", "timestamp", "channel", "show", "episode_number",
+  "twitter_handle", "verified", "date", "published_date",
+  "bio", "duration", "timestamp", "channel", "show", "show_title",
+  "episode_title", "episode_number", "file_size", "content_type",
   "boost", "num_boost",
+  // Tweet engagement
+  "like_count", "retweet_count", "reply_count", "quote_count",
+  "impression_count", "bookmark_count", "followers",
+  // TwitterAccount
+  "profile_image_url", "author_id", "verified_type", "is_identity_verified",
 ])
 
 function isUrl(value: string): boolean {
@@ -58,6 +64,32 @@ function formatNumber(n: number): string {
   return String(n)
 }
 
+function pickNumber(props: Record<string, unknown>, key: string): number | undefined {
+  const v = props[key]
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined
+}
+
+// Tweet `date` may arrive as ISO string, unix seconds, or unix milliseconds.
+// Returns "30 APR 2026" or null.
+function formatTweetDate(value: unknown): string | null {
+  if (value == null) return null
+  let d: Date | null = null
+  if (typeof value === "number" && Number.isFinite(value)) {
+    d = new Date(value < 1e11 ? value * 1000 : value)
+  } else if (typeof value === "string" && value.length > 0) {
+    if (/^\d+$/.test(value)) {
+      const n = Number(value)
+      d = new Date(n < 1e11 ? n * 1000 : n)
+    } else {
+      d = new Date(value)
+    }
+  }
+  if (!d || Number.isNaN(d.getTime())) return null
+  return d
+    .toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
+    .toUpperCase()
+}
+
 interface NodePreviewPanelProps {
   node: GraphNode
   onBack: () => void
@@ -68,36 +100,120 @@ type UnlockState = "preview" | "loading" | "unlocked" | "error"
 
 // --- Rich content widgets ---
 
+function TweetStat({
+  icon: Icon,
+  value,
+}: {
+  icon: typeof Heart
+  value: number
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 tabular-nums">
+      <Icon className="h-3 w-3" strokeWidth={1.75} />
+      {formatNumber(value)}
+    </span>
+  )
+}
+
 function TweetCard({ props }: { props: Record<string, unknown> }) {
-  const text = props.text as string | undefined
-  const author = props.author as string | undefined
-  const handle = props.twitter_handle as string | undefined
-  const likes = typeof props.like_count === "number" ? props.like_count : undefined
-  const retweets = typeof props.retweet_count === "number" ? props.retweet_count : undefined
-  const date = props.date as string | undefined
+  const text = (props.text as string | undefined) ?? undefined
+  const handle = (props.twitter_handle as string | undefined) ?? undefined
+  const displayName =
+    (props.name as string | undefined) ??
+    (props.author as string | undefined) ??
+    handle
+  const verified = props.verified === true
+  const imageUrl = (props.image_url as string | undefined) ?? undefined
+  const tweetId = (props.tweet_id as string | undefined) ?? undefined
+  const sourceLink =
+    (props.source_link as string | undefined) ??
+    (handle && tweetId ? `https://x.com/${handle}/status/${tweetId}` : undefined)
+  const formattedDate = formatTweetDate(props.date)
+
+  const replies = pickNumber(props, "reply_count")
+  const retweets = pickNumber(props, "retweet_count")
+  const likes = pickNumber(props, "like_count")
+  const quotes = pickNumber(props, "quote_count")
+  const impressions = pickNumber(props, "impression_count")
+  const hasEngagement =
+    replies !== undefined ||
+    retweets !== undefined ||
+    likes !== undefined ||
+    quotes !== undefined ||
+    impressions !== undefined
 
   return (
-    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-          {author?.[0]?.toUpperCase() ?? "?"}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold truncate">{author ?? "Unknown"}</p>
-          {handle && <p className="text-[10px] text-muted-foreground font-mono">@{handle}</p>}
-        </div>
-      </div>
-      {text && <p className="text-sm leading-relaxed">{text}</p>}
-      <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
-        {likes !== undefined && (
-          <span className="flex items-center gap-1"><Heart className="h-3 w-3" />{formatNumber(likes)}</span>
+    <article className="relative overflow-hidden rounded-md border border-border/60 bg-card/40">
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-cyan/0 via-cyan/60 to-cyan/0"
+      />
+      <header className="flex items-center gap-2.5 px-3 pt-3">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt=""
+            className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-border/60"
+          />
+        ) : (
+          <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-muted/40 ring-1 ring-border/60 font-mono text-[11px] uppercase text-muted-foreground">
+            {(displayName ?? "?").slice(0, 1)}
+          </div>
         )}
-        {retweets !== undefined && (
-          <span className="flex items-center gap-1"><Repeat2 className="h-3 w-3" />{formatNumber(retweets)}</span>
-        )}
-        {date && <span>{date}</span>}
-      </div>
-    </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[13px] font-semibold leading-none">
+              {displayName ?? "Unknown"}
+            </span>
+            {verified && (
+              <BadgeCheck
+                className="h-3.5 w-3.5 shrink-0 text-cyan"
+                strokeWidth={2}
+              />
+            )}
+          </div>
+          {handle && (
+            <span className="block pt-0.5 font-mono text-[10px] text-muted-foreground">
+              @{handle}
+            </span>
+          )}
+        </div>
+      </header>
+
+      {text && (
+        <p className="whitespace-pre-line px-3 pt-2.5 text-[13px] leading-relaxed text-foreground/95">
+          {text}
+        </p>
+      )}
+
+      {hasEngagement && (
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-3 pt-3 pb-2 font-mono text-[10px] text-muted-foreground">
+          {replies !== undefined && <TweetStat icon={MessageCircle} value={replies} />}
+          {retweets !== undefined && <TweetStat icon={Repeat2} value={retweets} />}
+          {likes !== undefined && <TweetStat icon={Heart} value={likes} />}
+          {quotes !== undefined && <TweetStat icon={Quote} value={quotes} />}
+          {impressions !== undefined && <TweetStat icon={Eye} value={impressions} />}
+        </div>
+      )}
+
+      {(formattedDate || sourceLink) && (
+        <footer className="mt-1 flex items-center gap-2 border-t border-border/40 px-3 py-1.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+          {formattedDate && <span>{formattedDate}</span>}
+          {formattedDate && sourceLink && <span className="text-border">·</span>}
+          {sourceLink && (
+            <a
+              href={sourceLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto inline-flex items-center gap-1 hover:text-cyan"
+            >
+              <ExternalLink className="h-2.5 w-2.5" strokeWidth={2} />
+              View
+            </a>
+          )}
+        </footer>
+      )}
+    </article>
   )
 }
 
@@ -110,7 +226,7 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
   const rawLink = typeof props.link === "string" ? props.link : undefined
   const mediaUrl = (props.media_url ?? (rawLink && isMediaUrl(rawLink) ? rawLink : undefined)) as string | undefined
   const duration = typeof props.duration === "number" ? props.duration : undefined
-  const show = props.show as string | undefined
+  const show = (props.show_title ?? props.show) as string | undefined
   const channel = props.channel as string | undefined
   const epNum = typeof props.episode_number === "number" ? props.episode_number : undefined
   const isVideo = typeof mediaUrl === "string" && /\.(mp4|webm|mov)/i.test(mediaUrl)
@@ -201,19 +317,32 @@ function SummaryBlock({ text }: { text: string }) {
 }
 
 function ArticleCard({ props }: { props: Record<string, unknown> }) {
-  const text = props.text as string | undefined
+  const summary =
+    (props.summary as string | undefined) ?? (props.text as string | undefined)
   const sourceLink = props.source_link as string | undefined
   const author = props.author as string | undefined
-  const date = props.published_date as string | undefined
+  const date =
+    (props.published_date as string | undefined) ??
+    (props.date as string | undefined)
+  const contentType = props.content_type as string | undefined
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        {author && <span>{author}</span>}
-        {author && date && <span>&middot;</span>}
-        {date && <span>{date}</span>}
-      </div>
-      {text && <p className="text-xs leading-relaxed">{text}</p>}
+    <article className="space-y-3">
+      {(contentType || author || date) && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          {contentType && (
+            <span className="rounded-sm border border-border/60 px-1.5 py-0.5 text-[9px] text-foreground/80">
+              {contentType.replace(/_/g, " ")}
+            </span>
+          )}
+          {author && <span className="normal-case tracking-normal">{author}</span>}
+          {author && date && <span className="text-border">·</span>}
+          {date && <span>{date}</span>}
+        </div>
+      )}
+      {summary && (
+        <p className="whitespace-pre-line text-xs leading-relaxed">{summary}</p>
+      )}
       {sourceLink && (
         <a
           href={sourceLink}
@@ -225,7 +354,100 @@ function ArticleCard({ props }: { props: Record<string, unknown> }) {
           View Source
         </a>
       )}
-    </div>
+    </article>
+  )
+}
+
+function VerifiedPill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-sm border border-cyan/40 bg-cyan/5 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-cyan">
+      <BadgeCheck className="h-2.5 w-2.5" strokeWidth={2.5} />
+      {children}
+    </span>
+  )
+}
+
+function TwitterAccountCard({ props }: { props: Record<string, unknown> }) {
+  const handle = props.twitter_handle as string | undefined
+  const name = props.name as string | undefined
+  const imageUrl =
+    (props.profile_image_url as string | undefined) ??
+    (props.image_url as string | undefined)
+  const verified = props.verified === true
+  const verifiedType = props.verified_type as string | undefined
+  const idVerified = props.is_identity_verified === true
+  const followers = pickNumber(props, "followers")
+  const profileUrl = handle ? `https://x.com/${handle}` : undefined
+
+  const hasBadges = verified || idVerified
+
+  return (
+    <article className="relative overflow-hidden rounded-md border border-border/60 bg-card/40">
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-cyan/0 via-cyan/60 to-cyan/0"
+      />
+      <div className="flex items-start gap-3 px-3 py-3">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt=""
+            className="h-12 w-12 shrink-0 rounded-full object-cover ring-1 ring-border/60"
+          />
+        ) : (
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-muted/40 ring-1 ring-border/60">
+            <AtSign className="h-5 w-5 text-muted-foreground" strokeWidth={1.75} />
+          </div>
+        )}
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-semibold leading-tight">
+              {name ?? handle ?? "Unknown"}
+            </span>
+            {verified && (
+              <BadgeCheck
+                className="h-3.5 w-3.5 shrink-0 text-cyan"
+                strokeWidth={2}
+              />
+            )}
+          </div>
+          {handle && (
+            <p className="font-mono text-[11px] text-muted-foreground">
+              @{handle}
+            </p>
+          )}
+          {followers !== undefined && (
+            <p className="pt-0.5 font-mono text-[10px] text-muted-foreground tabular-nums">
+              {formatNumber(followers)}{" "}
+              <span className="uppercase tracking-wider text-muted-foreground/60">
+                followers
+              </span>
+            </p>
+          )}
+        </div>
+      </div>
+      {hasBadges && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/40 px-3 py-2">
+          {verified && (
+            <VerifiedPill>{verifiedType ?? "verified"}</VerifiedPill>
+          )}
+          {idVerified && <VerifiedPill>id verified</VerifiedPill>}
+        </div>
+      )}
+      {profileUrl && (
+        <footer className="flex items-center justify-end border-t border-border/40 px-3 py-1.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+          <a
+            href={profileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 hover:text-cyan"
+          >
+            <ExternalLink className="h-2.5 w-2.5" strokeWidth={2} />
+            View on X
+          </a>
+        </footer>
+      )}
+    </article>
   )
 }
 
@@ -375,18 +597,33 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
   const fp = fullNode?.properties
 
-  // Detect property-driven content type
-  const hasTweet = fp && ("tweet_id" in fp || "twitter_handle" in fp) && "text" in fp
+  // Detect property-driven content type. Rules are mutually exclusive — a node
+  // with overlapping shapes (e.g. Episode has media_url AND source_link, or a
+  // Person with a twitter_handle) only renders one rich widget.
+  //   bio wins over twitter_handle → Person, not TwitterAccount.
+  //   media_url wins over source_link → MediaCard, not ArticleCard.
+  const hasTweet = !!fp && "tweet_id" in fp && "text" in fp
   const linkValue = typeof fp?.link === "string" ? fp.link : undefined
-  const hasMedia = fp && (
+  const hasMedia = !!fp && (
     "media_url" in fp ||
     (linkValue !== undefined && isMediaUrl(linkValue))
   )
   const hasWebPageLink = !!linkValue && !isMediaUrl(linkValue)
-  const hasTranscript = fp && typeof fp.transcript === "string"
-  const hasSummary = hasMedia && fp && typeof fp.summary === "string" && fp.summary.length > 0
-  const hasArticle = fp && ("source_link" in fp || (typeof fp.text === "string" && !hasTweet))
-  const hasPerson = fp && ("bio" in fp || "twitter_handle" in fp) && !hasTweet
+  const hasTranscript = !!fp && typeof fp.transcript === "string"
+  const hasSummary = hasMedia && !!fp && typeof fp.summary === "string" && fp.summary.length > 0
+  const hasPerson = !!fp && "bio" in fp && !hasTweet
+  const hasTwitterAccount =
+    !!fp && "twitter_handle" in fp && !hasTweet && !hasPerson
+  const hasArticle =
+    !!fp &&
+    "source_link" in fp &&
+    !hasMedia &&
+    !hasTweet &&
+    !hasTwitterAccount &&
+    !hasPerson
+  // The rich widget covers the same field that `description` would render —
+  // suppress the generic description block to avoid duplicate body text.
+  const widgetCoversDescription = hasTweet || hasTwitterAccount || hasArticle
   // Remaining properties not handled by rich widgets
   const remainingProps = fp
     ? Object.entries(fp).filter(([k]) =>
@@ -441,8 +678,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           {/* Title */}
           <p className="text-sm font-semibold">{title}</p>
 
-          {/* Description */}
-          {description && (
+          {/* Description (suppressed when a rich widget already renders this field) */}
+          {description && !widgetCoversDescription && (
             <p className="text-xs text-muted-foreground">{description}</p>
           )}
 
@@ -547,10 +784,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 )
               })()}
               {hasTweet && <TweetCard props={fp} />}
+              {hasTwitterAccount && <TwitterAccountCard props={fp} />}
               {hasPerson && <PersonCard props={fp} />}
               {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}
               {hasSummary && <SummaryBlock text={fp.summary as string} />}
-              {hasArticle && !hasTweet && <ArticleCard props={fp} />}
+              {hasArticle && <ArticleCard props={fp} />}
               {hasWebPageLink && (
                 <a
                   href={linkValue}
