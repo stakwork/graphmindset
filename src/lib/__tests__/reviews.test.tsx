@@ -302,6 +302,34 @@ describe("ReviewRow", () => {
     )
   })
 
+  // ── run_ref_id label ───────────────────────────────────────────────────────
+
+  it("renders Run label with last 5 chars of run_ref_id when present", () => {
+    const { getByText } = render(
+      <table>
+        <tbody>
+          <ReviewRow
+            review={makeReview({ run_ref_id: "mock-janitor-run-1" })}
+            onRefresh={noop}
+          />
+        </tbody>
+      </table>
+    )
+    // last 5 chars of "mock-janitor-run-1" = "run-1"
+    expect(getByText("Run #run-1")).toBeTruthy()
+  })
+
+  it("does NOT render Run label when run_ref_id is absent", () => {
+    const { queryByText } = render(
+      <table>
+        <tbody>
+          <ReviewRow review={makeReview()} onRefresh={noop} />
+        </tbody>
+      </table>
+    )
+    expect(queryByText(/Run #/)).toBeNull()
+  })
+
   // ── Dismissed row: shows dismissal_reason ──────────────────────────────────
 
   it("shows dismissal_reason for dismissed rows", () => {

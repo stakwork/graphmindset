@@ -189,7 +189,7 @@ export async function addContent(
   return api.post("/radar", data, undefined, signal)
 }
 
-// --- Radar config ---------------------------------------------------------
+// --- Cron / Radar config --------------------------------------------------
 
 export type RadarSourceType =
   | "twitter_handle"
@@ -204,10 +204,15 @@ export const RADAR_SOURCE_TYPES: RadarSourceType[] = [
   "topic",
 ]
 
-export interface RadarConfig {
+export type JanitorSourceType = "deduplication"
+
+export type CronKind = "source" | "janitor"
+
+export interface CronConfig {
   ref_id: string
   namespace: string
-  source_type: RadarSourceType
+  source_type: RadarSourceType | JanitorSourceType
+  kind: CronKind
   enabled: boolean
   cadence: string
   workflow_id: string
@@ -215,24 +220,71 @@ export interface RadarConfig {
   updated_at?: number
 }
 
-export async function getRadarConfig(
+/** @deprecated Use CronConfig */
+export type RadarConfig = CronConfig
+
+export interface StakworkRun {
+  ref_id: string
+  namespace?: string
+  source_type?: string
+  kind?: CronKind
+  job_type?: string
+  trigger?: "SCHEDULED" | "MANUAL"
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
+  error?: string
+  created_at?: string
+  started_at?: string
+  finished_at?: string
+}
+
+export async function getCronConfig(
+  opts: { kind?: CronKind },
   signal?: AbortSignal
-): Promise<{ configs: RadarConfig[] }> {
-  return api.get<{ configs: RadarConfig[] }>(
-    "/v2/radar/config",
+): Promise<{ configs: CronConfig[] }> {
+  const params = new URLSearchParams()
+  if (opts.kind) params.set("kind", opts.kind)
+  return api.get<{ configs: CronConfig[] }>(
+    `/v2/cron/config?${params}`,
     undefined,
     signal
   )
 }
 
-export async function updateRadarConfig(
-  sourceType: RadarSourceType,
-  fields: Partial<Pick<RadarConfig, "enabled" | "cadence" | "workflow_id">>,
+export async function updateCronConfig(
+  sourceType: string,
+  fields: Partial<Pick<CronConfig, "enabled" | "cadence" | "workflow_id">>,
   signal?: AbortSignal
-): Promise<{ config: RadarConfig }> {
-  return api.put<{ config: RadarConfig }>(
-    `/v2/radar/config/${sourceType}`,
+): Promise<{ config: CronConfig }> {
+  return api.put<{ config: CronConfig }>(
+    `/v2/cron/config/${sourceType}`,
     fields,
+    undefined,
+    signal
+  )
+}
+
+export async function runCron(
+  sourceType: string,
+  signal?: AbortSignal
+): Promise<{ run: StakworkRun }> {
+  return api.post<{ run: StakworkRun }>(
+    `/v2/cron/${sourceType}/run`,
+    {},
+    undefined,
+    signal
+  )
+}
+
+export async function getCronRuns(
+  opts: { source_type?: string; kind?: CronKind; limit?: number },
+  signal?: AbortSignal
+): Promise<{ runs: StakworkRun[] }> {
+  const params = new URLSearchParams()
+  if (opts.source_type) params.set("source_type", opts.source_type)
+  if (opts.kind) params.set("kind", opts.kind)
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit))
+  return api.get<{ runs: StakworkRun[] }>(
+    `/v2/cron/runs?${params}`,
     undefined,
     signal
   )
@@ -284,17 +336,7 @@ export async function checkTopicExists(
 }
 
 
-export async function runRadarNow(
-  sourceType: RadarSourceType,
-  signal?: AbortSignal
-): Promise<{ status: string; dispatched: number; failed: string[] }> {
-  return api.post<{ status: string; dispatched: number; failed: string[] }>(
-    `/v2/radar/run/${sourceType}`,
-    {},
-    undefined,
-    signal
-  )
-}
+
 
 // -------------------------------------------------------------------------
 // Reviews
@@ -318,6 +360,7 @@ export interface Review {
   priority: number
   dismissal_reason?: string
   error_message?: string
+  run_ref_id?: string
   created_at: string
   decided_at?: string
   decided_by?: string

@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, GraphData, Review } from "./graph-api"
+import type { GraphNode, GraphEdge, GraphData, Review, StakworkRun } from "./graph-api"
 
 export const MOCK_NODES: GraphNode[] = [
   {
@@ -350,18 +350,77 @@ export const MOCK_TRANSACTIONS = {
   scope: "pubkey" as const,
 }
 
-const MOCK_RADAR_TS = Math.floor(Date.now() / 1000) - 3600
-const baseRadarConfig = {
+const MOCK_CRON_TS = Math.floor(Date.now() / 1000) - 3600
+const baseCronConfig = {
   namespace: "default",
   workflow_id: "12345",
-  created_at: MOCK_RADAR_TS,
-  updated_at: MOCK_RADAR_TS,
+  created_at: MOCK_CRON_TS,
+  updated_at: MOCK_CRON_TS,
 }
-export const MOCK_RADAR_CONFIGS = [
-  { ...baseRadarConfig, ref_id: "rc-twitter", source_type: "twitter_handle" as const, enabled: true, cadence: "0 */6 * * *" },
-  { ...baseRadarConfig, ref_id: "rc-youtube", source_type: "youtube_channel" as const, enabled: true, cadence: "0 */12 * * *" },
-  { ...baseRadarConfig, ref_id: "rc-rss", source_type: "rss" as const, enabled: false, cadence: "0 */12 * * *" },
-  { ...baseRadarConfig, ref_id: "rc-topic", source_type: "topic" as const, enabled: true, cadence: "*/10 * * * *" },
+export const MOCK_CRON_CONFIGS = [
+  { ...baseCronConfig, ref_id: "rc-twitter", source_type: "twitter_handle" as const, kind: "source" as const, enabled: true, cadence: "0 */6 * * *" },
+  { ...baseCronConfig, ref_id: "rc-youtube", source_type: "youtube_channel" as const, kind: "source" as const, enabled: true, cadence: "0 */12 * * *" },
+  { ...baseCronConfig, ref_id: "rc-rss", source_type: "rss" as const, kind: "source" as const, enabled: false, cadence: "0 */12 * * *" },
+  { ...baseCronConfig, ref_id: "rc-topic", source_type: "topic" as const, kind: "source" as const, enabled: true, cadence: "*/10 * * * *" },
+  { ...baseCronConfig, ref_id: "rc-deduplication", source_type: "deduplication" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", workflow_id: "mock-gm-workflow-id" },
+]
+
+/** @deprecated Use MOCK_CRON_CONFIGS */
+export const MOCK_RADAR_CONFIGS = MOCK_CRON_CONFIGS
+
+const MOCK_RUN_NOW = new Date("2026-05-04T09:00:00Z")
+const mockRunTs = (minutesAgo: number): string => {
+  const d = new Date(MOCK_RUN_NOW.getTime() - minutesAgo * 60 * 1000)
+  return d.toISOString()
+}
+
+export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
+  {
+    ref_id: "run-001",
+    namespace: "default",
+    source_type: "deduplication",
+    kind: "janitor",
+    job_type: "deduplication",
+    trigger: "SCHEDULED",
+    status: "COMPLETED",
+    created_at: mockRunTs(120),
+    started_at: mockRunTs(119),
+    finished_at: mockRunTs(110),
+  },
+  {
+    ref_id: "run-002",
+    namespace: "default",
+    source_type: "deduplication",
+    kind: "janitor",
+    job_type: "deduplication",
+    trigger: "MANUAL",
+    status: "FAILED",
+    error: "Stakwork dispatch timeout",
+    created_at: mockRunTs(60),
+    started_at: mockRunTs(59),
+    finished_at: mockRunTs(55),
+  },
+  {
+    ref_id: "run-003",
+    namespace: "default",
+    source_type: "deduplication",
+    kind: "janitor",
+    job_type: "deduplication",
+    trigger: "SCHEDULED",
+    status: "RUNNING",
+    created_at: mockRunTs(5),
+    started_at: mockRunTs(4),
+  },
+  {
+    ref_id: "run-004",
+    namespace: "default",
+    source_type: "deduplication",
+    kind: "janitor",
+    job_type: "deduplication",
+    trigger: "MANUAL",
+    status: "PENDING",
+    created_at: mockRunTs(1),
+  },
 ]
 
 export const MOCK_DOMAINS = {
@@ -391,6 +450,7 @@ export const MOCK_REVIEWS: Review[] = [
     status: "pending",
     fingerprint: "fp-abc123",
     priority: 2,
+    run_ref_id: "mock-janitor-run-1",
     created_at: daysAgo(1),
   },
   {
@@ -402,6 +462,7 @@ export const MOCK_REVIEWS: Review[] = [
     status: "pending",
     fingerprint: "fp-def456",
     priority: 3,
+    run_ref_id: "mock-janitor-run-1",
     created_at: daysAgo(3),
   },
   {
@@ -476,6 +537,7 @@ export const MOCK_REVIEWS: Review[] = [
     status: "pending",
     fingerprint: "fp-vwx234",
     priority: 5,
+    run_ref_id: "mock-janitor-run-1",
     created_at: daysAgo(0),
   },
 ]
