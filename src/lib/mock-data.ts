@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, GraphData } from "./graph-api"
+import type { GraphNode, GraphEdge, GraphData, Review } from "./graph-api"
 
 export const MOCK_NODES: GraphNode[] = [
   {
@@ -28,7 +28,7 @@ export const MOCK_NODES: GraphNode[] = [
   },
   {
     ref_id: "n6",
-    node_type: "Article",
+    node_type: "Document",
     properties: { name: "Bitcoin Whitepaper", description: "The original paper describing a peer-to-peer electronic cash system", image_url: "https://picsum.photos/seed/whitepaper/120" },
   },
   {
@@ -40,6 +40,11 @@ export const MOCK_NODES: GraphNode[] = [
     ref_id: "n8",
     node_type: "Clip",
     properties: { name: "Bitcoin Mining Explained", description: "A 3-minute clip explaining proof-of-work mining", thumbnail: "https://example.invalid/this-image-404.jpg" },
+  },
+  {
+    ref_id: "n9",
+    node_type: "TwitterAccount",
+    properties: { twitter_handle: "AnthropicAI", name: "Anthropic", profile_image_url: "https://picsum.photos/seed/anthropic-ai/120", verified: true },
   },
 ]
 
@@ -77,15 +82,18 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
         ref_id: "n2",
         node_type: "Tweet",
         properties: {
-          name: "Bitcoin is freedom tech",
-          text: "Bitcoin is freedom tech. It\u2019s the most important invention since the internet. Don\u2019t let anyone tell you otherwise. The separation of money and state is happening whether governments like it or not.",
-          author: "Jack Dorsey",
+          name: "Jack Dorsey",
           twitter_handle: "jack",
+          text: "Bitcoin is freedom tech. It\u2019s the most important invention since the internet. Don\u2019t let anyone tell you otherwise. The separation of money and state is happening whether governments like it or not.",
           tweet_id: "1725483021849382912",
-          date: "2024-11-17",
-          like_count: 42800,
-          retweet_count: 12400,
+          date: 1700179200,
+          image_url: "https://picsum.photos/seed/tweet-jack-avatar/96",
           verified: true,
+          reply_count: 1240,
+          retweet_count: 12400,
+          like_count: 42800,
+          quote_count: 380,
+          impression_count: 2_140_000,
         },
       },
     ],
@@ -113,12 +121,13 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
         ref_id: "n4",
         node_type: "Episode",
         properties: {
-          name: "What Bitcoin Did #412",
+          episode_title: "What Bitcoin Did #412",
           description: "Peter McCormack interviews a Lightning developer about Bitcoin scaling, Layer 2 solutions, and the future of payments over the Lightning Network.",
+          source_link: "https://www.whatbitcoindid.com/podcast/lightning-network-412",
           media_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
           duration: 3840,
           episode_number: 412,
-          show: "What Bitcoin Did",
+          show_title: "What Bitcoin Did",
           transcript: "Peter: Welcome to What Bitcoin Did. Today we\u2019re talking about Lightning, the Layer 2 scaling solution that\u2019s changing how we think about Bitcoin payments.\n\nGuest: Thanks for having me, Peter. Lightning is really about making Bitcoin usable for everyday transactions. The base layer gives us security and settlement, but Lightning gives us speed and low fees.\n\nPeter: Can you explain how it works for someone who\u2019s new to this?\n\nGuest: Sure. Imagine you and I open a payment channel. We lock some Bitcoin on-chain, and then we can send payments back and forth instantly, off-chain. When we\u2019re done, we settle back on the main chain. The magic is that these channels connect into a network, so I can pay anyone, not just you.",
         },
       },
@@ -158,14 +167,32 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
     nodes: [
       {
         ref_id: "n6",
-        node_type: "Article",
+        node_type: "Document",
         properties: {
-          name: "Bitcoin Whitepaper",
-          description: "The original paper describing a peer-to-peer electronic cash system.",
+          title: "Bitcoin Whitepaper",
           source_link: "https://bitcoin.org/bitcoin.pdf",
           author: "Satoshi Nakamoto",
-          published_date: "2008-10-31",
-          text: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network. The network timestamps transactions by hashing them into an ongoing chain of hash-based proof-of-work, forming a record that cannot be changed without redoing the proof-of-work.",
+          content_type: "paper",
+          summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network.",
+        },
+      },
+    ],
+    edges: [],
+  },
+  n9: {
+    nodes: [
+      {
+        ref_id: "n9",
+        node_type: "TwitterAccount",
+        properties: {
+          twitter_handle: "AnthropicAI",
+          name: "Anthropic",
+          author_id: "1641421906432466944",
+          profile_image_url: "https://picsum.photos/seed/anthropic-ai/96",
+          verified: true,
+          verified_type: "business",
+          is_identity_verified: true,
+          followers: 412_000,
         },
       },
     ],
@@ -294,3 +321,109 @@ export const MOCK_DOMAINS = {
 export function isMocksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"
 }
+
+// Helper to produce ISO strings N days ago
+function daysAgo(n: number): string {
+  const d = new Date("2026-05-04T09:00:00Z")
+  d.setDate(d.getDate() - n)
+  return d.toISOString()
+}
+
+export const MOCK_REVIEWS: Review[] = [
+  {
+    ref_id: "rv-001",
+    type: "dedup",
+    rationale: "Nodes 'Bitcoin Whitepaper' (n6) and 'Satoshi Paper' (n9) share identical abstracts and authorship metadata — likely the same document ingested twice.",
+    subject_ids: ["n6", "n9"],
+    action: { name: "merge_nodes", payload: { from: ["n9"], to: "n6" } },
+    status: "pending",
+    fingerprint: "fp-abc123",
+    priority: 2,
+    created_at: daysAgo(1),
+  },
+  {
+    ref_id: "rv-002",
+    type: "dedup",
+    rationale: "Nodes 'Satoshi Nakamoto' (n3) and 'S. Nakamoto' (n10) refer to the same person; properties overlap by 92%.",
+    subject_ids: ["n3", "n10"],
+    action: { name: "merge_nodes", payload: { from: ["n10"], to: "n3" } },
+    status: "pending",
+    fingerprint: "fp-def456",
+    priority: 3,
+    created_at: daysAgo(3),
+  },
+  {
+    ref_id: "rv-003",
+    type: "dedup",
+    rationale: "Three episode nodes (n4, n11, n12) appear to be the same podcast episode published under slightly different titles across different feed imports.",
+    subject_ids: ["n4", "n11", "n12"],
+    action: { name: "merge_nodes", payload: { from: ["n11", "n12"], to: "n4" } },
+    status: "pending",
+    fingerprint: "fp-ghi789",
+    priority: 1,
+    created_at: daysAgo(7),
+  },
+  {
+    ref_id: "rv-004",
+    type: "supersede",
+    rationale: "Article n6 (v1 whitepaper) should be superseded by n13 (annotated v2 edition) as the canonical reference.",
+    subject_ids: ["n6", "n13"],
+    action: { name: "supersede", payload: { old: "n6", new: "n13" } },
+    status: "pending",
+    fingerprint: "fp-jkl012",
+    priority: 0,
+    created_at: daysAgo(12),
+  },
+  {
+    ref_id: "rv-005",
+    type: "dedup",
+    rationale: "Nodes 'Bitcoin (n1)' and 'BTC (n14)' are identical topics; merged into canonical node n1.",
+    subject_ids: ["n1", "n14"],
+    action: { name: "merge_nodes", payload: { from: ["n14"], to: "n1" } },
+    status: "approved",
+    fingerprint: "fp-mno345",
+    priority: 2,
+    created_at: daysAgo(20),
+    decided_at: daysAgo(18),
+    decided_by: "admin-pubkey-abc",
+  },
+  {
+    ref_id: "rv-006",
+    type: "dedup",
+    rationale: "Clip n8 and n15 are the same 3-minute excerpt from different upload sources; n15 is lower quality.",
+    subject_ids: ["n8", "n15"],
+    action: { name: "merge_nodes", payload: { from: ["n15"], to: "n8" } },
+    status: "dismissed",
+    fingerprint: "fp-pqr678",
+    priority: 0,
+    dismissal_reason: "n15 has unique metadata annotations that should be preserved separately.",
+    created_at: daysAgo(25),
+    decided_at: daysAgo(24),
+    decided_by: "admin-pubkey-abc",
+  },
+  {
+    ref_id: "rv-007",
+    type: "supersede",
+    rationale: "Topic n7 should supersede n16 per content policy; attempted to run 'supersede' action handler.",
+    subject_ids: ["n7", "n16"],
+    action: { name: "supersede", payload: { old: "n16", new: "n7" } },
+    status: "failed",
+    fingerprint: "fp-stu901",
+    priority: 1,
+    error_message: "no handler registered for action: supersede",
+    created_at: daysAgo(10),
+    decided_at: daysAgo(9),
+    decided_by: "admin-pubkey-abc",
+  },
+  {
+    ref_id: "rv-008",
+    type: "dedup",
+    rationale: "URGENT: Three high-signal person nodes (n3, n17, n18) flagged by the janitor with 97% property overlap — immediate deduplication recommended before further graph traversal.",
+    subject_ids: ["n3", "n17", "n18"],
+    action: { name: "merge_nodes", payload: { from: ["n17", "n18"], to: "n3" } },
+    status: "pending",
+    fingerprint: "fp-vwx234",
+    priority: 5,
+    created_at: daysAgo(0),
+  },
+]
