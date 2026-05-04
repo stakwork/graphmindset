@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, GraphData } from "./graph-api"
+import type { GraphNode, GraphEdge, GraphData, Review } from "./graph-api"
 
 export const MOCK_NODES: GraphNode[] = [
   {
@@ -321,3 +321,109 @@ export const MOCK_DOMAINS = {
 export function isMocksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"
 }
+
+// Helper to produce ISO strings N days ago
+function daysAgo(n: number): string {
+  const d = new Date("2026-05-04T09:00:00Z")
+  d.setDate(d.getDate() - n)
+  return d.toISOString()
+}
+
+export const MOCK_REVIEWS: Review[] = [
+  {
+    ref_id: "rv-001",
+    type: "dedup",
+    rationale: "Nodes 'Bitcoin Whitepaper' (n6) and 'Satoshi Paper' (n9) share identical abstracts and authorship metadata — likely the same document ingested twice.",
+    subject_ids: ["n6", "n9"],
+    action: { name: "merge_nodes", payload: { from: ["n9"], to: "n6" } },
+    status: "pending",
+    fingerprint: "fp-abc123",
+    priority: 2,
+    created_at: daysAgo(1),
+  },
+  {
+    ref_id: "rv-002",
+    type: "dedup",
+    rationale: "Nodes 'Satoshi Nakamoto' (n3) and 'S. Nakamoto' (n10) refer to the same person; properties overlap by 92%.",
+    subject_ids: ["n3", "n10"],
+    action: { name: "merge_nodes", payload: { from: ["n10"], to: "n3" } },
+    status: "pending",
+    fingerprint: "fp-def456",
+    priority: 3,
+    created_at: daysAgo(3),
+  },
+  {
+    ref_id: "rv-003",
+    type: "dedup",
+    rationale: "Three episode nodes (n4, n11, n12) appear to be the same podcast episode published under slightly different titles across different feed imports.",
+    subject_ids: ["n4", "n11", "n12"],
+    action: { name: "merge_nodes", payload: { from: ["n11", "n12"], to: "n4" } },
+    status: "pending",
+    fingerprint: "fp-ghi789",
+    priority: 1,
+    created_at: daysAgo(7),
+  },
+  {
+    ref_id: "rv-004",
+    type: "supersede",
+    rationale: "Article n6 (v1 whitepaper) should be superseded by n13 (annotated v2 edition) as the canonical reference.",
+    subject_ids: ["n6", "n13"],
+    action: { name: "supersede", payload: { old: "n6", new: "n13" } },
+    status: "pending",
+    fingerprint: "fp-jkl012",
+    priority: 0,
+    created_at: daysAgo(12),
+  },
+  {
+    ref_id: "rv-005",
+    type: "dedup",
+    rationale: "Nodes 'Bitcoin (n1)' and 'BTC (n14)' are identical topics; merged into canonical node n1.",
+    subject_ids: ["n1", "n14"],
+    action: { name: "merge_nodes", payload: { from: ["n14"], to: "n1" } },
+    status: "approved",
+    fingerprint: "fp-mno345",
+    priority: 2,
+    created_at: daysAgo(20),
+    decided_at: daysAgo(18),
+    decided_by: "admin-pubkey-abc",
+  },
+  {
+    ref_id: "rv-006",
+    type: "dedup",
+    rationale: "Clip n8 and n15 are the same 3-minute excerpt from different upload sources; n15 is lower quality.",
+    subject_ids: ["n8", "n15"],
+    action: { name: "merge_nodes", payload: { from: ["n15"], to: "n8" } },
+    status: "dismissed",
+    fingerprint: "fp-pqr678",
+    priority: 0,
+    dismissal_reason: "n15 has unique metadata annotations that should be preserved separately.",
+    created_at: daysAgo(25),
+    decided_at: daysAgo(24),
+    decided_by: "admin-pubkey-abc",
+  },
+  {
+    ref_id: "rv-007",
+    type: "supersede",
+    rationale: "Topic n7 should supersede n16 per content policy; attempted to run 'supersede' action handler.",
+    subject_ids: ["n7", "n16"],
+    action: { name: "supersede", payload: { old: "n16", new: "n7" } },
+    status: "failed",
+    fingerprint: "fp-stu901",
+    priority: 1,
+    error_message: "no handler registered for action: supersede",
+    created_at: daysAgo(10),
+    decided_at: daysAgo(9),
+    decided_by: "admin-pubkey-abc",
+  },
+  {
+    ref_id: "rv-008",
+    type: "dedup",
+    rationale: "URGENT: Three high-signal person nodes (n3, n17, n18) flagged by the janitor with 97% property overlap — immediate deduplication recommended before further graph traversal.",
+    subject_ids: ["n3", "n17", "n18"],
+    action: { name: "merge_nodes", payload: { from: ["n17", "n18"], to: "n3" } },
+    status: "pending",
+    fingerprint: "fp-vwx234",
+    priority: 5,
+    created_at: daysAgo(0),
+  },
+]
