@@ -16,7 +16,7 @@ import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
 import { cn, displayNodeType } from "@/lib/utils"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
-import { getStatusBadge } from "@/lib/node-status"
+import { getStatusBadge, isBlockedStatus } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
@@ -487,6 +487,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const paidProperties = schema?.paid_properties ?? []
   const { icon: PlaceholderIcon, accent: schemaAccent } = getSchemaIconInfo(schema?.icon)
   const props = node.properties
+  const nodeIsBlocked = isBlockedStatus(props?.status)
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
   const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
   const boostAmt = typeof props?.boost === "number" ? props.boost : 0
@@ -722,10 +723,14 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                   <Skeleton className="h-4 w-3/4" />
                 </>
               )}
-              <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
-                <Zap className="h-3.5 w-3.5 mr-1.5" />
-                {price != null ? `Unlock for ${price} sats` : "Unlock Full Content"}
-              </Button>
+              {nodeIsBlocked ? (
+                <p className="text-xs text-muted-foreground">Content unavailable — check status above.</p>
+              ) : (
+                <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
+                  <Zap className="h-3.5 w-3.5 mr-1.5" />
+                  {price != null ? `Unlock for ${price} sats` : "Unlock Full Content"}
+                </Button>
+              )}
             </div>
           )}
 

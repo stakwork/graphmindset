@@ -186,7 +186,8 @@ describe("NodePreviewPanel – price display", () => {
     const unlockedNode: GraphNode = {
       ref_id: "abc",
       node_type: "Topic",
-      properties: { name: "Test Node", text: "Full article text here" },
+      // Use a field not in INTERNAL_FIELDS so it falls through to remainingProps rendering
+      properties: { name: "Test Node", custom_field: "Full article text here" },
     }
     mockApiGet.mockResolvedValue(makeGraphData(unlockedNode))
 
