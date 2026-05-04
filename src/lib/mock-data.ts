@@ -449,6 +449,7 @@ export const MOCK_REVIEWS: Review[] = [
     status: "pending",
     fingerprint: "fp-abc123",
     priority: 2,
+    run_ref_id: "mock-janitor-run-1",
     created_at: daysAgo(1),
   },
   {
@@ -460,6 +461,7 @@ export const MOCK_REVIEWS: Review[] = [
     status: "pending",
     fingerprint: "fp-def456",
     priority: 3,
+    run_ref_id: "mock-janitor-run-1",
     created_at: daysAgo(3),
   },
   {
@@ -534,6 +536,7 @@ export const MOCK_REVIEWS: Review[] = [
     status: "pending",
     fingerprint: "fp-vwx234",
     priority: 5,
+    run_ref_id: "mock-janitor-run-1",
     created_at: daysAgo(0),
   },
 ]
