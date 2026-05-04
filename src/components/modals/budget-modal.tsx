@@ -47,6 +47,7 @@ export function BudgetModal() {
   const [firstPurchaseAmount, setFirstPurchaseAmount] = useState<number>(1000)
   const [firstPurchaseRequest, setFirstPurchaseRequest] = useState("")
   const [firstPurchaseCopied, setFirstPurchaseCopied] = useState(false)
+  const [reachedViaFirstPurchase, setReachedViaFirstPurchase] = useState(false)
 
   const sphinxConnected = typeof window !== "undefined" && isSphinx()
   const weblnAvailable = typeof window !== "undefined" && hasWebLN()
@@ -73,6 +74,7 @@ export function BudgetModal() {
     setFirstPurchaseAmount(1000)
     setFirstPurchaseRequest("")
     setFirstPurchaseCopied(false)
+    setReachedViaFirstPurchase(false)
   }, [])
 
   useEffect(() => {
@@ -176,6 +178,7 @@ export function BudgetModal() {
       )
 
       await refreshBalance()
+      setReachedViaFirstPurchase(true)
       setStep("success")
     } catch {
       setError("Failed to generate invoice. Try again.")
@@ -283,6 +286,8 @@ export function BudgetModal() {
     setTimeout(() => setFirstPurchaseCopied(false), 2000)
   }, [firstPurchaseRequest])
 
+
+  const successDelta = amount ?? (reachedViaFirstPurchase ? firstPurchaseAmount : null)
 
   return (
     <Dialog open={activeModal === "budget"} onOpenChange={() => close()}>
@@ -663,6 +668,11 @@ export function BudgetModal() {
                   <p className="text-sm font-medium text-foreground">
                     Top-up complete
                   </p>
+                  {successDelta !== null && (
+                    <p className="text-sm font-mono text-emerald-400">
+                      +{successDelta.toLocaleString()} sats added
+                    </p>
+                  )}
                   <p className="mt-1 text-2xl font-heading font-bold text-foreground">
                     {formattedBudget}
                     <span className="ml-1.5 text-xs font-mono text-muted-foreground uppercase">

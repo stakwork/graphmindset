@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import {
   Layers,
@@ -10,15 +11,18 @@ import {
   Network,
   BookMarked,
   Tag,
+  ClipboardList,
 } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUserStore } from "@/stores/user-store"
 import { useAppStore } from "@/stores/app-store"
 import { useModalStore } from "@/stores/modal-store"
+import { useReviewStore } from "@/stores/review-store"
 import { isSphinx } from "@/lib/sphinx/detect"
 import { hasWebLN } from "@/lib/sphinx/bridge"
 import { cn } from "@/lib/utils"
+import { listReviews } from "@/lib/graph-api"
 
 function formatSatsCompact(n: number): string {
   if (n < 1000) return n.toString()
@@ -75,6 +79,17 @@ export function AppRail({
   const { isAdmin, budget } = useUserStore()
   const { graphName } = useAppStore()
   const openModal = useModalStore((s) => s.open)
+  const { pendingCount, setPendingCount } = useReviewStore()
+
+  // Fetch pending review count for the badge (admin only)
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    listReviews({ status: "pending", limit: 1 })
+      .then((res) => { if (!cancelled) setPendingCount(res.total) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [isAdmin, setPendingCount])
 
   const formattedBudget =
     budget !== null && budget !== undefined ? formatSatsCompact(budget) : "--"
@@ -172,6 +187,20 @@ export function AppRail({
             label="Ontology"
             onClick={() => router.push("/ontology")}
           />
+        )}
+        {isAdmin && (
+          <div className="relative">
+            <RailIcon
+              icon={ClipboardList}
+              label="Reviews"
+              onClick={() => router.push("/admin/reviews")}
+            />
+            {pendingCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground pointer-events-none">
+                {pendingCount > 99 ? "99+" : pendingCount}
+              </span>
+            )}
+          </div>
         )}
         {isAdmin && (
           <RailIcon

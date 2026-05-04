@@ -1,4 +1,5 @@
 import { api } from "./api"
+import { isMocksEnabled, MOCK_REVIEWS } from "./mock-data"
 
 export interface GraphNode {
   ref_id: string
@@ -290,6 +291,129 @@ export async function runRadarNow(
   return api.post<{ status: string; dispatched: number; failed: string[] }>(
     `/v2/radar/run/${sourceType}`,
     {},
+    undefined,
+    signal
+  )
+}
+
+// -------------------------------------------------------------------------
+// Reviews
+// -------------------------------------------------------------------------
+
+export type ReviewStatus = "pending" | "approved" | "dismissed" | "failed"
+
+export interface ReviewAction {
+  name: string
+  payload: unknown
+}
+
+export interface Review {
+  ref_id: string
+  type: string
+  rationale: string
+  subject_ids: string[]
+  action: ReviewAction
+  status: ReviewStatus
+  fingerprint: string
+  priority: number
+  dismissal_reason?: string
+  error_message?: string
+  created_at: string
+  decided_at?: string
+  decided_by?: string
+}
+
+export interface ReviewsListResponse {
+  reviews: Review[]
+  total: number
+  skip: number
+  limit: number
+}
+
+// In-memory mock store (shared across mock API calls) — populated lazily on first use
+let _mockReviewsStore: Review[] | null = null
+function getMockReviewsStore(): Review[] {
+  if (!_mockReviewsStore) {
+    _mockReviewsStore = MOCK_REVIEWS.map((r) => ({ ...r }))
+  }
+  return _mockReviewsStore
+}
+
+export async function listReviews(
+  params?: { status?: ReviewStatus; type?: string; sort?: string; skip?: number; limit?: number },
+  signal?: AbortSignal
+): Promise<ReviewsListResponse> {
+  if (isMocksEnabled()) {
+    const store = getMockReviewsStore()
+    let filtered = [...store]
+    if (params?.status) filtered = filtered.filter((r) => r.status === params.status)
+    if (params?.type) filtered = filtered.filter((r) => r.type === params.type)
+    const sort = params?.sort ?? "created_at"
+    if (sort === "priority") {
+      filtered.sort((a, b) => b.priority - a.priority)
+    } else {
+      filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    }
+    const skip = params?.skip ?? 0
+    const limit = params?.limit ?? 20
+    return {
+      reviews: filtered.slice(skip, skip + limit),
+      total: filtered.length,
+      skip,
+      limit,
+    }
+  }
+
+  const qs = new URLSearchParams()
+  if (params?.status) qs.set("status", params.status)
+  if (params?.type) qs.set("type", params.type)
+  if (params?.sort) qs.set("sort", params.sort)
+  if (params?.skip !== undefined) qs.set("skip", String(params.skip))
+  if (params?.limit !== undefined) qs.set("limit", String(params.limit))
+  return api.get<ReviewsListResponse>(`/v2/reviews?${qs}`, undefined, signal)
+}
+
+export async function approveReview(
+  refId: string,
+  signal?: AbortSignal
+): Promise<{ status: string; error_message?: string }> {
+  if (isMocksEnabled()) {
+    const store = getMockReviewsStore()
+    const review = store.find((r) => r.ref_id === refId)
+    if (review) {
+      review.status = "approved"
+      review.decided_at = new Date().toISOString()
+      review.decided_by = "mock-admin"
+    }
+    return { status: "approved" }
+  }
+  return api.post<{ status: string; error_message?: string }>(
+    `/v2/reviews/${refId}/approve`,
+    {},
+    undefined,
+    signal
+  )
+}
+
+export async function dismissReview(
+  refId: string,
+  reason?: string,
+  signal?: AbortSignal
+): Promise<{ status: string }> {
+  if (isMocksEnabled()) {
+    const store = getMockReviewsStore()
+    const review = store.find((r) => r.ref_id === refId)
+    if (review) {
+      review.status = "dismissed"
+      review.decided_at = new Date().toISOString()
+      review.decided_by = "mock-admin"
+      if (reason) review.dismissal_reason = reason
+    }
+    return { status: "dismissed" }
+  }
+  return api.post<{ status: string }>(
+    `/v2/reviews/${refId}/dismiss`,
+    { reason },
     undefined,
     signal
   )
