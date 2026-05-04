@@ -5,6 +5,11 @@ const HALTED_STATUSES = new Set(["halted", "paused", "stopped", "stopping"])
 const ERROR_STATUSES = new Set(["error", "failed", "stuck"])
 const COMPLETED_STATUSES = new Set(["completed", "success", "finished"])
 
+export function isBlockedStatus(status: unknown): boolean {
+  if (typeof status !== "string") return false
+  return IN_PROGRESS_STATUSES.has(status) || HALTED_STATUSES.has(status) || ERROR_STATUSES.has(status)
+}
+
 export function isInProgress(status: unknown): boolean {
   return typeof status === "string" && IN_PROGRESS_STATUSES.has(status)
 }
