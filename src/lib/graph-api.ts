@@ -360,6 +360,7 @@ export interface Review {
   priority: number
   dismissal_reason?: string
   error_message?: string
+  run_ref_id?: string
   created_at: string
   decided_at?: string
   decided_by?: string
