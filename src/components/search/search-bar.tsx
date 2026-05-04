@@ -39,9 +39,22 @@ export function SearchBar() {
       try {
         if (isMocksEnabled()) {
           const q = trimmed.toLowerCase()
-          const filtered = MOCK_NODES.filter(
-            (n) => (n.properties?.name as string)?.toLowerCase().includes(q) || n.node_type.toLowerCase().includes(q)
-          )
+          // Match across fields a real full-text search would index, so mock
+          // mode demos behave like production (e.g. searching "bitcoin" hits
+          // tweets/sections/claims whose body text mentions it).
+          const SEARCH_FIELDS = [
+            "name", "title", "episode_title", "show_title",
+            "text", "claim_text", "summary", "description", "bio",
+            "twitter_handle", "author",
+          ] as const
+          const filtered = MOCK_NODES.filter((n) => {
+            if (n.node_type.toLowerCase().includes(q)) return true
+            for (const f of SEARCH_FIELDS) {
+              const v = n.properties?.[f]
+              if (typeof v === "string" && v.toLowerCase().includes(q)) return true
+            }
+            return false
+          })
           setGraphData(filtered, MOCK_EDGES)
         } else {
           const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
