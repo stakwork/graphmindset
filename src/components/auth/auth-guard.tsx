@@ -9,6 +9,7 @@ import { useUserStore } from "@/stores/user-store"
 import { useAppStore } from "@/stores/app-store"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { Separator } from "@/components/ui/separator"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [unauthorized, setUnauthorized] = useState(false)
@@ -51,7 +52,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       setBudget(balance.balance)
     } catch {
       // L402 is stale or invalid — clear it so top-up/buy flows start fresh
-      localStorage.removeItem("l402")
+      cookieStorage.removeItem("l402")
       setBudget(0)
     }
   }, [setBudget, setPubKey, setRouteHint])
@@ -75,7 +76,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       }
 
       setIsAdmin(!!d.isAdmin)
-      localStorage.setItem("admin", JSON.stringify({ isAdmin: d.isAdmin }))
       setIsAuthenticated(true)
     } catch (err) {
       // 401 = private graph, user has no access → show overlay

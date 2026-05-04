@@ -10,6 +10,7 @@ import { api } from "@/lib/api"
 import { deleteNode } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_CONTENT } from "@/lib/mock-data"
 import { getL402 } from "@/lib/sphinx"
+import { cookieStorage } from "@/lib/cookie-storage"
 import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
@@ -110,7 +111,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const hasInProgress =
     totalProcessing > 0 || nodes.some((n) => isInProgress(n.properties?.status))
 
-  const hasIdentity = !!pubKey || !!(typeof window !== "undefined" && localStorage.getItem("l402"))
+  const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
 
   useEffect(() => {
     if (pollTimerRef.current) {
