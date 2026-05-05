@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { formatDistanceToNow } from "date-fns"
+import { formatDateRelative } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
 import { SelectNative } from "@/components/ui/select-native"
 import { Switch } from "@/components/ui/switch"
@@ -20,11 +20,6 @@ const SOURCE_TYPE_LABELS: Record<RadarSourceType, string> = {
   youtube_channel: "YouTube channels",
   rss: "RSS feeds",
   topic: "Topics",
-}
-
-function formatLastRun(ts?: number): string {
-  if (!ts) return "Never run"
-  return formatDistanceToNow(new Date(ts * 1000), { addSuffix: true })
 }
 
 export function RadarSettings({ open }: { open: boolean }) {
@@ -185,7 +180,7 @@ function RadarRow({
       </div>
 
       <div className="flex items-center justify-between text-[10px] text-muted-foreground/80">
-        <span>Last updated {formatLastRun(config.updated_at)}</span>
+        <span>Last updated {formatDateRelative(config.updated_at, "Never run")}</span>
         {runMessage && <span>{runMessage}</span>}
       </div>
     </div>
