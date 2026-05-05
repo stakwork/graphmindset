@@ -20,9 +20,9 @@ const JANITOR_LABELS: Record<string, string> = {
   deduplication: "Deduplication",
 }
 
-function formatRunTime(ts?: string): string {
+function formatRunTime(ts?: number): string {
   if (!ts) return "Never run"
-  return formatDistanceToNow(new Date(ts), { addSuffix: true })
+  return formatDistanceToNow(new Date(ts * 1000), { addSuffix: true })
 }
 
 function RunStatusBadge({ status }: { status: StakworkRun["status"] }) {
@@ -166,7 +166,7 @@ function JanitorRow({
         kind: "janitor",
         status: "PENDING",
         trigger: "MANUAL",
-        created_at: new Date().toISOString(),
+        created_at: Date.now() / 1000,
       })
       return
     }

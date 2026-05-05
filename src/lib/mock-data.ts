@@ -368,9 +368,8 @@ export const MOCK_CRON_CONFIGS = [
 export const MOCK_RADAR_CONFIGS = MOCK_CRON_CONFIGS
 
 const MOCK_RUN_NOW = new Date("2026-05-04T09:00:00Z")
-const mockRunTs = (minutesAgo: number): string => {
-  const d = new Date(MOCK_RUN_NOW.getTime() - minutesAgo * 60 * 1000)
-  return d.toISOString()
+const mockRunTs = (minutesAgo: number): number => {
+  return (MOCK_RUN_NOW.getTime() - minutesAgo * 60 * 1000) / 1000
 }
 
 export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
