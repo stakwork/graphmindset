@@ -230,11 +230,11 @@ export interface StakworkRun {
   kind?: CronKind
   job_type?: string
   trigger?: "SCHEDULED" | "MANUAL"
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
+  status: "pending" | "in_progress" | "completed" | "halted" | "error"
   error?: string
-  created_at?: string
-  started_at?: string
-  finished_at?: string
+  created_at?: number
+  started_at?: number
+  finished_at?: number
 }
 
 export async function getCronConfig(

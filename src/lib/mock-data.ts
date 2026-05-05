@@ -387,9 +387,8 @@ export const MOCK_CRON_CONFIGS = [
 export const MOCK_RADAR_CONFIGS = MOCK_CRON_CONFIGS
 
 const MOCK_RUN_NOW = new Date("2026-05-04T09:00:00Z")
-const mockRunTs = (minutesAgo: number): string => {
-  const d = new Date(MOCK_RUN_NOW.getTime() - minutesAgo * 60 * 1000)
-  return d.toISOString()
+const mockRunTs = (minutesAgo: number): number => {
+  return (MOCK_RUN_NOW.getTime() - minutesAgo * 60 * 1000) / 1000
 }
 
 export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
@@ -400,7 +399,7 @@ export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
     kind: "janitor",
     job_type: "deduplication",
     trigger: "SCHEDULED",
-    status: "COMPLETED",
+    status: "completed",
     created_at: mockRunTs(120),
     started_at: mockRunTs(119),
     finished_at: mockRunTs(110),
@@ -412,7 +411,7 @@ export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
     kind: "janitor",
     job_type: "deduplication",
     trigger: "MANUAL",
-    status: "FAILED",
+    status: "error",
     error: "Stakwork dispatch timeout",
     created_at: mockRunTs(60),
     started_at: mockRunTs(59),
@@ -425,9 +424,11 @@ export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
     kind: "janitor",
     job_type: "deduplication",
     trigger: "SCHEDULED",
-    status: "RUNNING",
-    created_at: mockRunTs(5),
-    started_at: mockRunTs(4),
+    status: "halted",
+    error: "Job paused by operator",
+    created_at: mockRunTs(30),
+    started_at: mockRunTs(29),
+    finished_at: mockRunTs(25),
   },
   {
     ref_id: "run-004",
@@ -435,8 +436,19 @@ export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
     source_type: "deduplication",
     kind: "janitor",
     job_type: "deduplication",
+    trigger: "SCHEDULED",
+    status: "in_progress",
+    created_at: mockRunTs(5),
+    started_at: mockRunTs(4),
+  },
+  {
+    ref_id: "run-005",
+    namespace: "default",
+    source_type: "deduplication",
+    kind: "janitor",
+    job_type: "deduplication",
     trigger: "MANUAL",
-    status: "PENDING",
+    status: "pending",
     created_at: mockRunTs(1),
   },
 ]
