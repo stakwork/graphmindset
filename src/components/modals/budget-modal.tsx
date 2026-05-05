@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Zap, Copy, Check, Loader2, ArrowLeft, History } from "lucide-react"
+import { Zap, Copy, Check, Loader2, ArrowLeft, History, Key } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import {
   Dialog,
@@ -18,8 +18,9 @@ import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetch
 import { getActionDisplayLabel, getActionBadgeColor } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 import { cookieStorage } from "@/lib/cookie-storage"
+import { api } from "@/lib/api"
 
-type Step = "balance" | "first-purchase" | "first-invoice" | "amount" | "invoice" | "success" | "history"
+type Step = "balance" | "first-purchase" | "first-invoice" | "amount" | "invoice" | "success" | "history" | "manage-token" | "restore"
 
 const PRESET_AMOUNTS = [50, 100, 500, 1000]
 
@@ -35,6 +36,10 @@ export function BudgetModal() {
   const [transactions, setTransactions] = useState<TransactionRow[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyScope, setHistoryScope] = useState<'pubkey' | 'token' | null>(null)
+
+  // Manage Token state
+  const [tokenCopied, setTokenCopied] = useState(false)
+  const [restoreInput, setRestoreInput] = useState("")
 
   // Amount & invoice state
   const [amount, setAmount] = useState<number | null>(null)
@@ -75,6 +80,7 @@ export function BudgetModal() {
     setFirstPurchaseRequest("")
     setFirstPurchaseCopied(false)
     setReachedViaFirstPurchase(false)
+    setRestoreInput("")
   }, [])
 
   useEffect(() => {
@@ -88,6 +94,44 @@ export function BudgetModal() {
   }, [])
 
 
+
+  const handleExportToken = useCallback(async () => {
+    const stored = cookieStorage.getItem("l402")
+    if (!stored) return
+    const encoded = btoa(stored)
+    await navigator.clipboard.writeText(encoded)
+    setTokenCopied(true)
+    setTimeout(() => setTokenCopied(false), 2000)
+  }, [])
+
+  const handleImportToken = useCallback(async () => {
+    setError("")
+    let parsed: { macaroon: string; identifier?: string; preimage?: string }
+    try {
+      const decoded = atob(restoreInput.trim())
+      parsed = JSON.parse(decoded)
+    } catch {
+      setError("Invalid token.")
+      return
+    }
+    if (!parsed || typeof parsed.macaroon !== "string" || !parsed.macaroon) {
+      setError("Invalid token.")
+      return
+    }
+    setLoading(true)
+    try {
+      await api.get<{ balance: number }>("/balance", {
+        Authorization: `LSAT ${parsed.macaroon}:`,
+      })
+      cookieStorage.setItem("l402", JSON.stringify(parsed))
+      await refreshBalance()
+      setStep("success")
+    } catch {
+      setError("Token not recognised or expired.")
+    } finally {
+      setLoading(false)
+    }
+  }, [restoreInput, refreshBalance])
 
   const handleShowHistory = useCallback(async () => {
     setStep('history')
@@ -299,8 +343,10 @@ export function BudgetModal() {
                 onClick={() => {
                   if (step === "invoice" && intervalRef.current)
                     clearInterval(intervalRef.current)
-                  if (step === "history") {
+                  if (step === "history" || step === "manage-token") {
                     setStep("balance")
+                  } else if (step === "restore") {
+                    setStep("manage-token")
                   } else if (step === "first-invoice") {
                     setStep("first-purchase")
                   } else {
@@ -322,6 +368,8 @@ export function BudgetModal() {
             {step === "invoice" && "Pay Invoice"}
             {step === "success" && "Budget"}
             {step === "history" && "History"}
+            {step === "manage-token" && "Manage Token"}
+            {step === "restore" && "Restore Token"}
           </DialogTitle>
           <DialogDescription>
             {step === "balance" && "Manage your Lightning L402 balance."}
@@ -331,6 +379,8 @@ export function BudgetModal() {
             {step === "invoice" && "Scan or copy the invoice to pay."}
             {step === "success" && "Your balance has been updated."}
             {step === "history" && "Your payment activity."}
+            {step === "manage-token" && "Back up or restore your L402 token."}
+            {step === "restore" && "Paste a previously copied token to regain access."}
           </DialogDescription>
         </DialogHeader>
 
@@ -408,6 +458,15 @@ export function BudgetModal() {
                 >
                   <History className="mr-2 h-3.5 w-3.5" />
                   History
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep("manage-token")}
+                  className="w-full text-xs text-muted-foreground"
+                >
+                  <Key className="mr-2 h-3.5 w-3.5" />
+                  Manage Token
                 </Button>
               </div>
             </>
@@ -654,6 +713,72 @@ export function BudgetModal() {
                   Showing current token only
                 </p>
               )}
+            </>
+          )}
+
+          {/* Step: Manage Token */}
+          {step === "manage-token" && (
+            <>
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleExportToken}
+                  disabled={!hasExistingL402}
+                  className="w-full text-xs"
+                >
+                  {tokenCopied ? (
+                    <Check className="mr-2 h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  {tokenCopied ? "Copied!" : "Copy Token"}
+                </Button>
+
+                {!hasExistingL402 && (
+                  <p className="text-[10px] text-muted-foreground/60 text-center">
+                    No active L402 token to copy.
+                  </p>
+                )}
+
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep("restore")}
+                  className="w-full text-xs text-muted-foreground"
+                >
+                  <Key className="mr-2 h-3.5 w-3.5" />
+                  Restore Token
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* Step: Restore */}
+          {step === "restore" && (
+            <>
+              <textarea
+                value={restoreInput}
+                onChange={(e) => setRestoreInput(e.target.value)}
+                placeholder="Paste your token here…"
+                rows={4}
+                className="w-full rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground/50 focus:border-primary/40 focus:outline-none resize-none"
+              />
+
+              {error && (
+                <p className="text-xs text-destructive text-center">{error}</p>
+              )}
+
+              <Button
+                onClick={handleImportToken}
+                disabled={loading || !restoreInput.trim()}
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs"
+              >
+                {loading ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Key className="mr-2 h-3.5 w-3.5" />
+                )}
+                {loading ? "Validating..." : "Restore Access"}
+              </Button>
             </>
           )}
 
