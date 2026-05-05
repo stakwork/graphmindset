@@ -1,26 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-
-// We need to extract the helpers — re-import from the module
-// Since they're not exported, we test them indirectly via the component,
-// but we also inline-test the logic here.
-
-// ---- inline snapToPreset logic (mirrors the implementation) ----
-const CADENCE_PRESETS = [
-  { label: "Every 10 minutes", value: "*/10 * * * *" },
-  { label: "Every hour",       value: "0 * * * *" },
-  { label: "Every 3 hours",    value: "0 */3 * * *" },
-  { label: "Every 6 hours",    value: "0 */6 * * *" },
-  { label: "Every 12 hours",   value: "0 */12 * * *" },
-  { label: "Weekly",           value: "0 0 * * 0" },
-]
-
-function snapToPreset(cron: string): string {
-  const match = CADENCE_PRESETS.find((p) => p.value === cron)
-  if (match) return cron
-  return "0 */6 * * *"
-}
+import { CADENCE_PRESETS, snapToPreset } from "@/lib/cadence-presets"
 
 // ---- Unit tests for snapToPreset ----
 describe("snapToPreset", () => {
