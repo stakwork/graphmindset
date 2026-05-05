@@ -344,17 +344,13 @@ export async function checkTopicExists(
 
 export type ReviewStatus = "pending" | "approved" | "dismissed" | "failed"
 
-export interface ReviewAction {
-  name: string
-  payload: unknown
-}
-
 export interface Review {
   ref_id: string
   type: string
   rationale: string
   subject_ids: string[]
-  action: ReviewAction
+  action_name: string
+  action_payload: unknown
   status: ReviewStatus
   fingerprint: string
   priority: number
