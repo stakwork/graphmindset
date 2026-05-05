@@ -20,6 +20,7 @@ import { getStatusBadge, isBlockedStatus } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
+import { formatDateAbsolute } from "@/lib/date-format"
 
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "node_type", "date_added_to_graph", "status", "project_id",
@@ -69,27 +70,6 @@ function pickNumber(props: Record<string, unknown>, key: string): number | undef
   return typeof v === "number" && Number.isFinite(v) ? v : undefined
 }
 
-// Tweet `date` may arrive as ISO string, unix seconds, or unix milliseconds.
-// Returns "30 APR 2026" or null.
-function formatTweetDate(value: unknown): string | null {
-  if (value == null) return null
-  let d: Date | null = null
-  if (typeof value === "number" && Number.isFinite(value)) {
-    d = new Date(value < 1e11 ? value * 1000 : value)
-  } else if (typeof value === "string" && value.length > 0) {
-    if (/^\d+$/.test(value)) {
-      const n = Number(value)
-      d = new Date(n < 1e11 ? n * 1000 : n)
-    } else {
-      d = new Date(value)
-    }
-  }
-  if (!d || Number.isNaN(d.getTime())) return null
-  return d
-    .toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
-    .toUpperCase()
-}
-
 interface NodePreviewPanelProps {
   node: GraphNode
   onBack: () => void
@@ -128,7 +108,7 @@ function TweetCard({ props }: { props: Record<string, unknown> }) {
   const sourceLink =
     (props.source_link as string | undefined) ??
     (handle && tweetId ? `https://x.com/${handle}/status/${tweetId}` : undefined)
-  const formattedDate = formatTweetDate(props.date)
+  const formattedDate = formatDateAbsolute(props.date)
 
   const replies = pickNumber(props, "reply_count")
   const retweets = pickNumber(props, "retweet_count")
@@ -229,7 +209,7 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
   const show = (props.show_title ?? props.show) as string | undefined
   const channel = props.channel as string | undefined
   const epNum = typeof props.episode_number === "number" ? props.episode_number : undefined
-  const formattedDate = formatTweetDate(props.date)
+  const formattedDate = formatDateAbsolute(props.date)
   const isVideo = typeof mediaUrl === "string" && /\.(mp4|webm|mov)/i.test(mediaUrl)
 
   return (
