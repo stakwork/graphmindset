@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react"
 import { formatDistanceToNow } from "date-fns"
 import { Button } from "@/components/ui/button"
+import { SelectNative } from "@/components/ui/select-native"
 import { Switch } from "@/components/ui/switch"
+import { CADENCE_PRESETS, snapToPreset } from "@/lib/cadence-presets"
 import {
   type CronConfig,
   type StakworkRun,
@@ -67,7 +69,7 @@ export function JanitorSettings({ open }: { open: boolean }) {
   const handleUpdate = useCallback(
     async (
       sourceType: string,
-      fields: Partial<Pick<CronConfig, "enabled">>
+      fields: Partial<Pick<CronConfig, "enabled" | "cadence">>
     ) => {
       // Optimistic update
       setConfigs((prev) =>
@@ -124,7 +126,7 @@ function JanitorRow({
   onUpdate,
 }: {
   config: CronConfig
-  onUpdate: (sourceType: string, fields: Partial<Pick<CronConfig, "enabled">>) => Promise<void>
+  onUpdate: (sourceType: string, fields: Partial<Pick<CronConfig, "enabled" | "cadence">>) => Promise<void>
 }) {
   const [lastRun, setLastRun] = useState<StakworkRun | null>(null)
   const [runsLoading, setRunsLoading] = useState(true)
@@ -193,6 +195,18 @@ function JanitorRow({
           checked={config.enabled}
           onCheckedChange={(v) => onUpdate(config.source_type, { enabled: v })}
         />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <SelectNative
+            options={CADENCE_PRESETS}
+            value={snapToPreset(config.cadence)}
+            disabled={!config.enabled}
+            className="h-8 text-xs"
+            onChange={(e) => onUpdate(config.source_type, { cadence: e.target.value })}
+          />
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-2">

@@ -192,4 +192,71 @@ describe("JanitorSettings", () => {
       expect(getCronConfig).toHaveBeenCalledTimes(2)
     })
   })
+
+  it("dropdown renders with correct preset value for known cadence", async () => {
+    const { getCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [{ ...mockJanitorConfig, enabled: true, cadence: "0 * * * *" }],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+
+    render(<JanitorSettings open={true} />)
+
+    await screen.findByText("Deduplication")
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    expect(select.value).toBe("0 * * * *")
+  })
+
+  it("changing dropdown calls updateCronConfig with new cadence", async () => {
+    const { getCronConfig, updateCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [{ ...mockJanitorConfig, enabled: true, cadence: "0 * * * *" }],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+    vi.mocked(updateCronConfig).mockResolvedValue({
+      config: { ...mockJanitorConfig, enabled: true, cadence: "0 */6 * * *" },
+    } as never)
+
+    const user = userEvent.setup()
+    render(<JanitorSettings open={true} />)
+
+    await screen.findByText("Deduplication")
+
+    const select = screen.getByRole("combobox")
+    await user.selectOptions(select, "0 */6 * * *")
+
+    expect(updateCronConfig).toHaveBeenCalledWith("deduplication", { cadence: "0 */6 * * *" })
+  })
+
+  it("unknown stored cadence snaps to fallback and does NOT call updateCronConfig on mount", async () => {
+    const { getCronConfig, updateCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [{ ...mockJanitorConfig, enabled: true, cadence: "5 4 * * *" }],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+
+    render(<JanitorSettings open={true} />)
+
+    await screen.findByText("Deduplication")
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    expect(select.value).toBe("0 */6 * * *")
+    expect(updateCronConfig).not.toHaveBeenCalled()
+  })
+
+  it("dropdown is disabled when janitor is disabled", async () => {
+    const { getCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [{ ...mockJanitorConfig, enabled: false, cadence: "0 * * * *" }],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+
+    render(<JanitorSettings open={true} />)
+
+    await screen.findByText("Deduplication")
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    expect(select.disabled).toBe(true)
+  })
 })
