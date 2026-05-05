@@ -71,6 +71,19 @@ vi.mock("@/lib/transaction-display", () => ({
   getActionBadgeColor: vi.fn(() => ""),
 }))
 
+// --- API mock ---
+const mockApiGet = vi.fn()
+
+vi.mock("@/lib/api", () => ({
+  api: {
+    get: (...args: unknown[]) => mockApiGet(...args),
+    post: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+  },
+  API_URL: "http://localhost:3000",
+}))
+
 import { cookieStorage } from "@/lib/cookie-storage"
 import { BudgetModal } from "@/components/modals/budget-modal"
 
@@ -153,6 +166,10 @@ describe("BudgetModal success screen delta", () => {
     expect(screen.getByText("+500 sats added")).toBeInTheDocument()
   })
 
+  beforeEach(() => {
+    mockApiGet.mockReset()
+  })
+
   it("does NOT show delta line after direct payL402 path (no amount picker)", async () => {
     // Setup: no L402, Sphinx connected → direct payL402() call, no amount picker
     mockIsSphinx.mockReturnValue(true)
@@ -171,5 +188,128 @@ describe("BudgetModal success screen delta", () => {
     expect(screen.queryByText(/sats added/)).not.toBeInTheDocument()
     // Total balance still shows
     expect(screen.getByText(/270/)).toBeInTheDocument()
+  })
+})
+
+describe("BudgetModal Manage Token flow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 500
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockApiGet.mockReset()
+    // Mock clipboard
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
+    cookieStorage.removeItem("l402")
+  })
+
+  it("exports base64 token to clipboard", async () => {
+    const tokenPayload = { macaroon: "mac123", identifier: "id1", preimage: "pre1" }
+    cookieStorage.setItem("l402", JSON.stringify(tokenPayload))
+
+    render(<BudgetModal />)
+
+    // Navigate to Manage Token
+    fireEvent.click(screen.getByText("Manage Token"))
+    await waitFor(() => {
+      expect(screen.getByText("Manage Token")).toBeInTheDocument()
+    })
+
+    // Click Copy Token
+    fireEvent.click(screen.getByText("Copy Token"))
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
+    })
+
+    const calledWith = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    const decoded = JSON.parse(atob(calledWith))
+    expect(decoded).toEqual(tokenPayload)
+  })
+
+  it("imports a valid token, writes cookie, refreshes balance, shows success", async () => {
+    mockApiGet.mockResolvedValue({ balance: 500 })
+
+    const tokenPayload = { macaroon: "validmac", identifier: "id2", preimage: "pre2" }
+    const encoded = btoa(JSON.stringify(tokenPayload))
+
+    render(<BudgetModal />)
+
+    // Navigate: balance → manage-token → restore
+    fireEvent.click(screen.getByText("Manage Token"))
+    await waitFor(() => expect(screen.getByText("Restore Token")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("Restore Token"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Paste your token here…")).toBeInTheDocument())
+
+    // Paste token
+    fireEvent.change(screen.getByPlaceholderText("Paste your token here…"), {
+      target: { value: encoded },
+    })
+
+    fireEvent.click(screen.getByText("Restore Access"))
+
+    await waitFor(() => {
+      expect(screen.getByText("Top-up complete")).toBeInTheDocument()
+    })
+
+    expect(mockApiGet).toHaveBeenCalledWith("/balance", {
+      Authorization: `LSAT ${tokenPayload.macaroon}:`,
+    })
+    expect(cookieStorage.getItem("l402")).toBe(JSON.stringify(tokenPayload))
+    expect(mockRefreshBalance).toHaveBeenCalled()
+  })
+
+  it("rejects a malformed base64 string without making a network call", async () => {
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("Manage Token"))
+    await waitFor(() => expect(screen.getByText("Restore Token")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("Restore Token"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Paste your token here…")).toBeInTheDocument())
+
+    fireEvent.change(screen.getByPlaceholderText("Paste your token here…"), {
+      target: { value: "!!!not-valid-base64!!!" },
+    })
+
+    fireEvent.click(screen.getByText("Restore Access"))
+
+    await waitFor(() => {
+      expect(screen.getByText("Invalid token.")).toBeInTheDocument()
+    })
+
+    expect(mockApiGet).not.toHaveBeenCalled()
+    expect(cookieStorage.getItem("l402")).toBeNull()
+  })
+
+  it("rejects a server-rejected token and does not write cookie", async () => {
+    mockApiGet.mockRejectedValue(new Error("Unauthorized"))
+
+    const tokenPayload = { macaroon: "badmac", identifier: "id3", preimage: "" }
+    const encoded = btoa(JSON.stringify(tokenPayload))
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("Manage Token"))
+    await waitFor(() => expect(screen.getByText("Restore Token")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("Restore Token"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Paste your token here…")).toBeInTheDocument())
+
+    fireEvent.change(screen.getByPlaceholderText("Paste your token here…"), {
+      target: { value: encoded },
+    })
+
+    fireEvent.click(screen.getByText("Restore Access"))
+
+    await waitFor(() => {
+      expect(screen.getByText("Token not recognised or expired.")).toBeInTheDocument()
+    })
+
+    expect(cookieStorage.getItem("l402")).toBeNull()
   })
 })
