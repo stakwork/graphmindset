@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { formatDistanceToNow } from "date-fns"
+import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
 import { cn } from "@/lib/utils"
@@ -102,13 +102,7 @@ export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps)
   const [approveConfirm, setApproveConfirm] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
 
-  const relativeTime = (() => {
-    try {
-      return formatDistanceToNow(new Date(review.created_at), { addSuffix: true })
-    } catch {
-      return review.created_at
-    }
-  })()
+  const relativeTime = formatDateRelative(review.created_at, review.created_at ?? "")
 
   async function handleApprove() {
     if (!approveConfirm) { setApproveConfirm(true); return }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { formatDistanceToNow } from "date-fns"
+import { formatDateRelative } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
 import { SelectNative } from "@/components/ui/select-native"
 import { Switch } from "@/components/ui/switch"
@@ -18,11 +18,6 @@ import { isMocksEnabled, MOCK_CRON_CONFIGS, MOCK_STAKWORK_RUNS } from "@/lib/moc
 
 const JANITOR_LABELS: Record<string, string> = {
   deduplication: "Deduplication",
-}
-
-function formatRunTime(ts?: number): string {
-  if (!ts) return "Never run"
-  return formatDistanceToNow(new Date(ts * 1000), { addSuffix: true })
 }
 
 function RunStatusBadge({ status }: { status: StakworkRun["status"] }) {
@@ -216,7 +211,7 @@ function JanitorRow({
             <>
               <RunStatusBadge status={lastRun.status} />
               <span>
-                {formatRunTime(lastRun.finished_at ?? lastRun.started_at ?? lastRun.created_at)}
+                {formatDateRelative(lastRun.finished_at ?? lastRun.started_at ?? lastRun.created_at, "Never run")}
               </span>
             </>
           ) : (

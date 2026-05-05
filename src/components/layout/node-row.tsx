@@ -10,27 +10,7 @@ import { getStatusBadge } from "@/lib/node-status"
 import { cn, displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
-
-// Best-effort coercion of `date` / `published_date` (unix int, unix string,
-// ISO string, or Date object) into "30 APR 2026" — null when unparseable.
-function formatRowDate(value: unknown): string | null {
-  if (value == null) return null
-  let d: Date | null = null
-  if (typeof value === "number" && Number.isFinite(value)) {
-    d = new Date(value < 1e11 ? value * 1000 : value)
-  } else if (typeof value === "string" && value.length > 0) {
-    if (/^\d+$/.test(value)) {
-      const n = Number(value)
-      d = new Date(n < 1e11 ? n * 1000 : n)
-    } else {
-      d = new Date(value)
-    }
-  }
-  if (!d || Number.isNaN(d.getTime())) return null
-  return d
-    .toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
-    .toUpperCase()
-}
+import { formatDateAbsolute } from "@/lib/date-format"
 
 interface NodeRowProps {
   node: GraphNode
@@ -105,7 +85,7 @@ export function NodeRow({
         ? snippetSource.slice(0, 90).replace(/\s+\S*$/, "") + "…"
         : snippetSource
       : undefined
-  const rowDate = formatRowDate(props?.date) ?? formatRowDate(props?.published_date)
+  const rowDate = formatDateAbsolute(props?.date) ?? formatDateAbsolute(props?.published_date)
 
   return (
     <button
