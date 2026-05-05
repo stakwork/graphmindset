@@ -30,8 +30,8 @@ vi.mock("@/lib/mock-data", () => ({
       kind: "janitor",
       status: "completed",
       trigger: "SCHEDULED",
-      created_at: "2026-05-04T07:00:00Z",
-      finished_at: "2026-05-04T07:05:00Z",
+      created_at: new Date("2026-05-04T07:00:00Z").getTime() / 1000,
+      finished_at: new Date("2026-05-04T07:05:00Z").getTime() / 1000,
     },
   ],
 }))
@@ -103,7 +103,7 @@ describe("JanitorSettings", () => {
         kind: "janitor",
         status: "pending",
         trigger: "MANUAL",
-        created_at: new Date().toISOString(),
+        created_at: Date.now() / 1000,
       },
     })
 
@@ -129,8 +129,8 @@ describe("JanitorSettings", () => {
           kind: "janitor",
           status: "in_progress",
           trigger: "SCHEDULED",
-          created_at: new Date().toISOString(),
-          started_at: new Date().toISOString(),
+          created_at: Date.now() / 1000,
+          started_at: Date.now() / 1000,
         },
       ],
     })
