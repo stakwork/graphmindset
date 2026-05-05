@@ -230,7 +230,7 @@ export interface StakworkRun {
   kind?: CronKind
   job_type?: string
   trigger?: "SCHEDULED" | "MANUAL"
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
+  status: "pending" | "in_progress" | "completed" | "halted" | "error"
   error?: string
   created_at?: number
   started_at?: number

@@ -27,10 +27,11 @@ function formatRunTime(ts?: number): string {
 
 function RunStatusBadge({ status }: { status: StakworkRun["status"] }) {
   const colours: Record<StakworkRun["status"], string> = {
-    COMPLETED: "bg-green-500/15 text-green-400",
-    FAILED: "bg-destructive/15 text-destructive",
-    RUNNING: "bg-blue-500/15 text-blue-400",
-    PENDING: "bg-yellow-500/15 text-yellow-400",
+    completed: "bg-green-500/15 text-green-400",
+    error: "bg-destructive/15 text-destructive",
+    in_progress: "bg-blue-500/15 text-blue-400",
+    pending: "bg-yellow-500/15 text-yellow-400",
+    halted: "bg-orange-500/15 text-orange-400",
   }
   return (
     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${colours[status]}`}>
@@ -155,7 +156,7 @@ function JanitorRow({
   }, [loadRuns])
 
   const isActive =
-    lastRun?.status === "PENDING" || lastRun?.status === "RUNNING"
+    lastRun?.status === "pending" || lastRun?.status === "in_progress"
 
   const handleRunNow = useCallback(async () => {
     if (isMocksEnabled()) {
@@ -164,7 +165,7 @@ function JanitorRow({
         ref_id: "mock-run-now",
         source_type: config.source_type,
         kind: "janitor",
-        status: "PENDING",
+        status: "pending",
         trigger: "MANUAL",
         created_at: Date.now() / 1000,
       })
