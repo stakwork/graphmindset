@@ -71,6 +71,7 @@ vi.mock("@/lib/transaction-display", () => ({
   getActionBadgeColor: vi.fn(() => ""),
 }))
 
+import { cookieStorage } from "@/lib/cookie-storage"
 import { BudgetModal } from "@/components/modals/budget-modal"
 
 describe("BudgetModal success screen delta", () => {
@@ -91,12 +92,12 @@ describe("BudgetModal success screen delta", () => {
     })
     mockIsSphinx.mockReturnValue(false)
     mockHasWebLN.mockReturnValue(false)
-    localStorage.clear()
+    cookieStorage.removeItem("l402")
   })
 
   it("shows +N sats added after amount-picker top-up (Sphinx/WebLN path)", async () => {
     // Setup: has existing L402 + Sphinx connected
-    localStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
+    cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
     mockIsSphinx.mockReturnValue(true)
 
     render(<BudgetModal />)
@@ -155,7 +156,7 @@ describe("BudgetModal success screen delta", () => {
   it("does NOT show delta line after direct payL402 path (no amount picker)", async () => {
     // Setup: no L402, Sphinx connected → direct payL402() call, no amount picker
     mockIsSphinx.mockReturnValue(true)
-    // No localStorage L402
+    // No L402 cookie
 
     render(<BudgetModal />)
 
