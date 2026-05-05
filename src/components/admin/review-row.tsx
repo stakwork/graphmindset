@@ -205,7 +205,7 @@ export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps)
       {/* Action */}
       <td className="py-3 px-3 whitespace-nowrap">
         <code className="rounded bg-muted/50 border border-border px-1.5 py-0.5 text-[11px] font-mono text-foreground">
-          {review.action.name}
+          {review.action_name}
         </code>
       </td>
 
