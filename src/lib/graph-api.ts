@@ -335,6 +335,17 @@ export async function checkTopicExists(
   return api.get(`/v2/nodes/topic-check?${params}`, undefined, signal)
 }
 
+// Generic ontology-driven duplicate check — no payment required
+export async function checkNodeExists(
+  nodeType: string,
+  key: string
+): Promise<{ exists: boolean; ref_id: string | null; status: string | null }> {
+  const params = new URLSearchParams({ node_type: nodeType, key })
+  const res = await fetch(`/v2/nodes/check?${params}`)
+  if (!res.ok) return { exists: false, ref_id: null, status: null }
+  return res.json()
+}
+
 
 
 
