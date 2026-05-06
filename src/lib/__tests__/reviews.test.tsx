@@ -87,16 +87,8 @@ describe("ReviewRow", () => {
   })
 
   // ── Status badge colours ────────────────────────────────────────────────────
-
-  it("renders amber badge for pending status", () => {
-    const { container } = render(
-      <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
-    )
-    const badge = container.querySelector("[data-status='pending']")
-    expect(badge).toBeTruthy()
-    expect(badge!.textContent).toBe("pending")
-    expect(badge!.className).toContain("bg-amber-500")
-  })
+  // Pending rows render Approve/Dismiss buttons in place of the badge — that
+  // case is covered by the "shows Approve and Dismiss buttons …" test below.
 
   it("renders green badge for approved status", () => {
     const { container } = render(

@@ -26,23 +26,19 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZE = 20
 
-function SkeletonCards() {
+function SkeletonRows() {
   return (
-    <div className="flex flex-col gap-3">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="overflow-hidden rounded-lg border border-border/70 bg-card/40">
-          <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-4 py-2">
-            <div className="h-4 w-48 rounded bg-muted/40 animate-pulse" />
-            <div className="h-5 w-20 rounded bg-muted/40 animate-pulse" />
-          </div>
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 py-3">
-            <div className="h-8 rounded bg-muted/30 animate-pulse" />
-            <div className="h-6 w-6 rounded-full bg-muted/30 animate-pulse" />
-            <div className="h-8 rounded bg-muted/30 animate-pulse" />
-          </div>
-          <div className="border-t border-border/60 bg-background/40 px-4 py-2">
-            <div className="h-3 w-3/4 rounded bg-muted/30 animate-pulse" />
-          </div>
+    <div className="overflow-hidden rounded-lg border border-border/60">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[20px_16px_1fr_auto_170px] items-center gap-3 border-b border-border/30 px-3 py-2 last:border-b-0"
+        >
+          <div className="h-3 w-3 rounded bg-muted/30 animate-pulse" />
+          <div className="h-3 w-3 rounded bg-muted/30 animate-pulse" />
+          <div className="h-4 rounded bg-muted/30 animate-pulse" style={{ width: `${50 + (i * 7) % 30}%` }} />
+          <div className="h-3 w-24 rounded bg-muted/30 animate-pulse" />
+          <div className="h-5 w-32 justify-self-end rounded bg-muted/30 animate-pulse" />
         </div>
       ))}
     </div>
@@ -210,7 +206,7 @@ export default function ReviewsPage() {
               <p className="text-sm text-red-400">{error}</p>
             </div>
           ) : loading ? (
-            <SkeletonCards />
+            <SkeletonRows />
           ) : reviews.length === 0 ? (
             <div className="py-16 text-center text-sm text-muted-foreground">
               {statusFilter === "pending"
@@ -218,7 +214,7 @@ export default function ReviewsPage() {
                 : "No reviews match the selected filters."}
             </div>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="overflow-hidden rounded-lg border border-border/60">
               {reviews.map((review) => (
                 <ReviewRow
                   key={review.ref_id}

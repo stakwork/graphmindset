@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, GitMerge } from "lucide-react"
+import { ArrowRight, ChevronRight, GitMerge } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/tooltip"
 import { NodeRow } from "@/components/layout/node-row"
 import type { SchemaNode } from "@/app/ontology/page"
-import { REVIEW_TYPE_LABELS, REVIEW_ACTION_LABELS, humanizeEnum } from "@/lib/review-labels"
+import { DISPLAY_KEY_FALLBACKS, pickString } from "@/lib/node-display"
 import { useUserStore } from "@/stores/user-store"
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -40,26 +40,15 @@ function StatusBadge({ status }: { status: ReviewStatus }) {
   )
 }
 
-// ── Priority badge ────────────────────────────────────────────────────────────
+// ── Node colour by type (cheap heuristic, schema-agnostic) ────────────────────
 
-function PriorityBadge({ priority }: { priority: number }) {
-  if (priority <= 0) return null
-  const tone =
-    priority >= 4
-      ? "bg-red-500/15 text-red-300 border-red-500/30"
-      : priority >= 2
-        ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-        : "bg-muted/40 text-muted-foreground border-border"
-  return (
-    <span
-      className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded border px-1.5 font-mono text-[10px] font-bold",
-        tone
-      )}
-    >
-      P{priority}
-    </span>
-  )
+const TYPE_DOT: Record<string, string> = {
+  Topic: "bg-cyan-400",
+  Person: "bg-violet-400",
+  Episode: "bg-amber-400",
+  Clip: "bg-emerald-400",
+  Show: "bg-pink-400",
+  Document: "bg-orange-400",
 }
 
 // ── Action payload extraction ─────────────────────────────────────────────────
@@ -67,8 +56,6 @@ function PriorityBadge({ priority }: { priority: number }) {
 interface MergeDirection {
   fromIds: string[]
   toId: string
-  fromLabel: string
-  toLabel: string
 }
 
 function extractDirection(action_name: string, action_payload: unknown): MergeDirection | null {
@@ -76,30 +63,97 @@ function extractDirection(action_name: string, action_payload: unknown): MergeDi
   const p = action_payload as Record<string, unknown>
 
   if (action_name === "merge_nodes" && Array.isArray(p.from) && typeof p.to === "string") {
-    // Jarvis sends `from` as the full participant list (including the survivor).
-    // Exclude `to` so we only render the nodes actually being absorbed.
     const fromIds = p.from
       .filter((x): x is string => typeof x === "string")
       .filter((id) => id !== p.to)
     if (fromIds.length === 0) return null
-    return {
-      fromIds,
-      toId: p.to,
-      fromLabel: "Merging",
-      toLabel: "Into canonical",
-    }
+    return { fromIds, toId: p.to }
   }
 
   if (action_name === "supersede" && typeof p.old === "string" && typeof p.new === "string") {
-    return {
-      fromIds: [p.old],
-      toId: p.new,
-      fromLabel: "Superseding",
-      toLabel: "With",
-    }
+    return { fromIds: [p.old], toId: p.new }
   }
 
   return null
+}
+
+// ── Display name helper (mirrors NodeRow logic) ───────────────────────────────
+
+type SubjectNode = Review["subject_nodes"][number]
+
+function getDisplayName(subject: SubjectNode | undefined, schemas: SchemaNode[]): string | null {
+  if (!subject || subject.node_type === null) return null
+  const props = subject.properties ?? {}
+  const schema = schemas.find((s) => s.type === subject.node_type)
+  let name = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
+  if (!name) {
+    for (const key of DISPLAY_KEY_FALLBACKS) {
+      name = pickString(props, key)
+      if (name) break
+    }
+  }
+  return name ?? null
+}
+
+// ── Inline chips for the collapsed row ────────────────────────────────────────
+
+function InlineChip({
+  refId,
+  subject,
+  schemas,
+  emphasis = false,
+}: {
+  refId: string
+  subject: SubjectNode | undefined
+  schemas: SchemaNode[]
+  emphasis?: boolean
+}) {
+  if (!subject || subject.node_type === null) {
+    return (
+      <span className="inline-flex max-w-[220px] shrink-0 items-center gap-1.5 truncate rounded px-1.5 py-0.5 font-mono text-[11px] italic text-muted-foreground">
+        Deleted: {refId}
+      </span>
+    )
+  }
+  const name = getDisplayName(subject, schemas) ?? refId
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-[220px] shrink-0 items-center gap-1.5 truncate rounded px-1.5 py-0.5 text-[12px]",
+        emphasis ? "font-semibold text-foreground" : "text-muted-foreground/90"
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TYPE_DOT[subject.node_type] ?? "bg-muted-foreground")} />
+      <span className="truncate">{name}</span>
+    </span>
+  )
+}
+
+const MAX_INLINE_SOURCES = 3
+
+function SourceChips({
+  fromIds,
+  subjectMap,
+  schemas,
+}: {
+  fromIds: string[]
+  subjectMap: Map<string, SubjectNode>
+  schemas: SchemaNode[]
+}) {
+  const visible = fromIds.slice(0, MAX_INLINE_SOURCES)
+  const overflow = fromIds.length - visible.length
+  return (
+    <>
+      {visible.map((id) => (
+        <InlineChip key={id} refId={id} subject={subjectMap.get(id)} schemas={schemas} />
+      ))}
+      {overflow > 0 && (
+        <span className="inline-flex shrink-0 items-center rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          +{overflow} more
+        </span>
+      )}
+    </>
+  )
 }
 
 // ── Dismiss popover ───────────────────────────────────────────────────────────
@@ -118,8 +172,11 @@ function DismissPopover({
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        className="rounded border border-border bg-transparent px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-all hover:border-muted-foreground/40 hover:text-foreground"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(true)
+        }}
+        className="rounded border border-border bg-transparent px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-muted-foreground/40 hover:text-foreground"
       >
         Dismiss
       </button>
@@ -127,7 +184,10 @@ function DismissPopover({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md min-w-[220px]">
+    <div
+      className="flex flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md min-w-[220px]"
+      onClick={(e) => e.stopPropagation()}
+    >
       <textarea
         className="w-full rounded border border-input bg-background px-2 py-1 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary"
         placeholder="Optional reason…"
@@ -139,7 +199,8 @@ function DismissPopover({
         <button
           type="button"
           disabled={loading}
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation()
             onConfirm(reason)
             setOpen(false)
           }}
@@ -149,7 +210,10 @@ function DismissPopover({
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen(false)
+          }}
           className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
         >
           Cancel
@@ -159,9 +223,7 @@ function DismissPopover({
   )
 }
 
-// ── Subject row ───────────────────────────────────────────────────────────────
-
-type SubjectNode = Review["subject_nodes"][number]
+// ── Subject list item (for expanded panel) ───────────────────────────────────
 
 function SubjectListItem({
   refId,
@@ -207,6 +269,7 @@ export interface ReviewRowProps {
 export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: ReviewRowProps) {
   const router = useRouter()
   const { isAdmin } = useUserStore()
+  const [expanded, setExpanded] = useState(false)
   const [approving, setApproving] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [approveConfirm, setApproveConfirm] = useState(false)
@@ -263,48 +326,71 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
     }
   }
 
-  const typeLabel = REVIEW_TYPE_LABELS[review.type]?.label ?? humanizeEnum(review.type)
-  const actionVerb = REVIEW_ACTION_LABELS[review.action_name]?.verb ?? humanizeEnum(review.action_name)
+  const isPending = review.status === "pending"
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/70 bg-card/40 transition-colors hover:border-border">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-4 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <GitMerge className="h-3.5 w-3.5 text-primary" />
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-primary">
-            {typeLabel} · {actionVerb}
-          </span>
-          {review.run_ref_id && (
-            <>
-              <span className="text-muted-foreground/50">·</span>
-              <span className="font-mono text-[10px] text-muted-foreground">
-                Run #{review.run_ref_id.slice(-5)}
-              </span>
-            </>
+    <div className="border-b border-border/30 last:border-b-0">
+      {/* Compact row */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded((e) => !e)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            setExpanded((v) => !v)
+          }
+        }}
+        className="grid w-full cursor-pointer grid-cols-[20px_16px_1fr_auto_170px] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/20"
+      >
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 text-muted-foreground transition-transform",
+            expanded && "rotate-90"
           )}
-          <PriorityBadge priority={review.priority} />
-          <span className="text-[11px] text-muted-foreground">{relativeTime}</span>
-          <StatusBadge status={review.status} />
+        />
+        <GitMerge className="h-3.5 w-3.5 text-primary/70" />
+
+        {direction ? (
+          <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+            <SourceChips fromIds={direction.fromIds} subjectMap={subjectMap} schemas={schemas} />
+            <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+            <InlineChip
+              refId={direction.toId}
+              subject={subjectMap.get(direction.toId)}
+              schemas={schemas}
+              emphasis
+            />
+          </div>
+        ) : (
+          <span className="text-[12px] text-muted-foreground">
+            {review.subject_nodes.length} subject{review.subject_nodes.length === 1 ? "" : "s"}
+          </span>
+        )}
+
+        <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-muted-foreground">
+          {review.run_ref_id && <span>Run #{review.run_ref_id.slice(-5)}</span>}
+          {review.run_ref_id && <span>·</span>}
+          <span>{relativeTime}</span>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {review.status === "pending" && isAdmin && (
-            <>
+        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+          {isPending && isAdmin ? (
+            <div className="flex gap-1">
               {approveConfirm ? (
                 <>
                   <button
                     type="button"
                     disabled={approving}
                     onClick={handleApprove}
-                    className="rounded px-2.5 py-1 text-[11px] font-medium bg-emerald-600/80 text-white hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                    className="rounded px-2 py-0.5 text-[11px] font-medium bg-emerald-600/80 text-white hover:bg-emerald-600 transition-colors disabled:opacity-50"
                   >
                     {approving ? "Approving…" : "Confirm approve?"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setApproveConfirm(false)}
-                    className="rounded px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
+                    className="rounded px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
                   >
                     Cancel
                   </button>
@@ -313,114 +399,110 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
                 <button
                   type="button"
                   onClick={handleApprove}
-                  className="rounded border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-1 text-[11px] font-medium text-emerald-300 transition-all hover:border-emerald-500/70 hover:bg-emerald-500/15"
+                  className="rounded border border-emerald-500/40 bg-emerald-500/5 px-2 py-0.5 text-[11px] font-medium text-emerald-300 transition-all hover:border-emerald-500/70 hover:bg-emerald-500/15"
                 >
                   Approve
                 </button>
               )}
               <DismissPopover onConfirm={handleDismiss} loading={dismissing} />
-            </>
+            </div>
+          ) : (
+            <StatusBadge status={review.status} />
           )}
         </div>
       </div>
 
-      {/* Body */}
-      {direction ? (
-        <div className="grid grid-cols-[1fr_auto_1fr]">
-          <div>
-            <div className="px-4 pb-1 pt-3">
-              <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                {direction.fromLabel}{" "}
-                <span className="text-foreground">{direction.fromIds.length}</span>{" "}
-                source{direction.fromIds.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            <div className="flex flex-col gap-px px-2 pb-3">
-              {direction.fromIds.map((id) => (
-                <SubjectListItem
-                  key={id}
-                  refId={id}
-                  resolved={subjectMap.get(id)}
-                  schemas={schemas}
-                  onClick={() => router.push(`/?ref=${id}`)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="relative flex w-12 items-center justify-center">
-            <div className="absolute inset-y-3 left-1/2 w-px -translate-x-1/2 bg-border" />
-            <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background">
-              <ArrowRight className="h-3 w-3 text-muted-foreground" />
-            </div>
-          </div>
-
-          <div>
-            <div className="px-4 pb-1 pt-3">
-              <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                {direction.toLabel}
-              </span>
-            </div>
-            <div className="px-2 pb-3">
-              <SubjectListItem
-                refId={direction.toId}
-                resolved={subjectMap.get(direction.toId)}
-                schemas={schemas}
-                onClick={() => router.push(`/?ref=${direction.toId}`)}
-              />
-            </div>
-          </div>
+      {/* Inline error / dismissal context (visible without expanding) */}
+      {review.status === "failed" && review.error_message && (
+        <div className="px-3 pb-2 pl-[60px] text-[11px] font-medium text-red-400">
+          ✕ {review.error_message}
         </div>
-      ) : (
-        <div className="px-4 py-3">
-          <div className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Subjects ({review.subject_nodes.length})
-          </div>
-          <div className="flex flex-col gap-px px-0">
-            {review.subject_nodes.map((sn) => (
-              <SubjectListItem
-                key={sn.ref_id}
-                refId={sn.ref_id}
-                resolved={sn}
-                schemas={schemas}
-                onClick={() => router.push(`/?ref=${sn.ref_id}`)}
-              />
-            ))}
-          </div>
+      )}
+      {review.status === "dismissed" && review.dismissal_reason && (
+        <div className="px-3 pb-2 pl-[60px] text-[11px] italic text-muted-foreground">
+          Reason: {review.dismissal_reason}
+        </div>
+      )}
+      {inlineError && (
+        <div className="px-3 pb-2 pl-[60px] text-[11px] font-medium text-red-400">
+          ✕ {inlineError}
         </div>
       )}
 
-      {/* Footer */}
-      <div className="border-t border-border/60 bg-background/40 px-4 py-2">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <p className="text-[11px] leading-relaxed text-muted-foreground/80 line-clamp-2 cursor-default">
-                {review.rationale}
-              </p>
-            }
-          />
-          <TooltipContent side="bottom" className="max-w-md text-xs">
-            {review.rationale}
-          </TooltipContent>
-        </Tooltip>
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-border/40 bg-background/30 px-4 py-3">
+          {direction ? (
+            <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
+              <div>
+                <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Merging {direction.fromIds.length} source{direction.fromIds.length === 1 ? "" : "s"}
+                </div>
+                <div className="flex flex-col gap-px">
+                  {direction.fromIds.map((id) => (
+                    <SubjectListItem
+                      key={id}
+                      refId={id}
+                      resolved={subjectMap.get(id)}
+                      schemas={schemas}
+                      onClick={() => router.push(`/?ref=${id}`)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-center px-2">
+                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60" />
+              </div>
+              <div>
+                <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Into canonical
+                </div>
+                <SubjectListItem
+                  refId={direction.toId}
+                  resolved={subjectMap.get(direction.toId)}
+                  schemas={schemas}
+                  onClick={() => router.push(`/?ref=${direction.toId}`)}
+                />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Subjects ({review.subject_nodes.length})
+              </div>
+              <div className="flex flex-col gap-px">
+                {review.subject_nodes.map((sn) => (
+                  <SubjectListItem
+                    key={sn.ref_id}
+                    refId={sn.ref_id}
+                    resolved={sn}
+                    schemas={schemas}
+                    onClick={() => router.push(`/?ref=${sn.ref_id}`)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
-        {review.status === "failed" && review.error_message && (
-          <p className="mt-1.5 text-[11px] text-red-400 font-medium">
-            ✕ {review.error_message}
-          </p>
-        )}
-        {review.status === "dismissed" && review.dismissal_reason && (
-          <p className="mt-1.5 text-[11px] text-muted-foreground italic">
-            Reason: {review.dismissal_reason}
-          </p>
-        )}
-        {inlineError && (
-          <p className="mt-1.5 text-[11px] text-red-400 font-medium">
-            ✕ {inlineError}
-          </p>
-        )}
-      </div>
+          <div className="mt-3 border-t border-border/30 pt-2">
+            <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Rationale
+            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <p className="text-[11px] leading-relaxed text-foreground/80 cursor-default">
+                    {review.rationale}
+                  </p>
+                }
+              />
+              <TooltipContent side="bottom" className="max-w-md text-xs">
+                {review.rationale}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
