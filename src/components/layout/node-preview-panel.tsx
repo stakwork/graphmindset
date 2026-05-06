@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import { payL402, getPrice } from "@/lib/sphinx"
+import { unlockNode } from "@/lib/unlock-node"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
@@ -501,8 +502,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   async function handleUnlock() {
     setUnlockState("loading")
     try {
-      const result = await api.get<GraphData>(`/v2/nodes/${node.ref_id}`)
-      const unlocked = result.nodes?.[0] ?? null
+      const unlocked = await unlockNode(node.ref_id)
       setFullNode(unlocked)
       setUnlockState("unlocked")
       refreshBalance()
@@ -510,8 +510,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       if (err instanceof Response && err.status === 402) {
         try {
           await payL402(() => {})
-          const result = await api.get<GraphData>(`/v2/nodes/${node.ref_id}`)
-          const unlocked = result.nodes?.[0] ?? null
+          const unlocked = await unlockNode(node.ref_id)
           setFullNode(unlocked)
           setUnlockState("unlocked")
           refreshBalance()
