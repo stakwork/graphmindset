@@ -90,11 +90,7 @@ describe("ReviewRow", () => {
 
   it("renders amber badge for pending status", () => {
     const { container } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
     )
     const badge = container.querySelector("[data-status='pending']")
     expect(badge).toBeTruthy()
@@ -104,11 +100,7 @@ describe("ReviewRow", () => {
 
   it("renders green badge for approved status", () => {
     const { container } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "approved" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "approved" })} onRefresh={noop} />
     )
     const badge = container.querySelector("[data-status='approved']")
     expect(badge).toBeTruthy()
@@ -118,11 +110,7 @@ describe("ReviewRow", () => {
 
   it("renders grey badge for dismissed status", () => {
     const { container } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "dismissed" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "dismissed" })} onRefresh={noop} />
     )
     const badge = container.querySelector("[data-status='dismissed']")
     expect(badge).toBeTruthy()
@@ -132,11 +120,7 @@ describe("ReviewRow", () => {
 
   it("renders red badge for failed status", () => {
     const { container } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "failed" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "failed" })} onRefresh={noop} />
     )
     const badge = container.querySelector("[data-status='failed']")
     expect(badge).toBeTruthy()
@@ -148,11 +132,7 @@ describe("ReviewRow", () => {
 
   it("shows Approve and Dismiss buttons only for pending rows", () => {
     const { getByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
     )
     expect(getByText("Approve")).toBeTruthy()
     expect(getByText("Dismiss")).toBeTruthy()
@@ -160,11 +140,7 @@ describe("ReviewRow", () => {
 
   it("does NOT show Approve/Dismiss buttons for approved rows", () => {
     const { queryByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "approved" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "approved" })} onRefresh={noop} />
     )
     expect(queryByText("Approve")).toBeNull()
     expect(queryByText("Dismiss")).toBeNull()
@@ -172,11 +148,7 @@ describe("ReviewRow", () => {
 
   it("does NOT show Approve/Dismiss buttons for dismissed rows", () => {
     const { queryByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "dismissed" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "dismissed" })} onRefresh={noop} />
     )
     expect(queryByText("Approve")).toBeNull()
     expect(queryByText("Dismiss")).toBeNull()
@@ -184,11 +156,7 @@ describe("ReviewRow", () => {
 
   it("does NOT show Approve/Dismiss buttons for failed rows", () => {
     const { queryByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ status: "failed" })} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ status: "failed" })} onRefresh={noop} />
     )
     expect(queryByText("Approve")).toBeNull()
     expect(queryByText("Dismiss")).toBeNull()
@@ -198,33 +166,25 @@ describe("ReviewRow", () => {
 
   it("shows error_message for failed status", () => {
     const { getByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow
-            schemas={[]}
-            review={makeReview({
-              status: "failed",
-              error_message: "no handler registered for action: supersede",
-            })}
-            onRefresh={noop}
-          />
-        </tbody>
-      </table>
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          status: "failed",
+          error_message: "no handler registered for action: supersede",
+        })}
+        onRefresh={noop}
+      />
     )
     expect(getByText(/no handler registered for action: supersede/)).toBeTruthy()
   })
 
   it("does NOT show error_message block when status is not failed", () => {
     const { queryByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow
-            schemas={[]}
-            review={makeReview({ status: "pending", error_message: "should be hidden" })}
-            onRefresh={noop}
-          />
-        </tbody>
-      </table>
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({ status: "pending", error_message: "should be hidden" })}
+        onRefresh={noop}
+      />
     )
     expect(queryByText(/should be hidden/)).toBeNull()
   })
@@ -237,11 +197,7 @@ describe("ReviewRow", () => {
     const onRefresh = vi.fn()
 
     const { getByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-approve-me" })} onRefresh={onRefresh} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-approve-me" })} onRefresh={onRefresh} />
     )
 
     // First click shows confirmation
@@ -262,11 +218,7 @@ describe("ReviewRow", () => {
     })
 
     const { getByText, findByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
     )
 
     await user.click(getByText("Approve"))
@@ -284,11 +236,7 @@ describe("ReviewRow", () => {
     const onRefresh = vi.fn()
 
     const { getByText, getByPlaceholderText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-dismiss-me" })} onRefresh={onRefresh} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-dismiss-me" })} onRefresh={onRefresh} />
     )
 
     await user.click(getByText("Dismiss"))
@@ -308,11 +256,7 @@ describe("ReviewRow", () => {
     const onRefresh = vi.fn()
 
     const { getByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-dismiss-empty" })} onRefresh={onRefresh} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-dismiss-empty" })} onRefresh={onRefresh} />
     )
 
     await user.click(getByText("Dismiss"))
@@ -327,15 +271,11 @@ describe("ReviewRow", () => {
 
   it("renders Run label with last 5 chars of run_ref_id when present", () => {
     const { getByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow
-            schemas={[]}
-            review={makeReview({ run_ref_id: "mock-janitor-run-1" })}
-            onRefresh={noop}
-          />
-        </tbody>
-      </table>
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({ run_ref_id: "mock-janitor-run-1" })}
+        onRefresh={noop}
+      />
     )
     // last 5 chars of "mock-janitor-run-1" = "run-1"
     expect(getByText("Run #run-1")).toBeTruthy()
@@ -343,11 +283,7 @@ describe("ReviewRow", () => {
 
   it("does NOT render Run label when run_ref_id is absent", () => {
     const { queryByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
-        </tbody>
-      </table>
+      <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
     )
     expect(queryByText(/Run #/)).toBeNull()
   })
@@ -356,18 +292,14 @@ describe("ReviewRow", () => {
 
   it("shows dismissal_reason for dismissed rows", () => {
     const { getByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow
-            schemas={[]}
-            review={makeReview({
-              status: "dismissed",
-              dismissal_reason: "Already handled manually.",
-            })}
-            onRefresh={noop}
-          />
-        </tbody>
-      </table>
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          status: "dismissed",
+          dismissal_reason: "Already handled manually.",
+        })}
+        onRefresh={noop}
+      />
     )
     expect(getByText(/Already handled manually\./)).toBeTruthy()
   })
@@ -376,21 +308,20 @@ describe("ReviewRow", () => {
 
   it("renders 'Deleted:' placeholder for subject_nodes entry with null node_type", () => {
     const { getByText } = render(
-      <table>
-        <tbody>
-          <ReviewRow
-            schemas={[]}
-            review={makeReview({
-              subject_ids: ["n1", "n-deleted"],
-              subject_nodes: [
-                { ref_id: "n1", node_type: "Topic", properties: { name: "Node One" } },
-                { ref_id: "n-deleted", node_type: null, properties: null },
-              ],
-            })}
-            onRefresh={noop}
-          />
-        </tbody>
-      </table>
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          subject_ids: ["n1", "n-deleted"],
+          subject_nodes: [
+            { ref_id: "n1", node_type: "Topic", properties: { name: "Node One" } },
+            { ref_id: "n-deleted", node_type: null, properties: null },
+          ],
+          // The deleted node must appear in the action_payload for the new
+          // directional layout to render its "Deleted: …" placeholder.
+          action_payload: { from: ["n-deleted"], to: "n1" },
+        })}
+        onRefresh={noop}
+      />
     )
     expect(getByText(/Deleted:/)).toBeTruthy()
     expect(getByText(/n-deleted/)).toBeTruthy()

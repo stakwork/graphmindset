@@ -26,19 +26,26 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZE = 20
 
-function SkeletonRows() {
+function SkeletonCards() {
   return (
-    <>
+    <div className="flex flex-col gap-3">
       {Array.from({ length: 5 }).map((_, i) => (
-        <tr key={i} className="border-b border-border/50">
-          {Array.from({ length: 8 }).map((_, j) => (
-            <td key={j} className="py-3 px-3">
-              <div className="h-4 rounded bg-muted/40 animate-pulse" style={{ width: `${40 + (j * 13) % 50}%` }} />
-            </td>
-          ))}
-        </tr>
+        <div key={i} className="overflow-hidden rounded-lg border border-border/70 bg-card/40">
+          <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-4 py-2">
+            <div className="h-4 w-48 rounded bg-muted/40 animate-pulse" />
+            <div className="h-5 w-20 rounded bg-muted/40 animate-pulse" />
+          </div>
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 py-3">
+            <div className="h-8 rounded bg-muted/30 animate-pulse" />
+            <div className="h-6 w-6 rounded-full bg-muted/30 animate-pulse" />
+            <div className="h-8 rounded bg-muted/30 animate-pulse" />
+          </div>
+          <div className="border-t border-border/60 bg-background/40 px-4 py-2">
+            <div className="h-3 w-3/4 rounded bg-muted/30 animate-pulse" />
+          </div>
+        </div>
       ))}
-    </>
+    </div>
   )
 }
 
@@ -195,51 +202,35 @@ export default function ReviewsPage() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* List */}
       <div className="flex-1 overflow-auto">
-        {error ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-red-400">{error}</p>
-          </div>
-        ) : (
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-border bg-muted/20 sticky top-0 z-10">
-                {["Type", "Rationale", "Subjects", "Action", "Priority", "Created", "Status", "Actions"].map((col) => (
-                  <th
-                    key={col}
-                    className="py-2 px-3 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
-                  >
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <SkeletonRows />
-              ) : reviews.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-16 text-center text-sm text-muted-foreground">
-                    {statusFilter === "pending"
-                      ? "No pending reviews — the graph is clean ✓"
-                      : "No reviews match the selected filters."}
-                  </td>
-                </tr>
-              ) : (
-                reviews.map((review) => (
-                  <ReviewRow
-                    key={review.ref_id}
-                    review={review}
-                    schemas={schemas}
-                    onRefresh={() => fetchReviews(skip)}
-                    onCountRefresh={refreshBadgeCount}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        )}
+        <div className="mx-auto max-w-5xl px-4 py-4">
+          {error ? (
+            <div className="flex h-full items-center justify-center py-16">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          ) : loading ? (
+            <SkeletonCards />
+          ) : reviews.length === 0 ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              {statusFilter === "pending"
+                ? "No pending reviews — the graph is clean ✓"
+                : "No reviews match the selected filters."}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {reviews.map((review) => (
+                <ReviewRow
+                  key={review.ref_id}
+                  review={review}
+                  schemas={schemas}
+                  onRefresh={() => fetchReviews(skip)}
+                  onCountRefresh={refreshBadgeCount}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Pagination */}
