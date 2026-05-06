@@ -15,6 +15,7 @@ import { MAX_LENGTHS } from "@/lib/input-limits"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
 import { useAppStore } from "@/stores/app-store"
+import { usePlayerStore } from "@/stores/player-store"
 import { api } from "@/lib/api"
 import { getL402, payL402, getPrice } from "@/lib/sphinx"
 import {
@@ -24,6 +25,7 @@ import {
   isSubscriptionSource,
   type SourceType,
 } from "@/lib/source-detection"
+import { checkNodeExists, type GraphNode } from "@/lib/graph-api"
 
 const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
   [SOURCE_TYPES.TWEET]: "tweet",
@@ -34,6 +36,10 @@ const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
   [SOURCE_TYPES.WEB_PAGE]: "webpage",
   [SOURCE_TYPES.DOCUMENT]: "document",
 }
+
+const IN_PROGRESS_STATUSES = ["in_progress", "running", "pending"]
+
+type CacheStatus = "miss" | "hit-completed" | "hit-in-progress" | null
 
 export function AddContentModal() {
   const { activeModal, close, open: openModal } = useModalStore()
@@ -48,6 +54,8 @@ export function AddContentModal() {
   const [price, setPrice] = useState<number | null>(null)
   const [topics, setTopics] = useState<string[]>([])
   const [topicDraft, setTopicDraft] = useState("")
+  const [cacheStatus, setCacheStatus] = useState<CacheStatus>(null)
+  const [cachedRefId, setCachedRefId] = useState<string | null>(null)
 
   // Fetch price based on detected type
   useEffect(() => {
@@ -62,6 +70,8 @@ export function AddContentModal() {
     setDetectedType(null)
     setError("")
     setSuccess(false)
+    setCacheStatus(null)
+    setCachedRefId(null)
 
     const trimmed = value.trim()
     if (!trimmed || trimmed.length < 5) return
@@ -70,6 +80,34 @@ export function AddContentModal() {
     try {
       const type = await detectSourceType(trimmed)
       setDetectedType(type)
+
+      // Preflight cache check for YouTube/podcast URLs
+      if (
+        type === SOURCE_TYPES.YOUTUBE_VIDEO ||
+        type === SOURCE_TYPES.YOUTUBE_LIVE ||
+        type === SOURCE_TYPES.YOUTUBE_SHORT ||
+        type === SOURCE_TYPES.LINK
+      ) {
+        const check = await checkNodeExists("Episode", trimmed)
+        console.log("[add-content] cache check:", {
+          nodeType: "Episode",
+          key: trimmed,
+          cacheStatus: check.exists
+            ? IN_PROGRESS_STATUSES.includes(check.status ?? "")
+              ? "hit-in-progress"
+              : "hit-completed"
+            : "miss",
+          cachedRefId: check.ref_id,
+        })
+        if (check.exists && check.ref_id) {
+          const isTerminal = !IN_PROGRESS_STATUSES.includes(check.status ?? "")
+          setCacheStatus(isTerminal ? "hit-completed" : "hit-in-progress")
+          setCachedRefId(check.ref_id)
+        } else {
+          setCacheStatus("miss")
+          setCachedRefId(null)
+        }
+      }
     } catch {
       setDetectedType(null)
     } finally {
@@ -82,6 +120,16 @@ export function AddContentModal() {
       const l402 = await getL402()
       const headers: Record<string, string> = {}
       if (l402) headers["Authorization"] = l402
+
+      // Cache-hit unlock path: GET /v2/nodes/:ref_id
+      if (cacheStatus === "hit-completed" && cachedRefId) {
+        const data = await api.get<{ nodes?: GraphNode[] }>(`/v2/nodes/${cachedRefId}`, headers)
+        const episode = data?.nodes?.[0]
+        if (episode) {
+          usePlayerStore.getState().setPlayingNode(episode)
+        }
+        return
+      }
 
       const fullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
       console.log("[add-content] pubKey:", pubKey, "routeHint:", routeHint, "fullPubkey:", fullPubkey)
@@ -108,7 +156,7 @@ export function AddContentModal() {
 
       await api.post("/v2/content", body, headers)
     },
-    [pubKey, routeHint, topics]
+    [pubKey, routeHint, topics, cacheStatus, cachedRefId]
   )
 
   const handleSubmit = useCallback(async () => {
@@ -130,6 +178,8 @@ export function AddContentModal() {
         setPrice(null)
         setTopics([])
         setTopicDraft("")
+        setCacheStatus(null)
+        setCachedRefId(null)
         close()
         openMyContent()
       }, 1200)
@@ -148,6 +198,8 @@ export function AddContentModal() {
             setDetectedType(null)
             setSuccess(false)
             setPrice(null)
+            setCacheStatus(null)
+            setCachedRefId(null)
             close()
             openMyContent()
           }, 1200)
@@ -180,6 +232,8 @@ export function AddContentModal() {
         setPrice(null)
         setTopics([])
         setTopicDraft("")
+        setCacheStatus(null)
+        setCachedRefId(null)
       }
     },
     [close]
@@ -200,8 +254,22 @@ export function AddContentModal() {
   }, [])
 
   const isSubscriptionBlocked = !!detectedType && isSubscriptionSource(detectedType) && !isAdmin
+  const isInProgress = cacheStatus === "hit-in-progress"
 
   const formattedBudget = budget !== null ? budget.toLocaleString() : "--"
+
+  // Derive submit button label
+  const submitLabel = (() => {
+    if (success) return null // handled separately
+    if (submitting) return null // handled separately
+    if (cacheStatus === "hit-completed") {
+      return price && price > 0 ? "Pay & Unlock" : "Unlock"
+    }
+    if (cacheStatus === "hit-in-progress") {
+      return "Processing…"
+    }
+    return price && price > 0 ? "Pay & Add" : "Add Source"
+  })()
 
   return (
     <Dialog open={activeModal === "addContent"} onOpenChange={handleOpenChange}>
@@ -237,6 +305,25 @@ export function AddContentModal() {
               <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_4px_oklch(0.72_0.14_200/0.5)]" />
               <span className="text-xs text-primary font-medium">
                 Detected: {SOURCE_TYPE_LABELS[detectedType] ?? detectedType}
+              </span>
+            </div>
+          )}
+
+          {/* Cache state badge */}
+          {cacheStatus === "hit-completed" && !detecting && (
+            <div className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 animate-fade-in-up">
+              <Zap className="h-3.5 w-3.5 text-emerald-500" />
+              <span className="text-xs text-emerald-500 font-medium">
+                Cached — instant unlock
+              </span>
+            </div>
+          )}
+
+          {cacheStatus === "hit-in-progress" && !detecting && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 animate-fade-in-up">
+              <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
+              <span className="text-xs text-amber-500 font-medium">
+                Processing — check back shortly
               </span>
             </div>
           )}
@@ -334,26 +421,32 @@ export function AddContentModal() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={submitting || !detectedType || !sourceUrl.trim() || isSubscriptionBlocked}
+              disabled={
+                submitting ||
+                !detectedType ||
+                !sourceUrl.trim() ||
+                isSubscriptionBlocked ||
+                isInProgress
+              }
               className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {success ? (
                 <>
                   <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                  Added
+                  {cacheStatus === "hit-completed" ? "Unlocked" : "Added"}
                 </>
               ) : submitting ? (
                 <>
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  Adding...
-                </>
-              ) : price && price > 0 ? (
-                <>
-                  <Zap className="mr-1.5 h-3.5 w-3.5" />
-                  Pay & Add
+                  {cacheStatus === "hit-completed" ? "Unlocking..." : "Adding..."}
                 </>
               ) : (
-                "Add Source"
+                <>
+                  {(price && price > 0) || cacheStatus === "hit-completed" ? (
+                    <Zap className="mr-1.5 h-3.5 w-3.5" />
+                  ) : null}
+                  {submitLabel}
+                </>
               )}
             </Button>
           </div>
