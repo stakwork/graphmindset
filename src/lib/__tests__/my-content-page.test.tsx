@@ -160,7 +160,7 @@ describe("MyContentPanel", () => {
     })
 
     expect(mockApiGet).toHaveBeenCalledWith(
-      "/v2/content?pubkey=03abc123testkey&sort_by=date&limit=100"
+      "/v2/content?sort_by=date&limit=100"
     )
   })
 
@@ -396,7 +396,7 @@ describe("MyContentPanel – L402 identity paths", () => {
     mockGetL402Value = ""
   })
 
-  it("pubKey present: fetches with pubkey param (Sphinx path unchanged)", async () => {
+  it("pubKey present: fetches without pubkey param — identity flows via auto-attached sig+msg", async () => {
     myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
     mockApiGet.mockResolvedValue(EMPTY_RESPONSE)
     render(<MyContentPanel onClose={() => {}} />)
@@ -406,7 +406,11 @@ describe("MyContentPanel – L402 identity paths", () => {
     })
 
     expect(mockApiGet).toHaveBeenCalledWith(
-      "/v2/content?pubkey=03abc123testkey&sort_by=date&limit=100"
+      "/v2/content?sort_by=date&limit=100"
+    )
+    // Must NOT include a pubkey param — boltwall derives identity from sig
+    expect(mockApiGet).not.toHaveBeenCalledWith(
+      expect.stringContaining("pubkey=")
     )
   })
 
