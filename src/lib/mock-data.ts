@@ -74,7 +74,7 @@ export const MOCK_NODES: GraphNode[] = [
   {
     ref_id: "n9",
     node_type: "TwitterAccount",
-    properties: { twitter_handle: "AnthropicAI", name: "Anthropic", profile_image_url: "https://picsum.photos/seed/anthropic-ai/120", verified: true },
+    properties: { twitter_handle: "AnthropicAI", name: "Anthropic", image_url: "https://picsum.photos/seed/anthropic-ai/120", verified: true },
   },
   {
     ref_id: "n10",
@@ -239,7 +239,7 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
           twitter_handle: "AnthropicAI",
           name: "Anthropic",
           author_id: "1641421906432466944",
-          profile_image_url: "https://picsum.photos/seed/anthropic-ai/96",
+          image_url: "https://picsum.photos/seed/anthropic-ai/96",
           verified: true,
           verified_type: "business",
           is_identity_verified: true,
