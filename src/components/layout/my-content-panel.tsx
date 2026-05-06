@@ -53,12 +53,11 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchFromApi = useCallback(async (): Promise<ContentResponse | null> => {
-    // Sphinx path — pubkey-keyed query (unchanged)
+    // Sphinx path: identity is derived from the auto-attached sig+msg by the
+    // api wrapper; boltwall verifies and stamps X-Caller-Pubkey downstream.
+    // The client never sends pubkey — that prevents enumerating other users.
     if (pubKey) {
-      const fullPubkey = routeHint ? `${pubKey}_${routeHint}` : pubKey
-      return api.get<ContentResponse>(
-        `/v2/content?pubkey=${fullPubkey}&sort_by=date&limit=100`
-      )
+      return api.get<ContentResponse>(`/v2/content?sort_by=date&limit=100`)
     }
     // L402 path — api wrapper auto-attaches Authorization header
     const l402 = await getL402()
@@ -67,7 +66,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
     }
     // No identity — return empty payload; panel renders empty state
     return { nodes: [], totalCount: 0, totalProcessing: 0 }
-  }, [pubKey, routeHint])
+  }, [pubKey])
 
   const applyResponse = useCallback((res: ContentResponse | null) => {
     if (!res) return
