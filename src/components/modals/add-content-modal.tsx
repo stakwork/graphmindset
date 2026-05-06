@@ -40,6 +40,7 @@ const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
 const IN_PROGRESS_STATUSES = ["in_progress", "running", "pending"]
 
 type CacheStatus = "miss" | "hit-completed" | "hit-in-progress" | null
+type PreviewState = "pending" | "owned" | "pay-required" | "fallback" | null
 
 export function AddContentModal() {
   const { activeModal, close, open: openModal } = useModalStore()
@@ -56,6 +57,8 @@ export function AddContentModal() {
   const [topicDraft, setTopicDraft] = useState("")
   const [cacheStatus, setCacheStatus] = useState<CacheStatus>(null)
   const [cachedRefId, setCachedRefId] = useState<string | null>(null)
+  const [previewState, setPreviewState] = useState<PreviewState>(null)
+  const [previewedNode, setPreviewedNode] = useState<GraphNode | null>(null)
 
   // Fetch price based on detected type
   useEffect(() => {
@@ -72,6 +75,8 @@ export function AddContentModal() {
     setSuccess(false)
     setCacheStatus(null)
     setCachedRefId(null)
+    setPreviewState(null)
+    setPreviewedNode(null)
 
     const trimmed = value.trim()
     if (!trimmed || trimmed.length < 5) return
@@ -101,8 +106,55 @@ export function AddContentModal() {
         })
         if (check.exists && check.ref_id) {
           const isTerminal = !IN_PROGRESS_STATUSES.includes(check.status ?? "")
-          setCacheStatus(isTerminal ? "hit-completed" : "hit-in-progress")
+          const resolvedStatus: CacheStatus = isTerminal ? "hit-completed" : "hit-in-progress"
+          setCacheStatus(resolvedStatus)
           setCachedRefId(check.ref_id)
+
+          // Fire preview probe only for hit-completed
+          if (isTerminal) {
+            setPreviewState("pending")
+            try {
+              const preview = await api.get<{ nodes?: GraphNode[] }>(
+                `/v2/nodes/${check.ref_id}?preview=1`
+              )
+              const node = preview?.nodes?.[0]
+              console.log("[add-content] preview probe:", {
+                result: node ? "owned" : "fallback",
+                ref_id: check.ref_id,
+              })
+              if (node) {
+                setPreviewState("owned")
+                setPreviewedNode(node)
+                usePlayerStore.getState().setPlayingNode(node)
+                // Auto-route: mirror post-success reset + close
+                setSourceUrl("")
+                setDetectedType(null)
+                setSuccess(false)
+                setPrice(null)
+                setTopics([])
+                setTopicDraft("")
+                setCacheStatus(null)
+                setCachedRefId(null)
+                setPreviewState(null)
+                setPreviewedNode(null)
+                close()
+                useAppStore.getState().setMyContentOpen(true)
+              } else {
+                setPreviewState("fallback")
+              }
+            } catch (err: unknown) {
+              const status = err instanceof Response ? err.status : undefined
+              console.log("[add-content] preview probe:", {
+                result: status === 402 ? "pay-required" : "fallback",
+                ref_id: check.ref_id,
+              })
+              if (err instanceof Response && err.status === 402) {
+                setPreviewState("pay-required")
+              } else {
+                setPreviewState("fallback")
+              }
+            }
+          }
         } else {
           setCacheStatus("miss")
           setCachedRefId(null)
@@ -113,7 +165,7 @@ export function AddContentModal() {
     } finally {
       setDetecting(false)
     }
-  }, [])
+  }, [close])
 
   const submitWithAuth = useCallback(
     async (source: string, sourceType: SourceType) => {
@@ -180,6 +232,8 @@ export function AddContentModal() {
         setTopicDraft("")
         setCacheStatus(null)
         setCachedRefId(null)
+        setPreviewState(null)
+        setPreviewedNode(null)
         close()
         openMyContent()
       }, 1200)
@@ -200,6 +254,8 @@ export function AddContentModal() {
             setPrice(null)
             setCacheStatus(null)
             setCachedRefId(null)
+            setPreviewState(null)
+            setPreviewedNode(null)
             close()
             openMyContent()
           }, 1200)
@@ -234,6 +290,8 @@ export function AddContentModal() {
         setTopicDraft("")
         setCacheStatus(null)
         setCachedRefId(null)
+        setPreviewState(null)
+        setPreviewedNode(null)
       }
     },
     [close]
@@ -257,6 +315,9 @@ export function AddContentModal() {
   const isInProgress = cacheStatus === "hit-in-progress"
 
   const formattedBudget = budget !== null ? budget.toLocaleString() : "--"
+
+  // Suppress payment UI while preview probe is in-flight or already owned
+  const hidePaymentUI = previewState === "pending" || previewState === "owned"
 
   // Derive submit button label
   const submitLabel = (() => {
@@ -371,8 +432,8 @@ export function AddContentModal() {
             </div>
           )}
 
-          {/* Cost & Budget */}
-          {detectedType && price !== null && price > 0 && (
+          {/* Cost & Budget — hidden while preview probe is in-flight or content is owned */}
+          {detectedType && price !== null && price > 0 && !hidePaymentUI && (
             <>
               <Separator className="bg-border/30" />
               <div className="flex items-center justify-between text-xs">
