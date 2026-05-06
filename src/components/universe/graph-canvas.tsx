@@ -57,10 +57,11 @@ function truncateLabel(label: string): string {
 const CLUSTER_THRESHOLD = 8
 
 // Edge types whose data direction is "child → parent" — flip them so the
-// hierarchy reads parent → child. SOURCE in the data goes Claim → Chapter,
-// but a chapter is conceptually the source/origin of a claim, so the
-// hierarchy should put the claim under its chapter.
-const INVERT_FOR_HIERARCHY = new Set(["SOURCE"])
+// hierarchy reads parent → child. The container/originator should end up
+// as the visual parent:
+//   SOURCE        Claim → Chapter         (Chapter is the source, parent of the claim)
+//   MENTIONED_IN  Product/Topic → Section (Section is the container, parent of the mention)
+const INVERT_FOR_HIERARCHY = new Set(["SOURCE", "MENTIONED_IN"])
 
 function apiToGraph(
   nodes: ApiNode[],
