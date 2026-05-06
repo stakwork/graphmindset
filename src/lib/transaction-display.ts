@@ -29,3 +29,18 @@ export function getActionDisplayLabel(action: string): string {
 export function getActionBadgeColor(action: string): string {
   return ACTION_BADGE_COLORS[action] ?? ACTION_BADGE_COLORS.other
 }
+
+export interface TransactionRow {
+  action: string
+  type: 'debit' | 'credit'
+  amount: number | string
+}
+
+/**
+ * Returns true for synthetic zero-amount purchase rows written by addNodeV2 /
+ * addContentV2 to grant submitters free re-access. These should not appear in
+ * the user-facing transaction history.
+ */
+export function isViewGrantRow(tx: TransactionRow): boolean {
+  return tx.action === 'purchase' && Number(tx.amount) === 0
+}

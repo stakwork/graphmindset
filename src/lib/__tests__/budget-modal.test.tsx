@@ -69,6 +69,9 @@ vi.mock("@/lib/mock-data", () => ({
 vi.mock("@/lib/transaction-display", () => ({
   getActionDisplayLabel: vi.fn((action: string) => action),
   getActionBadgeColor: vi.fn(() => ""),
+  isViewGrantRow: vi.fn((tx: { action: string; amount: number }) =>
+    tx.action === "purchase" && Number(tx.amount) === 0
+  ),
 }))
 
 // --- API mock ---
@@ -311,5 +314,153 @@ describe("BudgetModal Manage Token flow", () => {
     })
 
     expect(cookieStorage.getItem("l402")).toBeNull()
+  })
+})
+
+describe("BudgetModal back-nav poll cancellation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 500
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockApiGet.mockReset()
+    cookieStorage.removeItem("l402")
+  })
+
+  it("clicking Back from first-invoice aborts the poll, resets loading, returns to first-purchase with no error", async () => {
+    // pollPaymentStatus never resolves unless signal is aborted
+    mockPollPaymentStatus.mockImplementation(
+      (_hash: string, _max: number, _interval: number, signal?: AbortSignal) =>
+        new Promise<boolean>((resolve) => {
+          if (signal) {
+            signal.addEventListener("abort", () => resolve(false))
+          }
+          // Never resolves on its own (simulates long poll)
+        })
+    )
+    mockFetchBuyLsatChallenge.mockResolvedValue({
+      invoice: "lnbcbuy999",
+      baseMacaroon: "mac999",
+      paymentHash: "hash999",
+      id: "lsat999",
+    })
+
+    render(<BudgetModal />)
+
+    // Start first-purchase flow
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByText("Get Started")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    // Wait for first-invoice step (QR shown)
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    // Click Back — should abort poll and return to first-purchase
+    const backBtn = screen.getByRole("button", { name: "Go back" })
+    fireEvent.click(backBtn)
+
+    await waitFor(() => expect(screen.getByText("Get Started")).toBeInTheDocument())
+
+    // No error text
+    expect(screen.queryByText(/Payment not detected/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Processing/)).not.toBeInTheDocument()
+  })
+
+  it("clicking Back from invoice step aborts the poll and returns to amount step with no error", async () => {
+    // Set up existing L402 for manual QR flow
+    cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
+    mockTopUpLsat.mockResolvedValue({ payment_request: "lnbctest456", payment_hash: "hash456" })
+
+    mockPollPaymentStatus.mockImplementation(
+      (_hash: string, _max: number, _interval: number, signal?: AbortSignal) =>
+        new Promise<boolean>((resolve) => {
+          if (signal) {
+            signal.addEventListener("abort", () => resolve(false))
+          }
+        })
+    )
+
+    render(<BudgetModal />)
+
+    // Navigate to amount step
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Custom amount")).toBeInTheDocument())
+
+    // Select preset amount
+    fireEvent.click(screen.getByText("50"))
+
+    // Click Generate Invoice → goes to invoice step
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    // Wait for invoice step
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    // Click Back
+    const backBtn = screen.getByRole("button", { name: "Go back" })
+    fireEvent.click(backBtn)
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Custom amount")).toBeInTheDocument())
+
+    expect(screen.queryByText(/Payment not detected/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Processing/)).not.toBeInTheDocument()
+  })
+})
+
+describe("BudgetModal history view-grant filtering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 500
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockApiGet.mockReset()
+    cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
+  })
+
+  it("does not render zero-amount purchase (view-grant) rows in History", async () => {
+    mockFetchTransactionHistory.mockResolvedValue({
+      transactions: [
+        { action: "purchase", type: "debit", amount: 0, created_at: null },
+        { action: "top_up", type: "credit", amount: 500, created_at: null },
+      ],
+      scope: "token",
+    })
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("History"))
+
+    await waitFor(() => {
+      expect(screen.getByText("top_up")).toBeInTheDocument()
+    })
+
+    // Zero-amount purchase should be filtered out
+    expect(screen.queryByText("-0 sats")).not.toBeInTheDocument()
+    // top_up row should be present
+    expect(screen.getByText("+500 sats")).toBeInTheDocument()
+  })
+
+  it("renders non-zero purchase rows in History", async () => {
+    mockFetchTransactionHistory.mockResolvedValue({
+      transactions: [
+        { action: "purchase", type: "debit", amount: 10, created_at: null },
+        { action: "purchase", type: "debit", amount: 0, created_at: null },
+      ],
+      scope: "token",
+    })
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("History"))
+
+    await waitFor(() => {
+      // The non-zero purchase row should be visible
+      expect(screen.getByText("-10 sats")).toBeInTheDocument()
+    })
+
+    // The zero-amount purchase should NOT appear
+    expect(screen.queryByText("-0 sats")).not.toBeInTheDocument()
   })
 })
