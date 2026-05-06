@@ -54,7 +54,13 @@ function truncateLabel(label: string): string {
 // When a single source has this many neighbors of the same (edge_type,
 // target_type), insert a synthetic cluster junction so the bundle reads as
 // "source → cluster → 20 leaves" instead of 20 individual lines fanning out.
-const CLUSTER_THRESHOLD = 6
+const CLUSTER_THRESHOLD = 8
+
+// Edge types whose data direction is "child → parent" — flip them so the
+// hierarchy reads parent → child. SOURCE in the data goes Claim → Chapter,
+// but a chapter is conceptually the source/origin of a claim, so the
+// hierarchy should put the claim under its chapter.
+const INVERT_FOR_HIERARCHY = new Set(["SOURCE"])
 
 function apiToGraph(
   nodes: ApiNode[],
@@ -68,13 +74,26 @@ function apiToGraph(
 
   const nodeTypeById = new Map(nodes.map((n) => [n.ref_id, n.node_type || "Unknown"]))
 
+  // Rewrite child→parent edges (e.g. SOURCE: Claim→Chapter) into parent→child
+  // form so every downstream pass — incoming-count, bundles, rawEdges — sees
+  // the same hierarchy. The render arrow ends up pointing parent→child, which
+  // matches the visual we want.
+  edges = edges.map((e) =>
+    INVERT_FOR_HIERARCHY.has(e.edge_type)
+      ? { ...e, source: e.target, target: e.source }
+      : e
+  )
+
   // ─── 1. Roots + orphan reachability ────────────────────────────────────
   // Compute on the original `edges` (cluster routing happens later and
-  // doesn't change reachability).
+  // doesn't change reachability). Only count incoming from known sources —
+  // edges referencing nodes outside the loaded subgraph would otherwise
+  // mark a real node as "non-root" without contributing to reachability,
+  // leaving its subgraph stranded as orphans.
   const incomingCount = new Map<string, number>()
   for (const n of nodes) incomingCount.set(n.ref_id, 0)
   for (const e of edges) {
-    if (incomingCount.has(e.target)) {
+    if (incomingCount.has(e.target) && incomingCount.has(e.source)) {
       incomingCount.set(e.target, (incomingCount.get(e.target) ?? 0) + 1)
     }
   }
@@ -109,17 +128,26 @@ function apiToGraph(
   // ─── 2. Decide which types get a __group_<type> ────────────────────────
   // A type gets its own synthetic group node when it either has orphans or
   // — under the existing crowd-control rule — when there are >10 roots and
-  // the type has ≥2 of them. Determined up-front so the cluster pass can
-  // absorb same-type bundles into the group and avoid duplicate visuals.
+  // the type has ≥2 leaf-like roots. "Leaf-like" = none of the type's roots
+  // have outgoing edges to known nodes. This keeps hierarchy parents (e.g.
+  // Episode, which has outgoing HAS → Chapter) surfacing as individuals
+  // instead of being collapsed into __group_Episode.
   const orphanTypes = new Set(orphans.map((o) => o.node_type || "Unknown"))
+  const hasKnownOut = new Set<string>()
+  for (const e of edges) {
+    if (incomingCount.has(e.source) && incomingCount.has(e.target)) {
+      hasKnownOut.add(e.source)
+    }
+  }
   const crowdGroupedTypes = new Set<string>()
   if (roots.length > 10) {
-    const rootCountByType = new Map<string, number>()
+    const leafRootCountByType = new Map<string, number>()
     for (const r of roots) {
+      if (hasKnownOut.has(r.ref_id)) continue
       const type = r.node_type || "Unknown"
-      rootCountByType.set(type, (rootCountByType.get(type) ?? 0) + 1)
+      leafRootCountByType.set(type, (leafRootCountByType.get(type) ?? 0) + 1)
     }
-    for (const [type, count] of rootCountByType) {
+    for (const [type, count] of leafRootCountByType) {
       if (count >= 2) crowdGroupedTypes.add(type)
     }
   }
@@ -140,27 +168,17 @@ function apiToGraph(
   }
 
   // ─── 4. Process bundles ────────────────────────────────────────────────
-  // Bundles whose target_type already has a __group_<type> get absorbed
-  // into that group: source-to-leaf edges are dropped (clusterized), and
-  // the leaves are added to the group's member set. This keeps a single
-  // visual home per type — no `Product × 9` next to `Product`.
-  // Other bundles ≥ CLUSTER_THRESHOLD become a per-source cluster as before.
+  // Bundles ≥ CLUSTER_THRESHOLD become a per-source cluster — the parent
+  // keeps ownership ("Episode → Chapter × 9 → 9 chapters"), and the type's
+  // own __group_<type> stays reserved for nodes with no real parent (roots
+  // and orphans).
   const clusterizedEdges = new Set<ApiEdge>()
   const extraNodes: RawNode[] = []
   const extraEdges: RawEdge[] = []
-  const absorbedIntoGroup = new Map<string, Set<string>>()
-  for (const t of groupedTypes) absorbedIntoGroup.set(t, new Set())
 
   for (const [key, arr] of bundles) {
     if (arr.length < CLUSTER_THRESHOLD) continue
     const [source, edge_type, target_type] = key.split("::")
-    if (groupedTypes.has(target_type)) {
-      for (const e of arr) {
-        clusterizedEdges.add(e)
-        absorbedIntoGroup.get(target_type)!.add(e.target)
-      }
-      continue
-    }
     const clusterId = `__cluster_${source}_${edge_type}_${target_type}`
     extraNodes.push({ id: clusterId, label: `${target_type} × ${arr.length}` })
     extraEdges.push({ source, target: clusterId, label: edge_type })
@@ -180,7 +198,8 @@ function apiToGraph(
   rawEdges.push(...extraEdges)
 
   // ─── 6. Add __group_<type> nodes + member edges ────────────────────────
-  // Members = roots of type + orphans of type + leaves absorbed via cluster.
+  // Members = roots of type + orphans of type. These are nodes with no real
+  // parent in the data; the group gives them a single visual home.
   if (groupedTypes.size > 0) {
     const memberByType = new Map<string, Set<string>>()
     for (const t of groupedTypes) memberByType.set(t, new Set())
@@ -191,10 +210,6 @@ function apiToGraph(
     for (const o of orphans) {
       const t = o.node_type || "Unknown"
       if (groupedTypes.has(t)) memberByType.get(t)!.add(o.ref_id)
-    }
-    for (const [t, leaves] of absorbedIntoGroup) {
-      const set = memberByType.get(t)!
-      for (const leaf of leaves) set.add(leaf)
     }
     for (const [t, members] of memberByType) {
       if (members.size === 0) continue
