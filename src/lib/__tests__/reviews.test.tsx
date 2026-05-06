@@ -36,6 +36,20 @@ vi.mock("@/components/ui/tooltip", () => ({
   }) => render ?? <>{children}</>,
 }))
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
+vi.mock("@/stores/user-store", () => ({
+  useUserStore: () => ({ isAdmin: true }),
+}))
+
+vi.mock("@/components/layout/node-row", () => ({
+  NodeRow: ({ node }: { node: { ref_id: string; node_type: string; properties: Record<string, unknown> } }) => (
+    <div data-testid={`node-row-${node.ref_id}`}>{String(node.properties?.name ?? node.ref_id)}</div>
+  ),
+}))
+
 // ── Test fixtures ─────────────────────────────────────────────────────────────
 
 import type { Review } from "@/lib/graph-api"
@@ -46,6 +60,10 @@ function makeReview(overrides: Partial<Review> = {}): Review {
     type: "dedup",
     rationale: "These two nodes are duplicates",
     subject_ids: ["n1", "n2"],
+    subject_nodes: [
+      { ref_id: "n1", node_type: "Topic", properties: { name: "Node One" } },
+      { ref_id: "n2", node_type: "Topic", properties: { name: "Node Two" } },
+    ],
     action_name: "merge_nodes",
     action_payload: { from: ["n2"], to: "n1" },
     status: "pending",
@@ -74,7 +92,7 @@ describe("ReviewRow", () => {
     const { container } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "pending" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -88,7 +106,7 @@ describe("ReviewRow", () => {
     const { container } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "approved" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "approved" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -102,7 +120,7 @@ describe("ReviewRow", () => {
     const { container } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "dismissed" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "dismissed" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -116,7 +134,7 @@ describe("ReviewRow", () => {
     const { container } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "failed" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "failed" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -132,7 +150,7 @@ describe("ReviewRow", () => {
     const { getByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "pending" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -144,7 +162,7 @@ describe("ReviewRow", () => {
     const { queryByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "approved" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "approved" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -156,7 +174,7 @@ describe("ReviewRow", () => {
     const { queryByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "dismissed" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "dismissed" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -168,7 +186,7 @@ describe("ReviewRow", () => {
     const { queryByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ status: "failed" })} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview({ status: "failed" })} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -183,6 +201,7 @@ describe("ReviewRow", () => {
       <table>
         <tbody>
           <ReviewRow
+            schemas={[]}
             review={makeReview({
               status: "failed",
               error_message: "no handler registered for action: supersede",
@@ -200,6 +219,7 @@ describe("ReviewRow", () => {
       <table>
         <tbody>
           <ReviewRow
+            schemas={[]}
             review={makeReview({ status: "pending", error_message: "should be hidden" })}
             onRefresh={noop}
           />
@@ -219,7 +239,7 @@ describe("ReviewRow", () => {
     const { getByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ ref_id: "rv-approve-me" })} onRefresh={onRefresh} />
+          <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-approve-me" })} onRefresh={onRefresh} />
         </tbody>
       </table>
     )
@@ -244,7 +264,7 @@ describe("ReviewRow", () => {
     const { getByText, findByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview()} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -266,7 +286,7 @@ describe("ReviewRow", () => {
     const { getByText, getByPlaceholderText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ ref_id: "rv-dismiss-me" })} onRefresh={onRefresh} />
+          <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-dismiss-me" })} onRefresh={onRefresh} />
         </tbody>
       </table>
     )
@@ -290,7 +310,7 @@ describe("ReviewRow", () => {
     const { getByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview({ ref_id: "rv-dismiss-empty" })} onRefresh={onRefresh} />
+          <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-dismiss-empty" })} onRefresh={onRefresh} />
         </tbody>
       </table>
     )
@@ -310,6 +330,7 @@ describe("ReviewRow", () => {
       <table>
         <tbody>
           <ReviewRow
+            schemas={[]}
             review={makeReview({ run_ref_id: "mock-janitor-run-1" })}
             onRefresh={noop}
           />
@@ -324,7 +345,7 @@ describe("ReviewRow", () => {
     const { queryByText } = render(
       <table>
         <tbody>
-          <ReviewRow review={makeReview()} onRefresh={noop} />
+          <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
         </tbody>
       </table>
     )
@@ -338,6 +359,7 @@ describe("ReviewRow", () => {
       <table>
         <tbody>
           <ReviewRow
+            schemas={[]}
             review={makeReview({
               status: "dismissed",
               dismissal_reason: "Already handled manually.",
@@ -348,6 +370,30 @@ describe("ReviewRow", () => {
       </table>
     )
     expect(getByText(/Already handled manually\./)).toBeTruthy()
+  })
+
+  // ── Deleted subject placeholder ─────────────────────────────────────────────
+
+  it("renders 'Deleted:' placeholder for subject_nodes entry with null node_type", () => {
+    const { getByText } = render(
+      <table>
+        <tbody>
+          <ReviewRow
+            schemas={[]}
+            review={makeReview({
+              subject_ids: ["n1", "n-deleted"],
+              subject_nodes: [
+                { ref_id: "n1", node_type: "Topic", properties: { name: "Node One" } },
+                { ref_id: "n-deleted", node_type: null, properties: null },
+              ],
+            })}
+            onRefresh={noop}
+          />
+        </tbody>
+      </table>
+    )
+    expect(getByText(/Deleted:/)).toBeTruthy()
+    expect(getByText(/n-deleted/)).toBeTruthy()
   })
 })
 
@@ -377,31 +423,31 @@ describe("AppRail non-admin", () => {
   })
 
   it("does not render the Reviews nav item for non-admin users", async () => {
-    vi.mock("@/stores/user-store", () => ({
+    vi.doMock("@/stores/user-store", () => ({
       useUserStore: () => ({ isAdmin: false, budget: 0 }),
     }))
-    vi.mock("@/stores/app-store", () => ({
+    vi.doMock("@/stores/app-store", () => ({
       useAppStore: (sel?: (s: unknown) => unknown) => {
         const state = { graphName: "Test" }
         return sel ? sel(state) : state
       },
     }))
-    vi.mock("@/stores/modal-store", () => ({
+    vi.doMock("@/stores/modal-store", () => ({
       useModalStore: (sel: (s: { open: () => void }) => unknown) =>
         sel({ open: vi.fn() }),
     }))
-    vi.mock("@/stores/review-store", () => ({
+    vi.doMock("@/stores/review-store", () => ({
       useReviewStore: () => ({ pendingCount: 0, setPendingCount: vi.fn() }),
     }))
-    vi.mock("next/navigation", () => ({
+    vi.doMock("next/navigation", () => ({
       useRouter: () => ({ push: vi.fn() }),
     }))
-    vi.mock("@/lib/sphinx/detect", () => ({ isSphinx: () => false }))
-    vi.mock("@/lib/sphinx/bridge", () => ({ hasWebLN: () => false }))
-    vi.mock("@/components/ui/separator", () => ({
+    vi.doMock("@/lib/sphinx/detect", () => ({ isSphinx: () => false }))
+    vi.doMock("@/lib/sphinx/bridge", () => ({ hasWebLN: () => false }))
+    vi.doMock("@/components/ui/separator", () => ({
       Separator: () => <hr />,
     }))
-    vi.mock("@/components/ui/tooltip", () => ({
+    vi.doMock("@/components/ui/tooltip", () => ({
       Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
       TooltipContent: () => null,
       TooltipTrigger: ({

@@ -349,6 +349,11 @@ export interface Review {
   type: string
   rationale: string
   subject_ids: string[]
+  subject_nodes: Array<{
+    ref_id: string
+    node_type: string | null
+    properties: Record<string, unknown> | null
+  }>
   action_name: string
   action_payload: unknown
   status: ReviewStatus

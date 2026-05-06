@@ -35,7 +35,7 @@ const INTERNAL_FIELDS = new Set([
   "like_count", "retweet_count", "reply_count", "quote_count",
   "impression_count", "bookmark_count", "followers",
   // TwitterAccount
-  "profile_image_url", "author_id", "verified_type", "is_identity_verified",
+  "image_url", "author_id", "verified_type", "is_identity_verified",
 ])
 
 function isUrl(value: string): boolean {
@@ -356,9 +356,7 @@ function VerifiedPill({ children }: { children: React.ReactNode }) {
 function TwitterAccountCard({ props }: { props: Record<string, unknown> }) {
   const handle = props.twitter_handle as string | undefined
   const name = props.name as string | undefined
-  const imageUrl =
-    (props.profile_image_url as string | undefined) ??
-    (props.image_url as string | undefined)
+  const imageUrl = props.image_url as string | undefined
   const verified = props.verified === true
   const verifiedType = props.verified_type as string | undefined
   const idVerified = props.is_identity_verified === true
