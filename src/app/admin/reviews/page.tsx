@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 import { useReviewStore } from "@/stores/review-store"
+import { useSchemaStore } from "@/stores/schema-store"
 import { listReviews } from "@/lib/graph-api"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { ReviewRow } from "@/components/admin/review-row"
@@ -45,6 +46,7 @@ export default function ReviewsPage() {
   const router = useRouter()
   const { isAdmin } = useUserStore()
   const { setPendingCount } = useReviewStore()
+  const schemas = useSchemaStore((s) => s.schemas)
 
   const [reviews, setReviews] = useState<Review[]>([])
   const [total, setTotal] = useState(0)
@@ -229,6 +231,7 @@ export default function ReviewsPage() {
                   <ReviewRow
                     key={review.ref_id}
                     review={review}
+                    schemas={schemas}
                     onRefresh={() => fetchReviews(skip)}
                     onCountRefresh={refreshBadgeCount}
                   />

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
@@ -10,6 +11,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { NodeRow } from "@/components/layout/node-row"
+import type { SchemaNode } from "@/app/ontology/page"
+import { REVIEW_TYPE_LABELS, REVIEW_ACTION_LABELS, humanizeEnum } from "@/lib/review-labels"
+import { useUserStore } from "@/stores/user-store"
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -92,11 +97,14 @@ function DismissPopover({
 
 export interface ReviewRowProps {
   review: Review
+  schemas: SchemaNode[]
   onRefresh: () => void
   onCountRefresh?: () => void
 }
 
-export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps) {
+export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: ReviewRowProps) {
+  const router = useRouter()
+  const { isAdmin } = useUserStore()
   const [approving, setApproving] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [approveConfirm, setApproveConfirm] = useState(false)
@@ -105,6 +113,7 @@ export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps)
   const relativeTime = formatDateRelative(review.created_at, review.created_at ?? "")
 
   async function handleApprove() {
+    if (!isAdmin) return
     if (!approveConfirm) { setApproveConfirm(true); return }
     setApproving(true)
     setInlineError(null)
@@ -124,6 +133,7 @@ export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps)
   }
 
   async function handleDismiss(reason: string) {
+    if (!isAdmin) return
     setDismissing(true)
     setInlineError(null)
     try {
@@ -142,7 +152,7 @@ export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps)
       {/* Type */}
       <td className="py-3 px-3 whitespace-nowrap">
         <span className="rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] font-semibold text-primary uppercase tracking-wide">
-          {review.type}
+          {REVIEW_TYPE_LABELS[review.type]?.label ?? humanizeEnum(review.type)}
         </span>
         {review.run_ref_id && (
           <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
@@ -184,23 +194,30 @@ export function ReviewRow({ review, onRefresh, onCountRefresh }: ReviewRowProps)
 
       {/* Subjects */}
       <td className="py-3 px-3">
-        <div className="flex flex-wrap gap-1">
-          {review.subject_ids.map((id) => (
-            <span
-              key={id}
-              className="rounded bg-muted/60 border border-border px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
-            >
-              {id}
-            </span>
-          ))}
+        <div className="flex flex-col gap-1.5">
+          {review.subject_nodes.map((sn) =>
+            sn.node_type === null ? (
+              <span key={sn.ref_id} className="text-[10px] font-mono text-muted-foreground italic">
+                Deleted: {sn.ref_id}
+              </span>
+            ) : (
+              <NodeRow
+                key={sn.ref_id}
+                node={{ ref_id: sn.ref_id, node_type: sn.node_type, properties: sn.properties ?? {} }}
+                schemas={schemas}
+                onClick={() => router.push(`/?ref=${sn.ref_id}`)}
+                hideBoost
+              />
+            )
+          )}
         </div>
       </td>
 
       {/* Action */}
       <td className="py-3 px-3 whitespace-nowrap">
-        <code className="rounded bg-muted/50 border border-border px-1.5 py-0.5 text-[11px] font-mono text-foreground">
-          {review.action_name}
-        </code>
+        <span className="rounded bg-muted/50 border border-border px-1.5 py-0.5 text-[11px] font-mono text-foreground">
+          {REVIEW_ACTION_LABELS[review.action_name]?.verb ?? humanizeEnum(review.action_name)}
+        </span>
       </td>
 
       {/* Priority */}
