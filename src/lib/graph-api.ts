@@ -204,7 +204,7 @@ export const RADAR_SOURCE_TYPES: RadarSourceType[] = [
   "topic",
 ]
 
-export type JanitorSourceType = "deduplication"
+export type JanitorSourceType = "deduplication" | "content_review" | "topic_review"
 
 export type CronKind = "source" | "janitor"
 
@@ -216,6 +216,7 @@ export interface CronConfig {
   enabled: boolean
   cadence: string
   workflow_id: string
+  label?: string
   created_at?: number
   updated_at?: number
 }
@@ -383,6 +384,10 @@ export interface Review {
   created_at: string
   decided_at?: string
   decided_by?: string
+  display_label?: string
+  accent?: string
+  action_verb?: string
+  icon?: string
 }
 
 export interface ReviewsListResponse {

@@ -21,6 +21,27 @@ vi.mock("@/lib/mock-data", () => ({
       cadence: "0 * * * *",
       workflow_id: "mock-gm-workflow-id",
       namespace: "mock",
+      label: "Deduplication",
+    },
+    {
+      ref_id: "rc-content-review",
+      source_type: "content_review",
+      kind: "janitor",
+      enabled: false,
+      cadence: "0 * * * *",
+      workflow_id: "mock-gm-workflow-id",
+      namespace: "mock",
+      label: "Content review",
+    },
+    {
+      ref_id: "rc-topic-review",
+      source_type: "topic_review",
+      kind: "janitor",
+      enabled: false,
+      cadence: "0 * * * *",
+      workflow_id: "mock-gm-workflow-id",
+      namespace: "mock",
+      label: "Topic review",
     },
   ],
   MOCK_STAKWORK_RUNS: [
@@ -46,6 +67,7 @@ const mockJanitorConfig = {
   cadence: "0 * * * *",
   workflow_id: "mock-gm-workflow-id",
   namespace: "mock",
+  label: "Deduplication",
 }
 
 describe("JanitorSettings", () => {
@@ -258,5 +280,23 @@ describe("JanitorSettings", () => {
 
     const select = screen.getByRole("combobox") as HTMLSelectElement
     expect(select.disabled).toBe(true)
+  })
+
+  it("renders three JanitorRow labels from config.label", async () => {
+    const { getCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [
+        { ...mockJanitorConfig, source_type: "deduplication", label: "Deduplication" },
+        { ...mockJanitorConfig, ref_id: "rc-content-review", source_type: "content_review" as const, label: "Content review" },
+        { ...mockJanitorConfig, ref_id: "rc-topic-review", source_type: "topic_review" as const, label: "Topic review" },
+      ],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+
+    render(<JanitorSettings open={true} />)
+
+    expect(await screen.findByText("Deduplication")).toBeInTheDocument()
+    expect(await screen.findByText("Content review")).toBeInTheDocument()
+    expect(await screen.findByText("Topic review")).toBeInTheDocument()
   })
 })
