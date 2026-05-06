@@ -26,6 +26,7 @@ import {
   type SourceType,
 } from "@/lib/source-detection"
 import { checkNodeExists, type GraphNode } from "@/lib/graph-api"
+import { unlockNode } from "@/lib/unlock-node"
 
 const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
   [SOURCE_TYPES.TWEET]: "tweet",
@@ -173,13 +174,9 @@ export function AddContentModal() {
       const headers: Record<string, string> = {}
       if (l402) headers["Authorization"] = l402
 
-      // Cache-hit unlock path: GET /v2/nodes/:ref_id
+      // Cache-hit unlock path: GET /v2/nodes/:ref_id?expand=edges
       if (cacheStatus === "hit-completed" && cachedRefId) {
-        const data = await api.get<{ nodes?: GraphNode[] }>(`/v2/nodes/${cachedRefId}`, headers)
-        const episode = data?.nodes?.[0]
-        if (episode) {
-          usePlayerStore.getState().setPlayingNode(episode)
-        }
+        await unlockNode(cachedRefId)
         return
       }
 
@@ -235,7 +232,11 @@ export function AddContentModal() {
         setPreviewState(null)
         setPreviewedNode(null)
         close()
-        openMyContent()
+        // On cache-hit, the user lands on the populated graph + Search Results sidebar;
+        // only open My Content for normal (non-cached) submissions.
+        if (cacheStatus !== "hit-completed") {
+          openMyContent()
+        }
       }, 1200)
     } catch (err: unknown) {
       // Handle 402 — need payment
@@ -257,7 +258,9 @@ export function AddContentModal() {
             setPreviewState(null)
             setPreviewedNode(null)
             close()
-            openMyContent()
+            if (cacheStatus !== "hit-completed") {
+              openMyContent()
+            }
           }, 1200)
         } catch {
           openModal("budget")

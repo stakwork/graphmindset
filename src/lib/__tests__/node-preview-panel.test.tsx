@@ -37,6 +37,12 @@ vi.mock("@/lib/mock-data", () => ({
   MOCK_FULL_NODES: {},
 }))
 
+// --- mock unlockNode ---
+const { mockUnlockNode } = vi.hoisted(() => ({ mockUnlockNode: vi.fn() }))
+vi.mock("@/lib/unlock-node", () => ({
+  unlockNode: (...args: unknown[]) => mockUnlockNode(...args),
+}))
+
 // --- stores ---
 const mockRefreshBalance = vi.fn()
 
@@ -640,10 +646,11 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
     })
   })
 
-  it("handleUnlock does NOT include ?preview=1", async () => {
+  it("handleUnlock calls unlockNode with the correct refId", async () => {
     // First probe returns 402 so Unlock button appears
     mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
     mockGetPrice.mockResolvedValue(5)
+    mockUnlockNode.mockResolvedValue(BASE_NODE)
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
@@ -651,18 +658,49 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
       expect(screen.getByRole("button", { name: /Unlock for 5 sats/i })).toBeInTheDocument()
     })
 
-    // Now make the handleUnlock call succeed
-    mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
+    screen.getByRole("button", { name: /Unlock for 5 sats/i }).click()
+
+    await waitFor(() => {
+      expect(mockUnlockNode).toHaveBeenCalledWith("abc")
+    })
+  })
+
+  it("handleUnlock sets fullNode from unlockNode return value", async () => {
+    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
+    mockGetPrice.mockResolvedValue(5)
+    const unlockedNode: GraphNode = { ref_id: "abc", node_type: "Topic", properties: { name: "Unlocked!" } }
+    mockUnlockNode.mockResolvedValue(unlockedNode)
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Unlock for 5 sats/i })).toBeInTheDocument()
+    })
 
     screen.getByRole("button", { name: /Unlock for 5 sats/i }).click()
 
     await waitFor(() => {
-      // The handleUnlock call should be to the path WITHOUT ?preview=1
-      const calls = mockApiGet.mock.calls
-      const unlockCall = calls.find(
-        (c) => c[0] === `/v2/nodes/abc` && c[1] === undefined
-      )
-      expect(unlockCall).toBeTruthy()
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+  })
+
+  it("handleUnlock opens budget modal on 402 after payL402 fails", async () => {
+    // probe returns 402
+    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
+    mockGetPrice.mockResolvedValue(10)
+    // unlockNode throws 402 (simulates payL402 path failing)
+    mockUnlockNode.mockRejectedValue(new Response(null, { status: 402 }))
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Unlock for 10 sats/i })).toBeInTheDocument()
+    })
+
+    screen.getByRole("button", { name: /Unlock for 10 sats/i }).click()
+
+    await waitFor(() => {
+      expect(mockOpen).toHaveBeenCalledWith("budget")
     })
   })
 })
