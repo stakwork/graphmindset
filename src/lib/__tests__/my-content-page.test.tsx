@@ -115,7 +115,7 @@ describe("MyContentPanel", () => {
     expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
   })
 
-  it("never renders boost display even when node has boost property (always hidden in My Content)", async () => {
+  it("never renders boost UI in MyContent (every node here is the user's own content)", async () => {
     mockApiGet.mockResolvedValue({
       nodes: [
         {
@@ -165,13 +165,18 @@ describe("MyContentPanel", () => {
     )
   })
 
-  it("hides boost sats display for Sphinx contributor (pubkey match)", async () => {
+  it("hides boost sats display when node has owner_reference_id (contributor)", async () => {
     mockApiGet.mockResolvedValue({
       nodes: [
         {
           node_type: "Tweet",
           ref_id: "ref-1",
-          properties: { name: "Bitcoin is freedom", status: "complete", boost: 150, pubkey: "03abc123testkey" },
+          properties: {
+            name: "Bitcoin is freedom",
+            status: "complete",
+            boost: 150,
+            owner_reference_id: "lsat:11111111-1111-1111-1111-111111111111",
+          },
         },
       ],
       totalCount: 1,
@@ -191,7 +196,12 @@ describe("MyContentPanel", () => {
         {
           node_type: "Tweet",
           ref_id: "ref-1",
-          properties: { name: "Bitcoin is freedom", status: "complete", boost: 200, pubkey: "03someoneelse" },
+          properties: {
+            name: "Bitcoin is freedom",
+            status: "complete",
+            boost: 200,
+            owner_reference_id: "lsat:22222222-2222-2222-2222-222222222222",
+          },
         },
       ],
       totalCount: 1,
@@ -330,57 +340,35 @@ describe("MyContentPanel – delete button", () => {
     mockDeleteNode.mockResolvedValue({})
   })
 
-  const NODE_WITHOUT_UID = {
+  // /v2/content is server-filtered to the caller's own content, so every node here
+  // is implicitly owned — delete always renders, no client-side ownership check needed.
+  const NODE = {
     nodes: [
       {
         node_type: "Tweet",
         ref_id: "ref-orphan",
-        properties: { name: "Orphan Node", status: "error", pubkey: "03abc123testkey" },
+        properties: {
+          name: "Orphan Node",
+          status: "error",
+          owner_reference_id: "lsat:11111111-1111-1111-1111-111111111111",
+        },
       },
     ],
     totalCount: 1,
     totalProcessing: 0,
   }
 
-  const NODE_OTHER_PUBKEY = {
-    nodes: [
-      {
-        node_type: "Tweet",
-        ref_id: "ref-other",
-        properties: { name: "Someone Else Node", status: "complete", pubkey: "03someoneelse" },
-      },
-    ],
-    totalCount: 1,
-    totalProcessing: 0,
-  }
-
-  it("trash button renders when isAdmin = true", async () => {
-    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
-    mockApiGet.mockResolvedValue(NODE_OTHER_PUBKEY)
-    render(<MyContentPanel onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByText("Someone Else Node")).toBeInTheDocument())
-    expect(screen.getByRole("button", { name: /delete node/i })).toBeInTheDocument()
-  })
-
-  it("trash button renders when node pubkey matches user pubKey", async () => {
+  it("trash button always renders for /v2/content nodes", async () => {
     myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
-    mockApiGet.mockResolvedValue(NODE_WITHOUT_UID)
+    mockApiGet.mockResolvedValue(NODE)
     render(<MyContentPanel onClose={() => {}} />)
     await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
     expect(screen.getByRole("button", { name: /delete node/i })).toBeInTheDocument()
   })
 
-  it("trash button is absent when neither owner nor admin", async () => {
-    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
-    mockApiGet.mockResolvedValue(NODE_OTHER_PUBKEY)
-    render(<MyContentPanel onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByText("Someone Else Node")).toBeInTheDocument())
-    expect(screen.queryByRole("button", { name: /delete node/i })).toBeNull()
-  })
-
   it("clicking trash shows inline confirmation; Cancel hides it with no API call", async () => {
     myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
-    mockApiGet.mockResolvedValue(NODE_WITHOUT_UID)
+    mockApiGet.mockResolvedValue(NODE)
     render(<MyContentPanel onClose={() => {}} />)
     await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
 
@@ -395,7 +383,7 @@ describe("MyContentPanel – delete button", () => {
 
   it("confirm calls deleteNode(ref_id) and removes only that node", async () => {
     myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
-    mockApiGet.mockResolvedValue(NODE_WITHOUT_UID)
+    mockApiGet.mockResolvedValue(NODE)
     render(<MyContentPanel onClose={() => {}} />)
     await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
 

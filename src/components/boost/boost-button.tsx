@@ -13,13 +13,23 @@ const DEFAULT_BOOST_AMOUNT = 10
 
 interface BoostButtonProps {
   refId: string
-  pubkey: string
+  ownerReference: string
+  /** Optional — only used for the admin direct-keysend path. After phase-4d this
+   *  field disappears from the API; admin boosts then fall through to /boost. */
+  pubkey?: string
   routeHint?: string
   boostCount?: number
   className?: string
 }
 
-export function BoostButton({ refId, pubkey, routeHint, boostCount = 0, className }: BoostButtonProps) {
+export function BoostButton({
+  refId,
+  ownerReference,
+  pubkey,
+  routeHint,
+  boostCount = 0,
+  className,
+}: BoostButtonProps) {
   const [count, setCount] = useState(boostCount)
   const [boosting, setBoosting] = useState(false)
   const [flash, setFlash] = useState(false)
@@ -34,26 +44,26 @@ export function BoostButton({ refId, pubkey, routeHint, boostCount = 0, classNam
     setBoosting(true)
     setError(null)
 
-    // Prefer separate pubkey + route_hint props (new split storage);
-    // fall back to parsing a compound pubkey for legacy callers.
-    const dest = routeHint ? { pubkey, route_hint: routeHint } : parsePubkeyWithHint(pubkey)
-    console.log("[boost] parsed dest:", dest)
-
     try {
       if (!isMocksEnabled()) {
-        if (isAdmin && isSphinx()) {
-          // Admin path: pay directly from Sphinx wallet, then record
+        const adminDirect = isAdmin && isSphinx() && !!pubkey
+        if (adminDirect) {
+          // Admin path: pay directly from Sphinx wallet, then record. Requires a
+          // real pubkey — when pubkey is unavailable (post-4d), falls through to
+          // the /boost path below where boltwall keysends from its own node.
+          const dest = routeHint ? { pubkey, route_hint: routeHint } : parsePubkeyWithHint(pubkey!)
           await adminKeysend(dest.pubkey, DEFAULT_BOOST_AMOUNT, dest.route_hint)
           await api.post("/boost/record", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, ...dest })
         } else {
-          // Regular user path: L402-gated boost
+          // Regular path: L402-gated boost. Server resolves contributor identity
+          // (keysend vs anon-credit) from the owner_reference_id.
+          const body = { refid: refId, amount: DEFAULT_BOOST_AMOUNT, owner_reference_id: ownerReference }
           try {
-            await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, ...dest })
+            await api.post("/boost", body)
           } catch (err) {
-            // 402 = insufficient LSAT balance — buy/top-up and retry
             if (err instanceof Response && err.status === 402) {
               await payL402(setBudget)
-              await api.post("/boost", { refid: refId, amount: DEFAULT_BOOST_AMOUNT, ...dest })
+              await api.post("/boost", body)
             } else {
               throw err
             }
@@ -71,7 +81,7 @@ export function BoostButton({ refId, pubkey, routeHint, boostCount = 0, classNam
     } finally {
       setBoosting(false)
     }
-  }, [refId, pubkey, routeHint, boosting, isAdmin, setBudget, refreshBalance])
+  }, [refId, ownerReference, pubkey, routeHint, boosting, isAdmin, setBudget, refreshBalance])
 
   return (
     <div className="flex flex-col items-start gap-1">

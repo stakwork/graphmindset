@@ -37,12 +37,11 @@ interface ContentResponse {
 }
 
 export function MyContentPanel({ onClose }: { onClose: () => void }) {
-  const { pubKey, routeHint, isAdmin } = useUserStore()
+  const { pubKey, isAdmin } = useUserStore()
   const schemas = useSchemaStore((s) => s.schemas)
   const openModal = useModalStore((s) => s.open)
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
-  const userFullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
   const mocksEnabled = isMocksEnabled()
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [totalProcessing, setTotalProcessing] = useState(0)
@@ -194,7 +193,8 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
             ) : (
               <div className="py-1">
                 {nodes.map((node, i) => {
-                  const canDelete = isAdmin || node.properties?.pubkey === userFullPubkey
+                  // /v2/content is server-filtered to the caller's content, so every node
+                  // here is the user's — always deletable, never self-boostable.
                   const isConfirming = deletingId === node.ref_id
 
                   const handleConfirmDelete = async () => {
@@ -215,7 +215,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                           hideBoost={true}
                           isAdmin={isAdmin}
                         />
-                        {canDelete && !isConfirming && (
+                        {!isConfirming && (
                           <button
                             className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                             onClick={(e) => { e.stopPropagation(); setDeletingId(node.ref_id) }}
