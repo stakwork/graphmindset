@@ -212,7 +212,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                           onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
                           onMouseEnter={() => setHoveredNode(node)}
                           onMouseLeave={() => setHoveredNode(null)}
-                          hideBoost={isAdmin || node.properties?.pubkey === userFullPubkey}
+                          hideBoost={true}
                           isAdmin={isAdmin}
                         />
                         {canDelete && !isConfirming && (

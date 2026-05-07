@@ -751,7 +751,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                     {dateStr && (
                       <span className="text-[11px] font-mono text-muted-foreground">{dateStr}</span>
                     )}
-                    {sats !== null && (
+                    {!hideBoost && sats !== null && (
                       <div className="flex items-center gap-1 text-[11px] font-mono text-amber-400">
                         <Zap className="h-3 w-3" />
                         <span>{sats}</span>

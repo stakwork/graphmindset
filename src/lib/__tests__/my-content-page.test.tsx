@@ -87,6 +87,7 @@ describe("MyContentPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     myContentUserOverrides = {}
+    mockGetL402Value = ""
   })
 
   it("renders items with processing banner", async () => {
@@ -114,7 +115,7 @@ describe("MyContentPanel", () => {
     expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
   })
 
-  it("renders read-only boost amount when node has boost property", async () => {
+  it("never renders boost display even when node has boost property (always hidden in My Content)", async () => {
     mockApiGet.mockResolvedValue({
       nodes: [
         {
@@ -128,9 +129,9 @@ describe("MyContentPanel", () => {
     })
     render(<MyContentPanel onClose={() => {}} />)
     await waitFor(() => {
-      expect(screen.getByText("150")).toBeInTheDocument()
-      expect(screen.getByText("sats")).toBeInTheDocument()
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
     })
+    expect(screen.queryByText("sats")).not.toBeInTheDocument()
   })
 
   it("renders no boost display when boost is absent", async () => {
@@ -164,7 +165,7 @@ describe("MyContentPanel", () => {
     )
   })
 
-  it("hides boost sats display when node pubkey matches user pubKey (contributor)", async () => {
+  it("hides boost sats display for Sphinx contributor (pubkey match)", async () => {
     mockApiGet.mockResolvedValue({
       nodes: [
         {
@@ -176,7 +177,6 @@ describe("MyContentPanel", () => {
       totalCount: 1,
       totalProcessing: 0,
     })
-    // pubKey matches node pubkey, no routeHint
     myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
     render(<MyContentPanel onClose={() => {}} />)
     await waitFor(() => {
@@ -185,7 +185,7 @@ describe("MyContentPanel", () => {
     expect(screen.queryByText("sats")).not.toBeInTheDocument()
   })
 
-  it("hides boost sats display when isAdmin is true", async () => {
+  it("hides boost sats display for admin", async () => {
     mockApiGet.mockResolvedValue({
       nodes: [
         {
@@ -198,6 +198,28 @@ describe("MyContentPanel", () => {
       totalProcessing: 0,
     })
     myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("sats")).not.toBeInTheDocument()
+  })
+
+  it("hides boost sats display for L402-only user (no pubkey)", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-1",
+          properties: { name: "Bitcoin is freedom", status: "complete", boost: 75 },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    // L402-only: no pubKey but has a valid L402 token
+    myContentUserOverrides = { pubKey: "", routeHint: "", isAdmin: false }
+    mockGetL402Value = "l402-token-abc"
     render(<MyContentPanel onClose={() => {}} />)
     await waitFor(() => {
       expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()

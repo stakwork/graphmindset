@@ -396,9 +396,10 @@ describe("NodePreviewPanel – core property rendering", () => {
     })
   })
 
-  it("shows sats counter when boost is a positive number", async () => {
+  it("shows sats counter when boost is a positive number (non-contributor, non-admin)", async () => {
     const node = makeUnlockedNode({ boost: 50 })
     mockApiGet.mockResolvedValue(makeGraphData(node))
+    userStoreOverrides = { pubKey: "03other", routeHint: "", isAdmin: false }
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
@@ -406,6 +407,32 @@ describe("NodePreviewPanel – core property rendering", () => {
       expect(screen.getByText("50")).toBeInTheDocument()
       expect(screen.getByText("sats")).toBeInTheDocument()
     })
+  })
+
+  it("hides sats counter when contributor (hideBoost=true)", async () => {
+    const nodeWithPubkey = makeUnlockedNode({ boost: 50, pubkey: "03abc" })
+    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey))
+    userStoreOverrides = { pubKey: "03abc", routeHint: "", isAdmin: false }
+
+    render(<NodePreviewPanel node={{ ref_id: "abc", node_type: "Topic", properties: { name: "Test Node", pubkey: "03abc" } }} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Node")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("sats")).toBeNull()
+  })
+
+  it("hides sats counter when admin (hideBoost=true)", async () => {
+    const node = makeUnlockedNode({ boost: 99 })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Node")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("sats")).toBeNull()
   })
 
   it("does not render core properties row when none of status/date/boost are present", async () => {
