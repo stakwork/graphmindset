@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ChevronRight, GitMerge } from "lucide-react"
+import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, Trash2, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
@@ -257,6 +257,14 @@ function SubjectListItem({
   )
 }
 
+// ── Action icon map ───────────────────────────────────────────────────────────
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  "git-merge": GitMerge,
+  "trash-2": Trash2,
+  "arrow-right-left": ArrowRightLeft,
+}
+
 // ── Main ReviewRow ────────────────────────────────────────────────────────────
 
 export interface ReviewRowProps {
@@ -349,7 +357,7 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
             expanded && "rotate-90"
           )}
         />
-        <GitMerge className="h-3.5 w-3.5 text-primary/70" />
+        {(() => { const ActionIcon = ICON_MAP[review.icon ?? ""] ?? GitMerge; return <ActionIcon className="h-3.5 w-3.5 text-primary/70" /> })()}
 
         {direction ? (
           <div className="flex min-w-0 items-center gap-1 overflow-hidden">
