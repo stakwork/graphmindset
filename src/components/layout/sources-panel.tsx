@@ -44,6 +44,7 @@ function SourceRow({
   const [deleting, setDeleting] = useState(false)
 
   const handleDelete = useCallback(async () => {
+    if (!canEdit) return
     setDeleting(true)
     try {
       await api.delete(`/radar/${source.ref_id}`)
@@ -53,7 +54,7 @@ function SourceRow({
     } finally {
       setDeleting(false)
     }
-  }, [source.ref_id, onDelete])
+  }, [canEdit, source.ref_id, onDelete])
 
   const displayName = extractNameFromSource(source.source, source.source_type as never)
 

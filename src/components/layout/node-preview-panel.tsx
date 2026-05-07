@@ -48,6 +48,10 @@ function isUrl(value: string): boolean {
   }
 }
 
+function isMediaUrl(value: string): boolean {
+  return /\.(mp4|webm|mov|mp3|ogg|wav|m4a)(\?.*)?$/i.test(value)
+}
+
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -200,7 +204,8 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
   const isThisNodeSelected = usePlayerStore(
     (s) => s.playingNode?.ref_id === node.ref_id
   )
-  const mediaUrl = (props.media_url ?? props.link) as string | undefined
+  const rawLink = typeof props.link === "string" ? props.link : undefined
+  const mediaUrl = (props.media_url ?? (rawLink && isMediaUrl(rawLink) ? rawLink : undefined)) as string | undefined
   const duration = typeof props.duration === "number" ? props.duration : undefined
   const show = (props.show_title ?? props.show) as string | undefined
   const channel = props.channel as string | undefined
@@ -582,7 +587,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   //   bio wins over twitter_handle → Person, not TwitterAccount.
   //   media_url wins over source_link → MediaCard, not ArticleCard.
   const hasTweet = !!fp && "tweet_id" in fp && "text" in fp
-  const hasMedia = !!fp && ("media_url" in fp || "link" in fp)
+  const linkValue = typeof fp?.link === "string" ? fp.link : undefined
+  const hasMedia = !!fp && (
+    "media_url" in fp ||
+    (linkValue !== undefined && isMediaUrl(linkValue))
+  )
+  const hasWebPageLink = !!linkValue && !isMediaUrl(linkValue)
   const hasTranscript = !!fp && typeof fp.transcript === "string"
   const hasSummary = hasMedia && !!fp && typeof fp.summary === "string" && fp.summary.length > 0
   const hasPerson = !!fp && "bio" in fp && !hasTweet
@@ -767,6 +777,17 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}
               {hasSummary && <SummaryBlock text={fp.summary as string} />}
               {hasArticle && <ArticleCard props={fp} />}
+              {hasWebPageLink && (
+                <a
+                  href={linkValue}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  View Source
+                </a>
+              )}
               {hasTranscript && <TranscriptBlock text={fp.transcript as string} />}
 
               {/* Fallback: remaining properties not covered by widgets */}
