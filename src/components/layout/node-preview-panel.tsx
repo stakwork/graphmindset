@@ -461,8 +461,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const [price, setPrice] = useState<number | null>(null)
   const refreshBalance = useUserStore((s) => s.refreshBalance)
-  const userPubKey = useUserStore((s) => s.pubKey)
-  const userRouteHint = useUserStore((s) => s.routeHint)
   const isAdmin = useUserStore((s) => s.isAdmin)
   const openModal = useModalStore((s) => s.open)
 
@@ -472,13 +470,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const { icon: PlaceholderIcon, accent: schemaAccent } = getSchemaIconInfo(schema?.icon)
   const props = node.properties
   const nodeIsBlocked = isBlockedStatus(props?.status)
+  const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
+  // Legacy pubkey/route_hint for the admin direct-keysend path; phase-4d removes them.
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
   const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
   const boostAmt = typeof props?.boost === "number" ? props.boost : 0
 
-  const userFullPubkey = userPubKey && userRouteHint ? `${userPubKey}_${userRouteHint}` : userPubKey
-  const isContributor = !!pubkey && pubkey === userFullPubkey
-  const hideBoost = isAdmin || isContributor
+  // Self-boost detection moved server-side: caller's L402 isn't known to the
+  // frontend, so /boost rejects with SELF_BOOST when caller equals contributor.
+  // Admin still hides locally to match the existing UX.
+  const hideBoost = isAdmin
 
   let title = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
   if (!title) {
@@ -631,10 +632,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         >
           {displayNodeType(nodeType)}
         </Badge>
-        {pubkey && !hideBoost && (
+        {ownerReference && !hideBoost && (
           <div className="ml-auto">
             <BoostButton
               refId={node.ref_id}
+              ownerReference={ownerReference}
               pubkey={pubkey}
               routeHint={routeHint}
               boostCount={boostAmt}
