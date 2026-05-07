@@ -16,10 +16,6 @@ import {
 } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_CRON_CONFIGS, MOCK_STAKWORK_RUNS } from "@/lib/mock-data"
 
-const JANITOR_LABELS: Record<string, string> = {
-  deduplication: "Deduplication",
-}
-
 function RunStatusBadge({ status }: { status: StakworkRun["status"] }) {
   const colours: Record<StakworkRun["status"], string> = {
     completed: "bg-green-500/15 text-green-400",
@@ -181,7 +177,7 @@ function JanitorRow({
     }
   }, [config.source_type])
 
-  const label = JANITOR_LABELS[config.source_type] ?? config.source_type
+  const label = config.label ?? config.source_type
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/30 p-3 space-y-2">
