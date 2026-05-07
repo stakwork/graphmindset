@@ -15,7 +15,7 @@ import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
 import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, TransactionRow } from "@/lib/sphinx"
-import { getActionDisplayLabel, getActionBadgeColor } from "@/lib/transaction-display"
+import { getActionDisplayLabel, getActionBadgeColor, isViewGrantRow } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 import { cookieStorage } from "@/lib/cookie-storage"
 import { api } from "@/lib/api"
@@ -46,7 +46,7 @@ export function BudgetModal() {
   const [paymentRequest, setPaymentRequest] = useState("")
   const [paymentHash, setPaymentHash] = useState("")
   const [copied, setCopied] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollAbortRef = useRef<AbortController | null>(null)
 
   // First-purchase state (non-Sphinx, non-WebLN, no existing L402)
   const [firstPurchaseAmount, setFirstPurchaseAmount] = useState<number>(1000)
@@ -64,8 +64,15 @@ export function BudgetModal() {
       ? budget.toLocaleString()
       : "--"
 
+  const cancelPoll = useCallback(() => {
+    pollAbortRef.current?.abort()
+    pollAbortRef.current = null
+    setLoading(false)
+    setError("")
+  }, [])
+
   const resetState = useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
+    cancelPoll()
     setStep("balance")
     setAmount(null)
     setPaymentRequest("")
@@ -89,7 +96,7 @@ export function BudgetModal() {
 
   useEffect(() => {
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+      pollAbortRef.current?.abort()
     }
   }, [])
 
@@ -200,12 +207,15 @@ export function BudgetModal() {
     }
     setError("")
     setLoading(true)
+    const controller = new AbortController()
+    pollAbortRef.current = controller
     try {
       const challenge = await fetchBuyLsatChallenge(firstPurchaseAmount)
       setFirstPurchaseRequest(challenge.invoice)
       setStep("first-invoice")
 
-      const paid = await pollPaymentStatus(challenge.paymentHash)
+      const paid = await pollPaymentStatus(challenge.paymentHash, 20, 2000, controller.signal)
+      if (controller.signal.aborted) return
       if (!paid) {
         setError("Payment not detected. Try again.")
         setStep("first-purchase")
@@ -282,10 +292,12 @@ export function BudgetModal() {
       setPaymentHash(result.payment_hash)
       setStep("invoice")
 
+      const manualController = new AbortController()
+      pollAbortRef.current = manualController
       let confirming = false
-      const paid = await pollPaymentStatus(result.payment_hash, 100, 3000)
+      const paid = await pollPaymentStatus(result.payment_hash, 100, 3000, manualController.signal)
+      if (manualController.signal.aborted) return
       if (!paid) {
-        if (intervalRef.current) clearInterval(intervalRef.current)
         setError("Payment not detected. Try again.")
         setStep("amount")
         return
@@ -340,19 +352,22 @@ export function BudgetModal() {
           <DialogTitle className="font-heading text-lg tracking-wide flex items-center gap-2">
             {step !== "balance" && (
               <button
+                aria-label="Go back"
                 onClick={() => {
-                  if (step === "invoice" && intervalRef.current)
-                    clearInterval(intervalRef.current)
-                  if (step === "history" || step === "manage-token") {
+                  if (step === "first-invoice") {
+                    cancelPoll()
+                    setStep("first-purchase")
+                  } else if (step === "invoice") {
+                    cancelPoll()
+                    setPaymentRequest("")
+                    setStep("amount")
+                  } else if (step === "history" || step === "manage-token") {
                     setStep("balance")
                   } else if (step === "restore") {
                     setStep("manage-token")
-                  } else if (step === "first-invoice") {
-                    setStep("first-purchase")
                   } else {
-                    setStep(step === "invoice" ? "amount" : "balance")
+                    setStep(step === "amount" ? "balance" : "balance")
                     if (step === "amount") setAmount(null)
-                    if (step === "invoice") setPaymentRequest("")
                   }
                   setError("")
                 }}
@@ -682,7 +697,11 @@ export function BudgetModal() {
               ) : (
                 <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
                   {transactions
-                    .filter(tx => tx.action !== 'refund' && tx.action !== 'boost_refund')
+                    .filter(tx =>
+                    tx.action !== 'refund' &&
+                    tx.action !== 'boost_refund' &&
+                    !isViewGrantRow(tx)
+                  )
                     .map((tx, i) => (
                     <div key={i} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/20">
                       <div className="flex items-center gap-2">
