@@ -54,6 +54,10 @@ export function NodeRow({
   }
   if (!name) name = node.ref_id
 
+  const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
+  // pubkey/routeHint are still read here only for the admin direct-keysend path
+  // inside BoostButton. After phase-4d these become null and admin boosts fall
+  // through to /boost (boltwall keysends on the admin's behalf).
   const pubkey = typeof props?.pubkey === "string" ? props.pubkey : undefined
   const routeHint = typeof props?.route_hint === "string" ? props.route_hint : undefined
   const boostAmt = typeof props?.boost === "number" ? props.boost : 0
@@ -168,10 +172,11 @@ export function NodeRow({
           )
         )}
       </div>
-      {!hideBoost && pubkey && (
+      {!hideBoost && ownerReference && (
         <div onClick={(e) => e.stopPropagation()} className="shrink-0">
           <BoostButton
             refId={node.ref_id}
+            ownerReference={ownerReference}
             pubkey={pubkey}
             routeHint={routeHint}
             boostCount={boostAmt}
@@ -179,7 +184,7 @@ export function NodeRow({
           />
         </div>
       )}
-      {!hideBoost && !pubkey && boostAmt > 0 && (
+      {!hideBoost && !ownerReference && boostAmt > 0 && (
         <div className="shrink-0 flex items-center gap-1 text-[11px] font-mono text-amber-400">
           <Zap className="h-3 w-3" />
           <span>{boostAmt}</span>
