@@ -682,7 +682,7 @@ export function BudgetModal() {
               ) : (
                 <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
                   {transactions
-                    .filter(tx => tx.action !== 'refund' && tx.action !== 'boost_refund')
+                    .filter(tx => tx.action !== 'refund' && tx.action !== 'boost_refund' && tx.amount > 0)
                     .map((tx, i) => (
                     <div key={i} className="flex items-center justify-between rounded-md px-3 py-2 bg-muted/20">
                       <div className="flex items-center gap-2">
