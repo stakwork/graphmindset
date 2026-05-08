@@ -256,52 +256,25 @@ describe("NodePreviewPanel – boost visibility", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     userStoreOverrides = {}
-    // Default: api probe returns 200 so BoostButton area is reached
-    mockApiGet.mockResolvedValue({ nodes: [{ ref_id: "abc", node_type: "Topic", properties: { name: "Test Node", pubkey: "03abc" } }], edges: [] })
   })
 
-  const nodeWithPubkey = (pubkey: string): GraphNode => ({
+  const nodeWithOwner = (ownerReferenceId: string): GraphNode => ({
     ref_id: "abc",
     node_type: "Topic",
-    properties: { name: "Test Node", pubkey },
+    properties: { name: "Test Node", owner_reference_id: ownerReferenceId },
   })
 
-  it("hides BoostButton when bare pubkey matches user pubKey (contributor)", async () => {
-    userStoreOverrides = { pubKey: "03abc", routeHint: "", isAdmin: false }
-    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey("03abc")))
+  // Note: phase-4b moves self-boost detection server-side. The frontend no
+  // longer hides BoostButton when the viewer matches the contributor — /boost
+  // returns SELF_BOOST instead. Tests below cover the remaining client gates.
 
-    const { container } = render(
-      <NodePreviewPanel node={nodeWithPubkey("03abc")} onBack={vi.fn()} schemas={[]} />
-    )
-
-    await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
-    })
-    // BoostButton mock renders null, but its parent div should not be in DOM
-    expect(container.querySelector(".ml-auto")).toBeNull()
-  })
-
-  it("hides BoostButton when compound pubkey matches user pubKey_routeHint (contributor)", async () => {
-    userStoreOverrides = { pubKey: "03abc", routeHint: "02xyz_123456", isAdmin: false }
-    const compoundPubkey = "03abc_02xyz_123456"
-    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey(compoundPubkey)))
-
-    const { container } = render(
-      <NodePreviewPanel node={nodeWithPubkey(compoundPubkey)} onBack={vi.fn()} schemas={[]} />
-    )
-
-    await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
-    })
-    expect(container.querySelector(".ml-auto")).toBeNull()
-  })
-
-  it("hides BoostButton when isAdmin is true regardless of pubkey", async () => {
+  it("hides BoostButton when isAdmin is true", async () => {
     userStoreOverrides = { pubKey: "03other", routeHint: "", isAdmin: true }
-    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey("03abc")))
+    const node = nodeWithOwner("lsat:11111111-1111-1111-1111-111111111111")
+    mockApiGet.mockResolvedValue(makeGraphData(node))
 
     const { container } = render(
-      <NodePreviewPanel node={nodeWithPubkey("03abc")} onBack={vi.fn()} schemas={[]} />
+      <NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />
     )
 
     await waitFor(() => {
@@ -310,18 +283,34 @@ describe("NodePreviewPanel – boost visibility", () => {
     expect(container.querySelector(".ml-auto")).toBeNull()
   })
 
-  it("renders BoostButton wrapper when non-owner non-admin views a pubkey node", async () => {
+  it("renders BoostButton wrapper when node has owner_reference_id and viewer is not admin", async () => {
     userStoreOverrides = { pubKey: "03other", routeHint: "", isAdmin: false }
-    mockApiGet.mockResolvedValue(makeGraphData(nodeWithPubkey("03abc")))
+    const node = nodeWithOwner("lsat:11111111-1111-1111-1111-111111111111")
+    mockApiGet.mockResolvedValue(makeGraphData(node))
 
     const { container } = render(
-      <NodePreviewPanel node={nodeWithPubkey("03abc")} onBack={vi.fn()} schemas={[]} />
+      <NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />
     )
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
     })
     expect(container.querySelector(".ml-auto")).not.toBeNull()
+  })
+
+  it("does not render BoostButton wrapper when node has no owner_reference_id", async () => {
+    userStoreOverrides = { pubKey: "03other", routeHint: "", isAdmin: false }
+    const node: GraphNode = { ref_id: "abc", node_type: "Topic", properties: { name: "Test Node" } }
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    const { container } = render(
+      <NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(container.querySelector(".ml-auto")).toBeNull()
   })
 })
 
