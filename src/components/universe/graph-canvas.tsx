@@ -174,6 +174,7 @@ function apiToGraph(
   // own __group_<type> stays reserved for nodes with no real parent (roots
   // and orphans).
   const clusterizedEdges = new Set<ApiEdge>()
+  const clusteredTargets = new Set<string>()
   const extraNodes: RawNode[] = []
   const extraEdges: RawEdge[] = []
 
@@ -186,6 +187,7 @@ function apiToGraph(
     for (const e of arr) {
       extraEdges.push({ source: clusterId, target: e.target, label: edge_type })
       clusterizedEdges.add(e)
+      clusteredTargets.add(e.target)
     }
   }
 
@@ -199,16 +201,21 @@ function apiToGraph(
   rawEdges.push(...extraEdges)
 
   // ─── 6. Add __group_<type> nodes + member edges ────────────────────────
-  // Members = roots of type + orphans of type. These are nodes with no real
-  // parent in the data; the group gives them a single visual home.
+  // Members = roots of type + orphans of type, minus anything already wired
+  // into a per-source cluster. Without that exclusion, when a cluster's
+  // source isn't in the loaded subgraph the cluster's children look like
+  // roots and end up double-bound: once under `__cluster_…_T × N` and again
+  // under `__group_T`, producing two visual representations of the same type.
   if (groupedTypes.size > 0) {
     const memberByType = new Map<string, Set<string>>()
     for (const t of groupedTypes) memberByType.set(t, new Set())
     for (const r of roots) {
+      if (clusteredTargets.has(r.ref_id)) continue
       const t = r.node_type || "Unknown"
       if (groupedTypes.has(t)) memberByType.get(t)!.add(r.ref_id)
     }
     for (const o of orphans) {
+      if (clusteredTargets.has(o.ref_id)) continue
       const t = o.node_type || "Unknown"
       if (groupedTypes.has(t)) memberByType.get(t)!.add(o.ref_id)
     }
