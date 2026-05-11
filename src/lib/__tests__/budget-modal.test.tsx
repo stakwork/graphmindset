@@ -38,7 +38,7 @@ const mockTopUpLsat = vi.fn().mockResolvedValue({
   payment_hash: "hash123",
 })
 const mockTopUpConfirm = vi.fn().mockResolvedValue(undefined)
-const mockPollPaymentStatus = vi.fn().mockResolvedValue({ paid: true, preimage: "pre_test" })
+const mockPollPaymentStatus = vi.fn().mockResolvedValue(true)
 const mockFetchBuyLsatChallenge = vi.fn().mockResolvedValue({
   invoice: "lnbcbuy123",
   baseMacaroon: "macaroon123",
@@ -96,7 +96,7 @@ describe("BudgetModal success screen delta", () => {
     mockPayInvoice.mockResolvedValue(true)
     mockTopUpLsat.mockResolvedValue({ payment_request: "lnbctest123", payment_hash: "hash123" })
     mockTopUpConfirm.mockResolvedValue(undefined)
-    mockPollPaymentStatus.mockResolvedValue({ paid: true, preimage: "pre_test" })
+    mockPollPaymentStatus.mockResolvedValue(true)
     mockFetchBuyLsatChallenge.mockResolvedValue({
       invoice: "lnbcbuy123",
       baseMacaroon: "macaroon123",
@@ -257,7 +257,7 @@ describe("BudgetModal Manage Token flow", () => {
     })
 
     expect(mockApiGet).toHaveBeenCalledWith("/balance", {
-      Authorization: `LSAT ${tokenPayload.macaroon}:${tokenPayload.preimage}`,
+      Authorization: `LSAT ${tokenPayload.macaroon}:`,
     })
     expect(cookieStorage.getItem("l402")).toBe(JSON.stringify(tokenPayload))
     expect(mockRefreshBalance).toHaveBeenCalled()
