@@ -127,7 +127,7 @@ export function BudgetModal() {
     setLoading(true)
     try {
       await api.get<{ balance: number }>("/balance", {
-        Authorization: `LSAT ${parsed.macaroon}:${parsed.preimage ?? ""}`,
+        Authorization: `LSAT ${parsed.macaroon}:`,
       })
       cookieStorage.setItem("l402", JSON.stringify(parsed))
       await refreshBalance()
@@ -213,9 +213,9 @@ export function BudgetModal() {
       setFirstPurchaseRequest(challenge.invoice)
       setStep("first-invoice")
 
-      const paymentStatus = await pollPaymentStatus(challenge.paymentHash, 20, 2000, controller.signal)
+      const paid = await pollPaymentStatus(challenge.paymentHash, 20, 2000, controller.signal)
       if (controller.signal.aborted) return
-      if (!paymentStatus.paid) {
+      if (!paid) {
         setError("Payment not detected. Try again.")
         setStep("first-purchase")
         return
@@ -226,7 +226,7 @@ export function BudgetModal() {
         JSON.stringify({
           macaroon: challenge.baseMacaroon,
           identifier: challenge.id,
-          preimage: paymentStatus.preimage ?? "",
+          preimage: "",
         }),
       )
 
@@ -273,8 +273,8 @@ export function BudgetModal() {
           return
         }
         console.log("[topUp] payment succeeded, waiting for LN confirmation...")
-        const paymentStatus = await pollPaymentStatus(result.payment_hash)
-        if (!paymentStatus.paid) {
+        const paid = await pollPaymentStatus(result.payment_hash)
+        if (!paid) {
           setError("Payment sent but confirmation timed out. Try refreshing balance.")
           setLoading(false)
           return
@@ -294,9 +294,9 @@ export function BudgetModal() {
       const manualController = new AbortController()
       pollAbortRef.current = manualController
       let confirming = false
-      const paymentStatus = await pollPaymentStatus(result.payment_hash, 100, 3000, manualController.signal)
+      const paid = await pollPaymentStatus(result.payment_hash, 100, 3000, manualController.signal)
       if (manualController.signal.aborted) return
-      if (!paymentStatus.paid) {
+      if (!paid) {
         setError("Payment not detected. Try again.")
         setStep("amount")
         return
