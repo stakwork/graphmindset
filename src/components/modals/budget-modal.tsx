@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Zap, Copy, Check, Loader2, ArrowLeft, History, Key } from "lucide-react"
+import { Zap, Copy, Check, Loader2, ArrowLeft, History, Key, RefreshCw, ArrowUpRight } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import {
   Dialog,
@@ -11,7 +11,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
 import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, TransactionRow } from "@/lib/sphinx"
@@ -387,7 +386,7 @@ export function BudgetModal() {
             {step === "restore" && "Restore Token"}
           </DialogTitle>
           <DialogDescription>
-            {step === "balance" && "Manage your Lightning L402 balance."}
+            {step === "balance" && "Manage your balance."}
             {step === "first-purchase" && "Buy your first L402 with any Lightning wallet."}
             {step === "first-invoice" && "Scan or copy the invoice to pay."}
             {step === "amount" && "Choose an amount to add."}
@@ -403,86 +402,67 @@ export function BudgetModal() {
           {/* Step: Balance */}
           {step === "balance" && (
             <>
-              <div className="flex flex-col items-center gap-3 rounded-lg border border-border/50 bg-muted/30 p-6">
-                <Zap className="h-6 w-6 text-amber glow-text-amber" />
-                <div className="text-center">
-                  <p className="text-3xl font-heading font-bold tracking-tight text-foreground">
-                    {formattedBudget}
-                  </p>
-                  <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mt-1">
-                    satoshis
-                  </p>
+              <div className="relative overflow-hidden rounded-lg border border-border/50 bg-gradient-to-br from-muted/40 to-muted/10 p-5">
+                <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-amber/5 blur-2xl" />
+                <div className="relative flex items-center justify-between">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-heading text-5xl font-bold leading-none text-foreground">
+                      {formattedBudget}
+                    </span>
+                    <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                      sats
+                    </span>
+                  </div>
+                  <Zap className="h-10 w-10 text-amber glow-text-amber" strokeWidth={1.5} />
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2.5">
-                <div
-                  className={`h-2 w-2 rounded-full ${
-                    sphinxConnected || weblnAvailable
-                      ? "bg-emerald-400 shadow-[0_0_4px_theme(colors.emerald.400)]"
-                      : hasExistingL402
-                        ? "bg-amber shadow-[0_0_4px_oklch(0.8_0.16_75/0.4)]"
-                        : "bg-muted-foreground/40"
-                  }`}
-                />
-                <span className="text-xs text-muted-foreground">
-                  {sphinxConnected
-                    ? "Connected via Sphinx"
-                    : weblnAvailable
-                      ? "WebLN detected (Alby, etc.)"
-                      : hasExistingL402
-                        ? "L402 token active"
-                        : "Pay via Lightning invoice (any wallet)"}
-                </span>
               </div>
 
               {error && (
                 <p className="text-xs text-destructive text-center">{error}</p>
               )}
 
-              <Separator className="bg-border/30" />
-
-              <div className="flex flex-col gap-2">
-                <Button
-                  onClick={handleTopUp}
-                  disabled={loading}
-                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs"
-                >
+              <button
+                onClick={handleTopUp}
+                disabled={loading}
+                className="group flex w-full items-center justify-between rounded-lg bg-primary px-4 py-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <div className="flex items-center gap-2">
                   {loading ? (
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Zap className="mr-2 h-3.5 w-3.5" />
+                    <Zap className="h-4 w-4" />
                   )}
-                  {loading ? "Processing..." : "Top Up"}
-                </Button>
+                  <span className="text-sm font-medium">
+                    {loading ? "Processing..." : "Top Up"}
+                  </span>
+                </div>
+                <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </button>
 
-                <Button
-                  variant="ghost"
+              <div className="grid grid-cols-3 gap-2">
+                <button
                   onClick={handleRefreshBalance}
                   disabled={loading}
-                  className="w-full text-xs text-muted-foreground"
+                  className="flex flex-col items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 px-2 py-2.5 text-muted-foreground transition-all hover:border-border/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Refresh Balance
-                </Button>
-
-                <Button
-                  variant="ghost"
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-medium">Refresh</span>
+                </button>
+                <button
                   onClick={handleShowHistory}
                   disabled={(!hasExistingL402 && !isMocksEnabled()) || loading}
-                  className="w-full text-xs text-muted-foreground"
+                  className="flex flex-col items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 px-2 py-2.5 text-muted-foreground transition-all hover:border-border/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <History className="mr-2 h-3.5 w-3.5" />
-                  History
-                </Button>
-
-                <Button
-                  variant="ghost"
+                  <History className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-medium">History</span>
+                </button>
+                <button
                   onClick={() => setStep("manage-token")}
-                  className="w-full text-xs text-muted-foreground"
+                  className="flex flex-col items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 px-2 py-2.5 text-muted-foreground transition-all hover:border-border/60 hover:text-foreground"
                 >
-                  <Key className="mr-2 h-3.5 w-3.5" />
-                  Manage Token
-                </Button>
+                  <Key className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-medium">Manage Token</span>
+                </button>
               </div>
             </>
           )}
