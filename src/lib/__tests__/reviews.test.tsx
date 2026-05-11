@@ -192,12 +192,12 @@ describe("ReviewRow", () => {
       <ReviewRow schemas={[]} review={makeReview({ ref_id: "rv-approve-me" })} onRefresh={onRefresh} />
     )
 
-    // First click shows confirmation
+    // First click opens the confirm popover
     await user.click(getByText("Approve"))
-    expect(getByText(/Confirm approve\?/)).toBeTruthy()
+    expect(getByText("Approve this merge?")).toBeTruthy()
 
-    // Second click (confirm) calls the API
-    await user.click(getByText(/Confirm approve\?/))
+    // Confirm in the popover triggers the API
+    await user.click(getByText("Confirm"))
     await waitFor(() => expect(mockApproveReview).toHaveBeenCalledWith("rv-approve-me"))
     await waitFor(() => expect(onRefresh).toHaveBeenCalled())
   })
@@ -214,7 +214,7 @@ describe("ReviewRow", () => {
     )
 
     await user.click(getByText("Approve"))
-    await user.click(getByText(/Confirm approve\?/))
+    await user.click(getByText("Confirm"))
 
     const errEl = await findByText(/no handler registered for action: supersede/)
     expect(errEl).toBeTruthy()

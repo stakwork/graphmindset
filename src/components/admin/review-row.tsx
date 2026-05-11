@@ -156,69 +156,99 @@ function SourceChips({
   )
 }
 
-// ── Dismiss popover ───────────────────────────────────────────────────────────
+// ── Confirm action popover (used for both Approve and Dismiss) ────────────────
 
-function DismissPopover({
-  onConfirm,
+function ConfirmActionPopover({
+  tone,
+  triggerLabel,
+  prompt,
+  withReason,
+  reasonPlaceholder,
+  loadingLabel,
   loading,
+  onConfirm,
 }: {
-  onConfirm: (reason: string) => void
+  tone: "approve" | "dismiss"
+  triggerLabel: string
+  prompt: string
+  withReason?: boolean
+  reasonPlaceholder?: string
+  loadingLabel: string
   loading: boolean
+  onConfirm: (reason: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState("")
+  const isApprove = tone === "approve"
 
-  if (!open) {
-    return (
+  return (
+    <div className="relative">
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          setOpen(true)
+          setOpen((v) => !v)
         }}
-        className="rounded border border-border bg-transparent px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-muted-foreground/40 hover:text-foreground"
+        className={cn(
+          "rounded border px-2 py-0.5 text-[11px] font-medium transition-all",
+          isApprove
+            ? open
+              ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-200"
+              : "border-emerald-500/40 bg-emerald-500/5 text-emerald-300 hover:border-emerald-500/70 hover:bg-emerald-500/15"
+            : open
+              ? "border-muted-foreground/60 bg-transparent text-foreground"
+              : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
+        )}
       >
-        Dismiss
+        {triggerLabel}
       </button>
-    )
-  }
-
-  return (
-    <div
-      className="flex flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md min-w-[220px]"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <textarea
-        className="w-full rounded border border-input bg-background px-2 py-1 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-        placeholder="Optional reason…"
-        rows={2}
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-      />
-      <div className="flex gap-1.5">
-        <button
-          type="button"
-          disabled={loading}
-          onClick={(e) => {
-            e.stopPropagation()
-            onConfirm(reason)
-            setOpen(false)
-          }}
-          className="rounded px-2 py-0.5 text-xs font-medium bg-destructive/80 text-destructive-foreground hover:bg-destructive transition-colors disabled:opacity-50"
+      {open && (
+        <div
+          className="absolute right-0 top-full z-20 mt-1 flex w-[240px] flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md"
+          onClick={(e) => e.stopPropagation()}
         >
-          {loading ? "Dismissing…" : "Confirm"}
-        </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            setOpen(false)
-          }}
-          className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
+          <p className="text-[11px] text-muted-foreground">{prompt}</p>
+          {withReason && (
+            <textarea
+              className="w-full resize-none rounded border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+              placeholder={reasonPlaceholder}
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          )}
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={(e) => {
+                e.stopPropagation()
+                onConfirm(reason)
+                setOpen(false)
+                setReason("")
+              }}
+              className={cn(
+                "rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50",
+                isApprove
+                  ? "bg-emerald-600/80 text-white hover:bg-emerald-600"
+                  : "bg-destructive/80 text-destructive-foreground hover:bg-destructive"
+              )}
+            >
+              {loading ? loadingLabel : "Confirm"}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setOpen(false)
+              }}
+              className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -280,7 +310,6 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
   const [expanded, setExpanded] = useState(false)
   const [approving, setApproving] = useState(false)
   const [dismissing, setDismissing] = useState(false)
-  const [approveConfirm, setApproveConfirm] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
 
   const relativeTime = formatDateRelative(review.created_at, review.created_at ?? "")
@@ -298,10 +327,6 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
 
   async function handleApprove() {
     if (!isAdmin) return
-    if (!approveConfirm) {
-      setApproveConfirm(true)
-      return
-    }
     setApproving(true)
     setInlineError(null)
     try {
@@ -315,7 +340,6 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
       setInlineError("Approval request failed")
     } finally {
       setApproving(false)
-      setApproveConfirm(false)
     }
   }
 
@@ -385,34 +409,24 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
         <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
           {isPending && isAdmin ? (
             <div className="flex gap-1">
-              {approveConfirm ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={approving}
-                    onClick={handleApprove}
-                    className="rounded px-2 py-0.5 text-[11px] font-medium bg-emerald-600/80 text-white hover:bg-emerald-600 transition-colors disabled:opacity-50"
-                  >
-                    {approving ? "Approving…" : "Confirm approve?"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setApproveConfirm(false)}
-                    className="rounded px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleApprove}
-                  className="rounded border border-emerald-500/40 bg-emerald-500/5 px-2 py-0.5 text-[11px] font-medium text-emerald-300 transition-all hover:border-emerald-500/70 hover:bg-emerald-500/15"
-                >
-                  Approve
-                </button>
-              )}
-              <DismissPopover onConfirm={handleDismiss} loading={dismissing} />
+              <ConfirmActionPopover
+                tone="approve"
+                triggerLabel="Approve"
+                prompt="Approve this merge?"
+                loadingLabel="Approving…"
+                loading={approving}
+                onConfirm={() => handleApprove()}
+              />
+              <ConfirmActionPopover
+                tone="dismiss"
+                triggerLabel="Dismiss"
+                prompt="Dismiss this suggestion?"
+                withReason
+                reasonPlaceholder="Optional reason…"
+                loadingLabel="Dismissing…"
+                loading={dismissing}
+                onConfirm={(reason) => handleDismiss(reason)}
+              />
             </div>
           ) : (
             <StatusBadge status={review.status} />
