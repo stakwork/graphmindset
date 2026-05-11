@@ -143,26 +143,28 @@ export async function topUpConfirm(
   await api.post("/top_up_confirm", { payment_hash: paymentHash, macaroon })
 }
 
-export async function topUpStatus(paymentHash: string): Promise<boolean> {
-  const res = await api.get<{ paid: boolean }>(`/top_up_status/${paymentHash}`)
-  return res.paid
+export type PaymentStatus = { paid: boolean; preimage?: string }
+
+export async function topUpStatus(paymentHash: string): Promise<PaymentStatus> {
+  const res = await api.get<{ paid: boolean; preimage?: string }>(`/top_up_status/${paymentHash}`)
+  return { paid: res.paid, preimage: res.preimage }
 }
 
 export async function pollPaymentStatus(
   paymentHash: string,
   maxAttempts = 20,
   intervalMs = 2000
-): Promise<boolean> {
+): Promise<PaymentStatus> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const paid = await topUpStatus(paymentHash)
-      if (paid) return true
+      const status = await topUpStatus(paymentHash)
+      if (status.paid) return status
     } catch {
       // status check failed — keep polling
     }
     await new Promise((r) => setTimeout(r, intervalMs))
   }
-  return false
+  return { paid: false }
 }
 
 export type BuyLsatChallenge = {
