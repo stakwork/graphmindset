@@ -120,7 +120,7 @@ export function BudgetModal() {
     setLoading(true)
     try {
       await api.get<{ balance: number }>("/balance", {
-        Authorization: `LSAT ${parsed.macaroon}:`,
+        Authorization: `LSAT ${parsed.macaroon}:${parsed.preimage ?? ""}`,
       })
       cookieStorage.setItem("l402", JSON.stringify(parsed))
       await refreshBalance()
@@ -204,8 +204,8 @@ export function BudgetModal() {
       setFirstPurchaseRequest(challenge.invoice)
       setStep("first-invoice")
 
-      const paid = await pollPaymentStatus(challenge.paymentHash)
-      if (!paid) {
+      const paymentStatus = await pollPaymentStatus(challenge.paymentHash)
+      if (!paymentStatus.paid) {
         setError("Payment not detected. Try again.")
         setStep("first-purchase")
         return
@@ -216,7 +216,7 @@ export function BudgetModal() {
         JSON.stringify({
           macaroon: challenge.baseMacaroon,
           identifier: challenge.id,
-          preimage: "",
+          preimage: paymentStatus.preimage ?? "",
         }),
       )
 
@@ -263,8 +263,8 @@ export function BudgetModal() {
           return
         }
         console.log("[topUp] payment succeeded, waiting for LN confirmation...")
-        const paid = await pollPaymentStatus(result.payment_hash)
-        if (!paid) {
+        const paymentStatus = await pollPaymentStatus(result.payment_hash)
+        if (!paymentStatus.paid) {
           setError("Payment sent but confirmation timed out. Try refreshing balance.")
           setLoading(false)
           return
@@ -282,8 +282,8 @@ export function BudgetModal() {
       setStep("invoice")
 
       let confirming = false
-      const paid = await pollPaymentStatus(result.payment_hash, 100, 3000)
-      if (!paid) {
+      const paymentStatus = await pollPaymentStatus(result.payment_hash, 100, 3000)
+      if (!paymentStatus.paid) {
         if (intervalRef.current) clearInterval(intervalRef.current)
         setError("Payment not detected. Try again.")
         setStep("amount")
