@@ -13,10 +13,12 @@ import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
+import { useDeepLink } from "@/hooks/use-deep-link"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
+  useDeepLink()
   useSidebarNeighborFetch()
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
