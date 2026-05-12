@@ -810,11 +810,11 @@ describe("NodePreviewPanel – share button", () => {
 
   it("shows 'Copied!' after click and resets to link icon after 2s", async () => {
     vi.useFakeTimers()
-    const { render, fireEvent, screen, act } = await import("@testing-library/react")
+    const { render, fireEvent, screen, act, waitFor } = await import("@testing-library/react")
     const node: GraphNode = { ref_id: "share-node-3", node_type: "Topic", properties: { name: "Share Test" } }
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
     const btn = document.querySelector("button[title='Copy share link']") as HTMLElement
-    fireEvent.click(btn)
+    await act(async () => { fireEvent.click(btn) })
     expect(screen.getByText("Copied!")).toBeInTheDocument()
     act(() => { vi.advanceTimersByTime(2000) })
     expect(screen.queryByText("Copied!")).toBeNull()
