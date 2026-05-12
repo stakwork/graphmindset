@@ -532,6 +532,34 @@ describe("NodePreviewPanel – Stakwork project link", () => {
     })
   })
 
+  it("renders 'View on Stakwork' link for admin + project_id + completed status", async () => {
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+    const node = makeNodeWithProject({ project_id: "999", status: "completed" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /view on stakwork/i })
+      expect(link).toBeInTheDocument()
+      expect(link).toHaveAttribute("href", "https://jobs.stakwork.com/admin/projects/999")
+      expect(link).toHaveAttribute("target", "_blank")
+    })
+  })
+
+  it("does not render 'View on Stakwork' for non-admin with project_id + completed status", async () => {
+    userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
+    const node = makeNodeWithProject({ project_id: "999", status: "completed" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view on stakwork/i })).toBeNull()
+  })
+
   it("does not render 'View on Stakwork' for non-admin with project_id + error status", async () => {
     userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
     const node = makeNodeWithProject({ project_id: "555", status: "error" })
@@ -558,7 +586,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
     expect(screen.queryByRole("link", { name: /view on stakwork/i })).toBeNull()
   })
 
-  it.each(["in_progress", "processing", "halted", "error", "failed"])(
+  it.each(["in_progress", "processing", "halted", "error", "failed", "completed"])(
     "renders link for admin with status=%s",
     async (status) => {
       userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }

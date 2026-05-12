@@ -697,11 +697,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           {(() => {
             const projectId = typeof props?.project_id === "string" ? props.project_id : null
             const status = typeof props?.status === "string" ? props.status : null
-            const isLinkable =
-              isAdmin &&
-              projectId &&
-              status &&
-              ["in_progress", "processing", "halted", "error", "failed"].includes(status)
+            const isLinkable = isAdmin && !!projectId
             if (!isLinkable) return null
             return (
               <a
