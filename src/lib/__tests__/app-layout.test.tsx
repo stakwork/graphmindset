@@ -93,6 +93,7 @@ vi.mock("@/components/modals/add-node-modal", () => ({ AddNodeModal: () => null 
 vi.mock("@/components/modals/budget-modal", () => ({ BudgetModal: () => null }))
 vi.mock("@/components/player/media-player", () => ({ MediaPlayer: () => null }))
 vi.mock("@/hooks/use-sidebar-neighbor-fetch", () => ({ useSidebarNeighborFetch: () => {} }))
+vi.mock("@/hooks/use-deep-link", () => ({ useDeepLink: () => {} }))
 vi.mock("@/lib/mock-data", () => ({ isMocksEnabled: () => false }))
 vi.mock("@/app/ontology/mock-small", () => ({ SMALL_SCHEMAS: [] }))
 
