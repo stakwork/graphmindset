@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   Layers,
   Plus,
+  PlusSquare,
   Settings,
   Zap,
   CircleDot,
@@ -165,6 +166,7 @@ export function AppRail({
       <nav className="relative z-10 flex flex-1 flex-col items-center gap-1 py-3">
         <RailIcon icon={Plus} label="Add Content" onClick={() => openModal("addContent")} />
         <RailIcon icon={Tag} label="Add Topic" onClick={() => openModal("addNode")} />
+        <RailIcon icon={PlusSquare} label="Create Node" onClick={() => openModal("createNode")} />
         <RailIcon
           icon={BookMarked}
           label="My Content"

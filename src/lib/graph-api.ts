@@ -1,5 +1,6 @@
 import { api } from "./api"
 import { isMocksEnabled, MOCK_REVIEWS } from "./mock-data"
+import type { SchemaNode } from "@/app/ontology/page"
 
 export interface GraphNode {
   ref_id: string
@@ -356,6 +357,22 @@ export async function checkNodeExists(
 
 
 
+
+// Fetch schema for a specific node type — used by CreateNodeModal to get
+// the full attribute list (including inherited_attributes) for form generation.
+// In mock mode, reads directly from the schema store to avoid API calls.
+export async function fetchSchemaByType(nodeType: string): Promise<SchemaNode | null> {
+  if (isMocksEnabled()) {
+    const { useSchemaStore } = await import("@/stores/schema-store")
+    const schemas = useSchemaStore.getState().schemas
+    return schemas.find((s) => s.type === nodeType) ?? null
+  }
+  try {
+    return await api.get<SchemaNode>(`/schema/${nodeType}`)
+  } catch {
+    return null
+  }
+}
 
 // -------------------------------------------------------------------------
 // Reviews
