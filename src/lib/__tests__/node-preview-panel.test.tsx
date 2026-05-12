@@ -92,7 +92,7 @@ vi.mock("@/lib/schema-icons", () => ({
 
 // --- boost button ---
 vi.mock("@/components/boost/boost-button", () => ({
-  BoostButton: () => null,
+  BoostButton: () => <div data-testid="boost-button" />,
 }))
 
 import { NodePreviewPanel } from "@/components/layout/node-preview-panel"
@@ -273,14 +273,14 @@ describe("NodePreviewPanel – boost visibility", () => {
     const node = nodeWithOwner("lsat:11111111-1111-1111-1111-111111111111")
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
-    const { container } = render(
+    render(
       <NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />
     )
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
     })
-    expect(container.querySelector(".ml-auto")).toBeNull()
+    expect(screen.queryByTestId("boost-button")).toBeNull()
   })
 
   it("renders BoostButton wrapper when node has owner_reference_id and viewer is not admin", async () => {
@@ -288,14 +288,14 @@ describe("NodePreviewPanel – boost visibility", () => {
     const node = nodeWithOwner("lsat:11111111-1111-1111-1111-111111111111")
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
-    const { container } = render(
+    render(
       <NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />
     )
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
     })
-    expect(container.querySelector(".ml-auto")).not.toBeNull()
+    expect(screen.queryByTestId("boost-button")).not.toBeNull()
   })
 
   it("does not render BoostButton wrapper when node has no owner_reference_id", async () => {
@@ -303,14 +303,14 @@ describe("NodePreviewPanel – boost visibility", () => {
     const node: GraphNode = { ref_id: "abc", node_type: "Topic", properties: { name: "Test Node" } }
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
-    const { container } = render(
+    render(
       <NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />
     )
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
     })
-    expect(container.querySelector(".ml-auto")).toBeNull()
+    expect(screen.queryByTestId("boost-button")).toBeNull()
   })
 })
 
@@ -835,5 +835,56 @@ describe("NodePreviewPanel – View Source / web page link", () => {
       expect(screen.getByText("Play Audio")).toBeInTheDocument()
     })
     expect(screen.queryByText("View Source")).toBeNull()
+  })
+})
+
+describe("NodePreviewPanel – share button", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    // 402 probe so panel renders in preview state (not blocking share button)
+    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
+    mockGetPrice.mockResolvedValue(10)
+    // Mock clipboard
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      writable: true,
+      configurable: true,
+    })
+    Object.defineProperty(window, "location", {
+      value: { origin: "https://example.com" },
+      writable: true,
+      configurable: true,
+    })
+  })
+
+  it("renders share button in the panel header", async () => {
+    const node: GraphNode = { ref_id: "share-node-1", node_type: "Topic", properties: { name: "Share Test" } }
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    const btn = document.querySelector("button[title='Copy share link']")
+    expect(btn).toBeTruthy()
+  })
+
+  it("copies the correct URL to clipboard when share button is clicked", async () => {
+    const { fireEvent } = await import("@testing-library/react")
+    const node: GraphNode = { ref_id: "share-node-2", node_type: "Topic", properties: { name: "Share Test" } }
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    const btn = document.querySelector("button[title='Copy share link']") as HTMLElement
+    expect(btn).toBeTruthy()
+    fireEvent.click(btn)
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://example.com/?id=share-node-2")
+  })
+
+  it("shows 'Copied!' after click and resets to link icon after 2s", async () => {
+    vi.useFakeTimers()
+    const { fireEvent, act } = await import("@testing-library/react")
+    const node: GraphNode = { ref_id: "share-node-3", node_type: "Topic", properties: { name: "Share Test" } }
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    const btn = document.querySelector("button[title='Copy share link']") as HTMLElement
+    await act(async () => { fireEvent.click(btn) })
+    expect(screen.getByText("Copied!")).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(2000) })
+    expect(screen.queryByText("Copied!")).toBeNull()
+    vi.useRealTimers()
   })
 })

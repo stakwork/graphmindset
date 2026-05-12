@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { ArrowLeft, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -460,6 +460,19 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [unlockState, setUnlockState] = useState<UnlockState>("loading")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const [price, setPrice] = useState<number | null>(null)
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function handleShare() {
+    navigator.clipboard.writeText(`${window.location.origin}/?id=${node.ref_id}`).then(() => {
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {})
+  }
+
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
+
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const isAdmin = useUserStore((s) => s.isAdmin)
   const openModal = useModalStore((s) => s.open)
@@ -632,8 +645,19 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         >
           {displayNodeType(nodeType)}
         </Badge>
-        {ownerReference && !hideBoost && (
-          <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            onClick={handleShare}
+            className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
+            title="Copy share link"
+          >
+            {copied ? (
+              <span className="text-[10px] text-green-500">Copied!</span>
+            ) : (
+              <Link className="h-3.5 w-3.5" />
+            )}
+          </button>
+          {ownerReference && !hideBoost && (
             <BoostButton
               refId={node.ref_id}
               ownerReference={ownerReference}
@@ -641,8 +665,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               routeHint={routeHint}
               boostCount={boostAmt}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
