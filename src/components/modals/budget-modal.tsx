@@ -680,6 +680,7 @@ export function BudgetModal() {
                     .filter(tx =>
                     tx.action !== 'refund' &&
                     tx.action !== 'boost_refund' &&
+                    tx.amount > 0 &&
                     !isViewGrantRow(tx)
                   )
                     .map((tx, i) => (
