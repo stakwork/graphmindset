@@ -464,7 +464,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
-    }).catch(() => {})
+    }).catch(() => { })
   }
 
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
@@ -524,7 +524,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     } catch (err) {
       if (err instanceof Response && err.status === 402) {
         try {
-          await payL402(() => {})
+          await payL402(() => { })
           const unlocked = await unlockNode(node.ref_id)
           setFullNode(unlocked)
           setUnlockState("unlocked")
@@ -621,8 +621,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   // Remaining properties not handled by rich widgets
   const remainingProps = fp
     ? Object.entries(fp).filter(([k]) =>
-        !INTERNAL_FIELDS.has(k) && k !== schema?.title_key && k !== schema?.description_key
-      )
+      !INTERNAL_FIELDS.has(k) && k !== schema?.title_key && k !== schema?.description_key
+    )
     : []
 
   return (
@@ -691,8 +691,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
           {/* Stakwork project link for admins */}
           {(() => {
-            const projectId = props?.project_id != null ? String(props.project_id) : null
-            const status = typeof props?.status === "string" ? props.status : null
+            const rawProjectId = fp?.project_id ?? props?.project_id
+            const projectId = rawProjectId != null ? String(rawProjectId) : null 
+            
             const isLinkable = isAdmin && !!projectId
             if (!isLinkable) return null
             return (
@@ -766,8 +767,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 const sats = typeof fp.boost === "number" && fp.boost > 0
                   ? fp.boost
                   : typeof fp.num_boost === "number" && fp.num_boost > 0
-                  ? fp.num_boost
-                  : null
+                    ? fp.num_boost
+                    : null
                 if (!statusBadge && !dateStr && sats === null) return null
                 return (
                   <div className="flex items-center gap-2 flex-wrap">
