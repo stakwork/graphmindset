@@ -64,18 +64,10 @@ export function NodeRow({
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
-  // Stakwork project ids come back as numbers from the pipeline (the schema
-  // declares them as ?string but the backend stores them as int). Accept both.
-  const rawProjectId = props?.project_id
-  const projectId =
-    typeof rawProjectId === "string"
-      ? rawProjectId
-      : typeof rawProjectId === "number"
-        ? String(rawProjectId)
-        : null
-  const stakworkUrl = isAdmin && projectId && statusBadge
-    ? `https://jobs.stakwork.com/admin/projects/${projectId}`
-    : null
+  const projectId = props?.project_id != null ? String(props.project_id) : null
+  const stakworkUrl = isAdmin && projectId
+      ? `https://jobs.stakwork.com/admin/projects/${projectId}`
+      : null
 
   const thumbnail = pickString(props, "image_url") ?? pickString(props, "thumbnail")
   const showThumbnail = !!thumbnail && !imgError
@@ -137,7 +129,7 @@ export function NodeRow({
           >
             {displayNodeType(nodeType)}
           </Badge>
-          {statusBadge && (
+          {statusBadge ? (
             stakworkUrl ? (
               <a
                 href={stakworkUrl}
@@ -156,7 +148,17 @@ export function NodeRow({
                 {statusBadge.label}
               </span>
             )
-          )}
+          ) : stakworkUrl ? (
+            <a
+              href={stakworkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex shrink-0 items-center"
+            >
+              <ExternalLink className="h-2.5 w-2.5" />
+            </a>
+          ) : null}
         </div>
         {matchExcerpt ?? (
           (snippet || rowDate) && (

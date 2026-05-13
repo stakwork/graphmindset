@@ -519,7 +519,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("renders 'View on Stakwork' link for admin + project_id + halted status", async () => {
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
-    const node = makeNodeWithProject({ project_id: "555", status: "halted" })
+    const node = makeNodeWithProject({ project_id: 555, status: "halted" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -534,7 +534,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("renders 'View on Stakwork' link for admin + project_id + completed status", async () => {
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
-    const node = makeNodeWithProject({ project_id: "999", status: "completed" })
+    const node = makeNodeWithProject({ project_id: 999, status: "completed" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -549,7 +549,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("does not render 'View on Stakwork' for non-admin with project_id + completed status", async () => {
     userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
-    const node = makeNodeWithProject({ project_id: "999", status: "completed" })
+    const node = makeNodeWithProject({ project_id: 999, status: "completed" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -562,7 +562,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("does not render 'View on Stakwork' for non-admin with project_id + error status", async () => {
     userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
-    const node = makeNodeWithProject({ project_id: "555", status: "error" })
+    const node = makeNodeWithProject({ project_id: 555, status: "error" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -590,7 +590,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
     "renders link for admin with status=%s",
     async (status) => {
       userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
-      const node = makeNodeWithProject({ project_id: "777", status })
+      const node = makeNodeWithProject({ project_id: 777, status })
       mockApiGet.mockResolvedValue(makeGraphData(node))
 
       const { unmount } = render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -797,6 +797,75 @@ describe("NodePreviewPanel – paid_properties lock placeholders", () => {
   })
 })
 
+describe("NodePreviewPanel – View Source / web page link", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  it("renders 'View Source' link for a web page node with a plain link URL", async () => {
+    const node: GraphNode = {
+      ref_id: "n9",
+      node_type: "WebPage",
+      properties: { name: "Sphinx Chat Website", description: "Decentralised messaging on Lightning." },
+    }
+    const fullNode: GraphNode = {
+      ...node,
+      properties: { ...node.properties, link: "https://sphinx.chat" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [fullNode], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("View Source")).toBeInTheDocument()
+    })
+    const link = screen.getByRole("link", { name: /view source/i })
+    expect(link).toHaveAttribute("href", "https://sphinx.chat")
+    expect(link).toHaveAttribute("target", "_blank")
+  })
+
+  it("does not render 'View Source' for an audio node with a media link URL", async () => {
+    const node: GraphNode = {
+      ref_id: "a1",
+      node_type: "Episode",
+      properties: { name: "Audio Episode" },
+    }
+    const fullNode: GraphNode = {
+      ...node,
+      properties: { ...node.properties, link: "https://example.com/audio.mp3" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [fullNode], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Play Audio")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("View Source")).toBeNull()
+  })
+
+  it("renders player and no View Source for a node with media_url", async () => {
+    const node: GraphNode = {
+      ref_id: "m1",
+      node_type: "Episode",
+      properties: { name: "Media Node" },
+    }
+    const fullNode: GraphNode = {
+      ...node,
+      properties: { ...node.properties, media_url: "https://example.com/episode.mp3" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [fullNode], edges: [] })
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Play Audio")).toBeInTheDocument()
+    })
+    expect(screen.queryByText("View Source")).toBeNull()
+  })
+})
+
 describe("NodePreviewPanel – share button", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -818,8 +887,6 @@ describe("NodePreviewPanel – share button", () => {
   })
 
   it("renders share button in the panel header", async () => {
-    const { default: userEvent } = await import("@testing-library/user-event")
-    const { render } = await import("@testing-library/react")
     const node: GraphNode = { ref_id: "share-node-1", node_type: "Topic", properties: { name: "Share Test" } }
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
     const btn = document.querySelector("button[title='Copy share link']")
@@ -827,7 +894,7 @@ describe("NodePreviewPanel – share button", () => {
   })
 
   it("copies the correct URL to clipboard when share button is clicked", async () => {
-    const { render, fireEvent } = await import("@testing-library/react")
+    const { fireEvent } = await import("@testing-library/react")
     const node: GraphNode = { ref_id: "share-node-2", node_type: "Topic", properties: { name: "Share Test" } }
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
     const btn = document.querySelector("button[title='Copy share link']") as HTMLElement
@@ -838,7 +905,7 @@ describe("NodePreviewPanel – share button", () => {
 
   it("shows 'Copied!' after click and resets to link icon after 2s", async () => {
     vi.useFakeTimers()
-    const { render, fireEvent, screen, act, waitFor } = await import("@testing-library/react")
+    const { fireEvent, act } = await import("@testing-library/react")
     const node: GraphNode = { ref_id: "share-node-3", node_type: "Topic", properties: { name: "Share Test" } }
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
     const btn = document.querySelector("button[title='Copy share link']") as HTMLElement

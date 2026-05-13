@@ -89,6 +89,24 @@ export function MediaPlayer() {
   }, [isPlaying, setIsPlaying, isVideo])
 
   useEffect(() => {
+    if (!playingNode) return
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) return
+      if (e.key === " ") {
+        e.preventDefault()
+        setIsPlaying(!isPlaying)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [playingNode, isPlaying, setIsPlaying])
+
+  useEffect(() => {
     const media = getMedia()
     if (media) media.volume = volume
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,9 +187,10 @@ export function MediaPlayer() {
           ref={videoRef}
           src={mediaUrl}
           className={cn(
-            "w-full object-contain bg-black",
+            "w-full object-contain bg-black cursor-pointer",
             isExpanded ? "flex-1 min-h-0" : "aspect-video"
           )}
+          onClick={() => setIsPlaying(!isPlaying)}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onEnded={handleEnded}

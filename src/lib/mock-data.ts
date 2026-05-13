@@ -95,6 +95,76 @@ export const MOCK_NODES: GraphNode[] = [
       source_role: "guest",
     },
   },
+  // Hot Takes seed — recent Clip nodes so the landing-page section renders in mocks mode.
+  {
+    ref_id: "n12",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 2,
+    properties: {
+      name: "Proof-of-work is a clock",
+      description: "Proof-of-work is a clock. That's the whole thing.",
+      show: "What Bitcoin Did",
+      episode_number: 412,
+      duration: 47,
+      timestamp: 1240,
+      speaker_name: "Adam Back",
+      thumbnail: "https://picsum.photos/seed/clip-pow-clock/600/400",
+      boost: 412,
+    },
+  },
+  {
+    ref_id: "n13",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 5,
+    properties: {
+      name: "Separation of money and state",
+      description: "The separation of money and state is happening whether governments like it or not.",
+      show: "Citation Needed",
+      episode_number: 87,
+      duration: 62,
+      timestamp: 1840,
+      speaker_name: "Lyn Alden",
+      thumbnail: "https://picsum.photos/seed/clip-money-state/600/400",
+      boost: 380,
+    },
+  },
+  {
+    ref_id: "n14",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 8,
+    properties: {
+      name: "Possession vs ownership",
+      description: "Custody is the line between possession and ownership. Everything else is detail.",
+      show: "Coin Stories",
+      episode_number: 142,
+      duration: 38,
+      timestamp: 420,
+      speaker_name: "Jameson Lopp",
+      thumbnail: "https://picsum.photos/seed/clip-custody/600/400",
+      boost: 290,
+    },
+  },
+  {
+    ref_id: "n15",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 11,
+    properties: {
+      name: "Lightning as settlement",
+      description: "Lightning isn't a scaling solution, it's a settlement layer for the global economy.",
+      show: "What Bitcoin Did",
+      episode_number: 408,
+      duration: 54,
+      timestamp: 2100,
+      speaker_name: "Roy Sheinfeld",
+      thumbnail: "https://picsum.photos/seed/clip-lightning/600/400",
+      boost: 245,
+    },
+  },
+  {
+    ref_id: "n20",
+    node_type: "WebPage",
+    properties: { name: "Sphinx Chat Website", description: "Decentralised messaging on Lightning." },
+  },
 ]
 
 // Full node data returned after unlock (simulates GET /v2/nodes/:ref_id?expand=edges)
@@ -282,6 +352,20 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
     ],
     edges: [],
   },
+  n20: {
+    nodes: [
+      {
+        ref_id: "n20",
+        node_type: "WebPage",
+        properties: {
+          name: "Sphinx Chat Website",
+          description: "Decentralised messaging on Lightning.",
+          link: "https://sphinx.chat",
+        },
+      },
+    ],
+    edges: [],
+  },
 }
 
 export const MOCK_EDGES: GraphEdge[] = [
@@ -317,7 +401,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Podcast",
       ref_id: "c3",
-      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "error", project_id: "123456", date_added_to_graph: 1712900000, thumbnail: "https://picsum.photos/seed/content-c3/120" },
+      properties: { name: "What Bitcoin Did #412", description: "Peter McCormack interviews a Lightning developer", status: "error", project_id: 123456, date_added_to_graph: 1712900000, thumbnail: "https://picsum.photos/seed/content-c3/120" },
     },
     {
       node_type: "Document",
@@ -327,7 +411,7 @@ export const MOCK_CONTENT = {
     {
       node_type: "Tweet",
       ref_id: "c5",
-      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", project_id: "789012", date_added_to_graph: 1712700000, image_url: "https://example.invalid/content-c5-broken.jpg" },
+      properties: { name: "Lightning Network scaling", text: "Lightning is making micropayments a reality", status: "processing", project_id: 789012, date_added_to_graph: 1712700000, image_url: "https://example.invalid/content-c5-broken.jpg" },
     },
   ],
   totalCount: 5,
