@@ -168,6 +168,41 @@ describe("JanitorSettings", () => {
     })
   })
 
+  it("shows status badge and no 'Never run' after successful Run Now", async () => {
+    const { getCronConfig, getCronRuns, runCron } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({ configs: [mockJanitorConfig] })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+    vi.mocked(runCron).mockResolvedValue({
+      run: {
+        ref_id: "mock-run-1",
+        source_type: "deduplication",
+        kind: "janitor",
+        status: "in_progress",
+        trigger: "MANUAL",
+        created_at: Math.floor(Date.now() / 1000),
+      },
+    })
+
+    const user = userEvent.setup()
+    render(<JanitorSettings open={true} />)
+
+    await screen.findByText("Deduplication")
+
+    const runBtn = screen.getByRole("button", { name: /run now/i })
+    await user.click(runBtn)
+
+    // Status badge should appear with in_progress
+    await waitFor(() => {
+      expect(screen.getByText("in_progress")).toBeInTheDocument()
+    })
+
+    // "Never run" should not be shown
+    expect(screen.queryByText("Never run")).not.toBeInTheDocument()
+
+    // Button should be disabled because isActive is true (in_progress)
+    expect(runBtn).toBeDisabled()
+  })
+
   it("silent skip: 409 from runCron does not show error", async () => {
     const { getCronConfig, getCronRuns, runCron } = await import("@/lib/graph-api")
     vi.mocked(getCronConfig).mockResolvedValue({ configs: [mockJanitorConfig] })
