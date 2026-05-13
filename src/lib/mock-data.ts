@@ -160,6 +160,11 @@ export const MOCK_NODES: GraphNode[] = [
       boost: 245,
     },
   },
+  {
+    ref_id: "n20",
+    node_type: "WebPage",
+    properties: { name: "Sphinx Chat Website", description: "Decentralised messaging on Lightning." },
+  },
 ]
 
 // Full node data returned after unlock (simulates GET /v2/nodes/:ref_id?expand=edges)
@@ -342,6 +347,20 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
           show: "What Bitcoin Did",
           episode_number: 412,
           transcript: "So mining is essentially a competition. Miners around the world are racing to solve a mathematical puzzle. The first one to find the answer gets to add the next block of transactions to the blockchain and earns a reward \u2014 currently 3.125 Bitcoin. The puzzle is designed so that it takes about 10 minutes on average for the entire network to find a solution.",
+        },
+      },
+    ],
+    edges: [],
+  },
+  n20: {
+    nodes: [
+      {
+        ref_id: "n20",
+        node_type: "WebPage",
+        properties: {
+          name: "Sphinx Chat Website",
+          description: "Decentralised messaging on Lightning.",
+          link: "https://sphinx.chat",
         },
       },
     ],
