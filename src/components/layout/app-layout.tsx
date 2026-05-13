@@ -2,15 +2,14 @@
 
 import { useEffect, useState } from "react"
 import { AppRail } from "./app-rail"
-import { UnifiedPanel } from "./unified-panel"
-import { Universe } from "@/components/universe"
+import { MainArea } from "./main-area"
+import { GraphFloater } from "@/components/universe/graph-floater"
 import { SettingsModal } from "@/components/modals/settings-modal"
 import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
 import { AddNodeModal } from "@/components/modals/add-node-modal"
 import { MediaPlayer } from "@/components/player/media-player"
 import { useAppStore } from "@/stores/app-store"
-import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
 import { isMocksEnabled } from "@/lib/mock-data"
@@ -21,11 +20,8 @@ export function AppLayout() {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
-  const hasResults = useGraphStore((s) => s.nodes.length > 0)
   const schemas = useSchemaStore((s) => s.schemas)
   const fetchSchemas = useSchemaStore((s) => s.fetchAll)
-
-  const searchPanelOpen = hasResults
 
   useEffect(() => {
     if (schemas.length > 0) return
@@ -35,21 +31,6 @@ export function AppLayout() {
       fetchSchemas()
     }
   }, [schemas.length, fetchSchemas])
-
-  // Auto-close other panels when search results appear.
-  useEffect(() => {
-    if (!searchPanelOpen) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- cross-panel sync; refactor target is to move searchPanelOpen into the store and clear panels inside setSearchTerm
-    if (sourcesOpen) setSourcesOpen(false)
-    if (myContentOpen) setMyContentOpen(false)
-  }, [searchPanelOpen, sourcesOpen, myContentOpen, setMyContentOpen])
-
-  function closeSearchResults(): void {
-    useAppStore.getState().setSearchTerm("")
-    useGraphStore.getState().setGraphData([], [])
-    useGraphStore.getState().setHoveredNode(null)
-    useGraphStore.getState().setSidebarSelectedNode(null)
-  }
 
   return (
     <>
@@ -62,25 +43,22 @@ export function AppLayout() {
           }}
           myContentOpen={myContentOpen}
           onToggleMyContent={() => {
-            if (!myContentOpen) closeSearchResults()
             setMyContentOpen(!myContentOpen)
             setSourcesOpen(false)
           }}
         />
 
-        <UnifiedPanel
-          sourcesOpen={sourcesOpen}
-          onCloseSources={() => setSourcesOpen(false)}
-          myContentOpen={myContentOpen}
-          onCloseMyContent={() => setMyContentOpen(false)}
-          searchPanelOpen={searchPanelOpen}
-          onCloseSearchResults={closeSearchResults}
-        />
-
         <main className="h-full flex-1 min-w-0">
-          <Universe />
+          <MainArea
+            sourcesOpen={sourcesOpen}
+            onCloseSources={() => setSourcesOpen(false)}
+            myContentOpen={myContentOpen}
+            onCloseMyContent={() => setMyContentOpen(false)}
+          />
         </main>
       </div>
+
+      <GraphFloater />
 
       {/* Modals — outside flex layout so they overlay properly */}
       <SettingsModal />

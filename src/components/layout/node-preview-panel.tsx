@@ -15,7 +15,7 @@ import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
-import { cn, displayNodeType } from "@/lib/utils"
+import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge, isBlockedStatus } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
@@ -56,11 +56,7 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`
 }
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M"
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K"
-  return String(n)
-}
+const formatNumber = formatCompactNumber
 
 function pickNumber(props: Record<string, unknown>, key: string): number | undefined {
   const v = props[key]
