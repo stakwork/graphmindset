@@ -1,13 +1,36 @@
 # GraphMindset
 
-> Knowledge graph explorer and ontology editor
-
-GraphMindset lets you explore, search, and build knowledge graphs. Define your own ontology with custom node types and relationships, add content from URLs, and visualize the connections between ideas, people, and things.
+> Lightning-payable, L402-metered knowledge graph platform for exploring, building, and curating connected knowledge. Search nodes, discover content via a social-style feed, manage your ontology, and pay for API access with Bitcoin Lightning (Sphinx or WebLN).
 
 ## Features
 
-- Search and explore knowledge graph nodes
-- Visual ontology/schema editor
-- Add content from Twitter, YouTube, RSS, GitHub, and web pages
-- Boost content with Lightning payments
-- Media playback for audio/video content
+- Feed-style discovery: browsable cards with thumbnails, type chips, and social metrics
+- Search with exact, fuzzy, and semantic matching
+- 3D radial graph viewport with camera navigation and bloom post-processing
+- Ontology/schema editor with 2D DAG view and toggleable 3D WebGL visualization
+- Content sources: Twitter/X, YouTube, RSS, GitHub, web pages, and documents
+- My Content panel — personal contribution history with status badges, delete, and admin deep-links
+- In-app audio/video player (persistent, floating overlay, fullscreen)
+- Node deep-link sharing via `?id=` query parameter
+
+## Lightning & L402
+
+- Top up sats balance via Sphinx wallet or WebLN/Alby browser extension
+- Pay-per-call L402-metered endpoints (search, content creation, node unlocks)
+- Boost nodes with keysend payments; boost counter recorded on the graph
+- Transaction history showing searches, boosts, top-ups, and content adds
+- Export/import L402 token for backup and cross-device restore
+- Content-creator payouts: contributors earn sats when their nodes are unlocked
+
+## Admin
+
+- Content sources management (subscribe/delete external sources)
+- Radar & janitor scheduling (cron config, immediate-trigger, run history)
+- Content review & moderation (approve/dismiss AI-generated graph suggestions)
+- Graph settings & domain visibility (name, description, node-type/domain-root toggles)
+
+## Authentication
+
+- Sphinx app bridge (postMessage WebView)
+- WebLN browser extension fallback
+- Anonymous L402-only mode (no Lightning identity required)

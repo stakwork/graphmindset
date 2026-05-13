@@ -1,0 +1,23 @@
+# GraphMindset — AI Agent Policy
+
+## About
+GraphMindset is a Lightning-payable knowledge graph platform for exploring, building, and curating connected knowledge with an L402-metered API.
+
+## Allowed
+- Read public graph data via standard HTTP GET requests
+- Browse /llms.txt for a structured site description
+- Follow standard HTTP semantics (respect 429, 503 responses)
+
+## Paid Endpoints
+The following actions require L402 payment (Bitcoin Lightning):
+- Search (exact, fuzzy, semantic)
+- Content creation (nodes, topics)
+- Node unlocks and graph path queries
+- Boost payments to content nodes
+Agents must present a valid LSAT bearer token or respond to a 402 Payment Required challenge.
+
+## Rate Limits
+Be respectful of server resources. Abusive crawling or automated bulk requests may be rate-limited or blocked at the edge.
+
+## Contact
+# (ops contact — leave blank until provided)
