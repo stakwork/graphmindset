@@ -66,8 +66,8 @@ export function NodeRow({
 
   const projectId = props?.project_id != null ? String(props.project_id) : null
   const stakworkUrl = isAdmin && projectId
-    ? `https://jobs.stakwork.com/admin/projects/${projectId}`
-    : null
+      ? `https://jobs.stakwork.com/admin/projects/${projectId}`
+      : null
 
   const thumbnail = pickString(props, "image_url") ?? pickString(props, "thumbnail")
   const showThumbnail = !!thumbnail && !imgError
