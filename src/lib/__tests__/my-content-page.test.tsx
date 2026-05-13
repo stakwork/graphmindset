@@ -228,7 +228,7 @@ describe("MyContentPanel – Stakwork badge link", () => {
         {
           node_type: "Tweet",
           ref_id: "ref-1",
-          properties: { name: "Failed Node", status: "error", project_id: "99999" },
+          properties: { name: "Failed Node", status: "error", project_id: 99999 },
         },
       ],
       totalCount: 1,
@@ -251,7 +251,7 @@ describe("MyContentPanel – Stakwork badge link", () => {
         {
           node_type: "Tweet",
           ref_id: "ref-1",
-          properties: { name: "Failed Node", status: "error", project_id: "99999" },
+          properties: { name: "Failed Node", status: "error", project_id: 99999 },
         },
       ],
       totalCount: 1,
@@ -293,7 +293,7 @@ describe("MyContentPanel – Stakwork badge link", () => {
         {
           node_type: "Tweet",
           ref_id: "ref-1",
-          properties: { name: "Failed Node", status: "error", project_id: "99999" },
+          properties: { name: "Failed Node", status: "error", project_id: 99999 },
         },
       ],
       totalCount: 1,
@@ -306,6 +306,36 @@ describe("MyContentPanel – Stakwork badge link", () => {
     const link = screen.getByRole("link", { name: /failed/i })
     // Should not open node preview panel after clicking link
     fireEvent.click(link)
+    expect(screen.queryByTestId("node-preview")).toBeNull()
+  })
+
+  it("renders standalone ExternalLink <a> for admin + integer project_id + completed status (no badge label)", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: true }
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-completed",
+          properties: { name: "Completed Node", status: "done", project_id: 99999 },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 0,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByText("Completed Node")).toBeInTheDocument()
+    })
+    // No status badge label text (completed nodes intentionally have no badge)
+    expect(screen.queryByText(/in.progress|processing|halted|paused|error|failed/i)).toBeNull()
+    // Standalone ExternalLink <a> should be rendered with correct href
+    const links = screen.getAllByRole("link")
+    const stakworkLink = links.find((l) => l.getAttribute("href") === "https://jobs.stakwork.com/admin/projects/99999")
+    expect(stakworkLink).toBeTruthy()
+    expect(stakworkLink).toHaveAttribute("href", "https://jobs.stakwork.com/admin/projects/99999")
+    expect(stakworkLink).toHaveAttribute("target", "_blank")
+    // Clicking it should not propagate to parent row
+    fireEvent.click(stakworkLink!)
     expect(screen.queryByTestId("node-preview")).toBeNull()
   })
 })
