@@ -151,16 +151,23 @@ export async function topUpStatus(paymentHash: string): Promise<boolean> {
 export async function pollPaymentStatus(
   paymentHash: string,
   maxAttempts = 20,
-  intervalMs = 2000
+  intervalMs = 2000,
+  signal?: AbortSignal
 ): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
+    if (signal?.aborted) return false
     try {
       const paid = await topUpStatus(paymentHash)
       if (paid) return true
     } catch {
       // status check failed — keep polling
     }
-    await new Promise((r) => setTimeout(r, intervalMs))
+    if (signal?.aborted) return false
+    // Abortable sleep — wakes immediately on cancel rather than waiting full intervalMs
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, intervalMs)
+      signal?.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+    })
   }
   return false
 }
