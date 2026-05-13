@@ -64,7 +64,15 @@ export function NodeRow({
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
-  const projectId = typeof props?.project_id === "string" ? props.project_id : null
+  // Stakwork project ids come back as numbers from the pipeline (the schema
+  // declares them as ?string but the backend stores them as int). Accept both.
+  const rawProjectId = props?.project_id
+  const projectId =
+    typeof rawProjectId === "string"
+      ? rawProjectId
+      : typeof rawProjectId === "number"
+        ? String(rawProjectId)
+        : null
   const stakworkUrl = isAdmin && projectId && statusBadge
     ? `https://jobs.stakwork.com/admin/projects/${projectId}`
     : null
