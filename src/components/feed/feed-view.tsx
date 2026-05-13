@@ -17,6 +17,7 @@ export function FeedView() {
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
+  const clearSelection = useGraphStore((s) => s.clearSelection)
   const setGraphData = useGraphStore((s) => s.setGraphData)
   const setLoading = useGraphStore((s) => s.setLoading)
   const searchTerm = useAppStore((s) => s.searchTerm)
@@ -25,11 +26,9 @@ export function FeedView() {
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    setSelectedNode(null)
-    setSidebarSelectedNode(null)
-    setHoveredNode(null)
+    clearSelection()
     setActiveTypes(new Set())
-  }, [searchTerm, setSelectedNode, setSidebarSelectedNode, setHoveredNode])
+  }, [searchTerm, clearSelection])
 
   // Mocks mode seeds from fixtures so the Latest feed has content before any search.
   useEffect(() => {

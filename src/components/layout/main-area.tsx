@@ -12,35 +12,20 @@ import { cn } from "@/lib/utils"
 
 type Mode = "preview" | "sources" | "mycontent" | "feed"
 
-export function MainArea({
-  sourcesOpen,
-  onCloseSources,
-  myContentOpen,
-  onCloseMyContent,
-}: {
-  sourcesOpen: boolean
-  onCloseSources: () => void
-  myContentOpen: boolean
-  onCloseMyContent: () => void
-}) {
+export function MainArea() {
   const selectedNode = useGraphStore((s) => s.selectedNode)
-  const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
-  const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
-  const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
+  const clearSelection = useGraphStore((s) => s.clearSelection)
+  const sourcesOpen = useAppStore((s) => s.sourcesOpen)
+  const myContentOpen = useAppStore((s) => s.myContentOpen)
+  const setSourcesOpen = useAppStore((s) => s.setSourcesOpen)
+  const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
   const schemas = useSchemaStore((s) => s.schemas)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
-  function closePreview() {
-    setSelectedNode(null)
-    setSidebarSelectedNode(null)
-    setHoveredNode(null)
-  }
-
-  // Selected node wins over panel toggles — clicking a node is the strongest focus signal.
   function pickMode(): Mode {
-    if (selectedNode) return "preview"
     if (sourcesOpen) return "sources"
     if (myContentOpen) return "mycontent"
+    if (selectedNode) return "preview"
     return "feed"
   }
 
@@ -71,17 +56,17 @@ export function MainArea({
       <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
         {mode === "preview" && selectedNode && (
           <CenteredPanel>
-            <NodePreviewPanel node={selectedNode} onBack={closePreview} schemas={schemas} />
+            <NodePreviewPanel node={selectedNode} onBack={clearSelection} schemas={schemas} />
           </CenteredPanel>
         )}
         {mode === "sources" && (
           <CenteredPanel>
-            <SourcesPanel onClose={onCloseSources} />
+            <SourcesPanel onClose={() => setSourcesOpen(false)} />
           </CenteredPanel>
         )}
         {mode === "mycontent" && (
           <CenteredPanel>
-            <MyContentPanel onClose={onCloseMyContent} />
+            <MyContentPanel onClose={() => setMyContentOpen(false)} />
           </CenteredPanel>
         )}
         {mode === "feed" && <FeedView />}
