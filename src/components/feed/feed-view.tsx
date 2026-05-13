@@ -8,6 +8,7 @@ import { useSchemaStore } from "@/stores/schema-store"
 import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 import { getLatestNodes } from "@/lib/graph-api"
 import { FeedCard } from "./feed-card"
+import { HotTakes } from "./hot-takes"
 import { cn } from "@/lib/utils"
 
 export function FeedView() {
@@ -17,6 +18,7 @@ export function FeedView() {
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
+  const clearSelection = useGraphStore((s) => s.clearSelection)
   const setGraphData = useGraphStore((s) => s.setGraphData)
   const setLoading = useGraphStore((s) => s.setLoading)
   const searchTerm = useAppStore((s) => s.searchTerm)
@@ -25,11 +27,9 @@ export function FeedView() {
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    setSelectedNode(null)
-    setSidebarSelectedNode(null)
-    setHoveredNode(null)
+    clearSelection()
     setActiveTypes(new Set())
-  }, [searchTerm, setSelectedNode, setSidebarSelectedNode, setHoveredNode])
+  }, [searchTerm, clearSelection])
 
   // Mocks mode seeds from fixtures so the Latest feed has content before any search.
   useEffect(() => {
@@ -86,8 +86,13 @@ export function FeedView() {
   const hasResults = nodes.length > 0
   const filtering = activeTypes.size > 0
 
+  // Hot Takes only belongs on the landing surface (no active search).
+  const showHotTakes = !searchTerm
+
   return (
     <div className="h-full w-full overflow-y-auto">
+      {showHotTakes && <HotTakes />}
+
       {typeCounts.length > 1 && (
         <FilterChips
           typeCounts={typeCounts}

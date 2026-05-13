@@ -13,7 +13,8 @@ import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 
 export function SearchBar() {
   const setSearchTerm = useAppStore((s) => s.setSearchTerm)
-  const { setGraphData, setLoading } = useGraphStore()
+  const closeAllPanels = useAppStore((s) => s.closeAllPanels)
+  const { setGraphData, setLoading, clearSelection } = useGraphStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const openModal = useModalStore((s) => s.open)
   const [value, setValue] = useState("")
@@ -33,6 +34,8 @@ export function SearchBar() {
       abortRef.current = controller
 
       setSearchTerm(trimmed)
+      closeAllPanels()
+      clearSelection()
       setSearching(true)
       setLoading(true)
 
@@ -84,7 +87,7 @@ export function SearchBar() {
         setLoading(false)
       }
     },
-    [value, setSearchTerm, setGraphData, setLoading, refreshBalance]
+    [value, setSearchTerm, closeAllPanels, clearSelection, setGraphData, setLoading, refreshBalance, openModal]
   )
 
   const handleClear = useCallback(() => {

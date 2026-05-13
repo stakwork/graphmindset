@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { AppRail } from "./app-rail"
 import { MainArea } from "./main-area"
 import { GraphFloater } from "@/components/universe/graph-floater"
@@ -11,6 +11,7 @@ import { AddNodeModal } from "@/components/modals/add-node-modal"
 import { CreateNodeModal } from "@/components/modals/create-node-modal"
 import { MediaPlayer } from "@/components/player/media-player"
 import { useAppStore } from "@/stores/app-store"
+import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
 import { useDeepLink } from "@/hooks/use-deep-link"
@@ -20,9 +21,10 @@ import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 export function AppLayout() {
   useDeepLink()
   useSidebarNeighborFetch()
-  const [sourcesOpen, setSourcesOpen] = useState(false)
+  const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
-  const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
+  const toggleSources = useAppStore((s) => s.toggleSources)
+  const toggleMyContent = useAppStore((s) => s.toggleMyContent)
   const schemas = useSchemaStore((s) => s.schemas)
   const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
@@ -35,29 +37,25 @@ export function AppLayout() {
     }
   }, [schemas.length, fetchSchemas])
 
+  // Opening a panel via the rail dismisses any open node preview — overlays
+  // are mutually exclusive, even with the preview that lives in the graph store.
+  function openPanel(toggle: () => void) {
+    useGraphStore.getState().clearSelection()
+    toggle()
+  }
+
   return (
     <>
       <div className="flex h-screen w-screen overflow-hidden">
         <AppRail
           sourcesOpen={sourcesOpen}
-          onToggleSources={() => {
-            setSourcesOpen((o) => !o)
-            setMyContentOpen(false)
-          }}
+          onToggleSources={() => openPanel(toggleSources)}
           myContentOpen={myContentOpen}
-          onToggleMyContent={() => {
-            setMyContentOpen(!myContentOpen)
-            setSourcesOpen(false)
-          }}
+          onToggleMyContent={() => openPanel(toggleMyContent)}
         />
 
         <main className="h-full flex-1 min-w-0">
-          <MainArea
-            sourcesOpen={sourcesOpen}
-            onCloseSources={() => setSourcesOpen(false)}
-            myContentOpen={myContentOpen}
-            onCloseMyContent={() => setMyContentOpen(false)}
-          />
+          <MainArea />
         </main>
       </div>
 
