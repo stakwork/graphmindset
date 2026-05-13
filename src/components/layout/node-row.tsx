@@ -64,8 +64,8 @@ export function NodeRow({
   const statusBadge = getStatusBadge(props?.status)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
 
-  const projectId = typeof props?.project_id === "string" ? props.project_id : null
-  const stakworkUrl = isAdmin && projectId && statusBadge
+  const projectId = props?.project_id != null ? String(props.project_id) : null
+  const stakworkUrl = isAdmin && projectId
     ? `https://jobs.stakwork.com/admin/projects/${projectId}`
     : null
 
@@ -129,7 +129,7 @@ export function NodeRow({
           >
             {displayNodeType(nodeType)}
           </Badge>
-          {statusBadge && (
+          {statusBadge ? (
             stakworkUrl ? (
               <a
                 href={stakworkUrl}
@@ -148,7 +148,17 @@ export function NodeRow({
                 {statusBadge.label}
               </span>
             )
-          )}
+          ) : stakworkUrl ? (
+            <a
+              href={stakworkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex shrink-0 items-center"
+            >
+              <ExternalLink className="h-2.5 w-2.5" />
+            </a>
+          ) : null}
         </div>
         {matchExcerpt ?? (
           (snippet || rowDate) && (

@@ -519,7 +519,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("renders 'View on Stakwork' link for admin + project_id + halted status", async () => {
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
-    const node = makeNodeWithProject({ project_id: "555", status: "halted" })
+    const node = makeNodeWithProject({ project_id: 555, status: "halted" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -534,7 +534,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("renders 'View on Stakwork' link for admin + project_id + completed status", async () => {
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
-    const node = makeNodeWithProject({ project_id: "999", status: "completed" })
+    const node = makeNodeWithProject({ project_id: 999, status: "completed" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -549,7 +549,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("does not render 'View on Stakwork' for non-admin with project_id + completed status", async () => {
     userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
-    const node = makeNodeWithProject({ project_id: "999", status: "completed" })
+    const node = makeNodeWithProject({ project_id: 999, status: "completed" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -562,7 +562,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
 
   it("does not render 'View on Stakwork' for non-admin with project_id + error status", async () => {
     userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
-    const node = makeNodeWithProject({ project_id: "555", status: "error" })
+    const node = makeNodeWithProject({ project_id: 555, status: "error" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
@@ -590,7 +590,7 @@ describe("NodePreviewPanel – Stakwork project link", () => {
     "renders link for admin with status=%s",
     async (status) => {
       userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
-      const node = makeNodeWithProject({ project_id: "777", status })
+      const node = makeNodeWithProject({ project_id: 777, status })
       mockApiGet.mockResolvedValue(makeGraphData(node))
 
       const { unmount } = render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
