@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { TypeEditor } from "./type-editor"
 import { Plus, ArrowLeft, Box, Grid2x2 } from "lucide-react"
+import { useUserStore } from "@/stores/user-store"
 
 const OntologyGraph3D = dynamic(
   () => import("./ontology-graph-3d").then((m) => ({ default: m.OntologyGraph3D })),
@@ -47,10 +48,19 @@ export interface SchemaEdge {
 
 export default function OntologyPage() {
   const router = useRouter()
+  const isAdmin = useUserStore((s) => s.isAdmin)
+  const isAuthenticated = useUserStore((s) => s.isAuthenticated)
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [view3D, setView3D] = useState(false)
   const [schemaError, setSchemaError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isAuthenticated && !isAdmin) {
+      router.replace("/")
+      return
+    }
+  }, [isAdmin, isAuthenticated, router])
 
   useEffect(() => {
     if (isMocksEnabled()) {
@@ -66,6 +76,7 @@ export default function OntologyPage() {
 
   const handleUpdateSchema = useCallback(
     async (updated: SchemaNode) => {
+      if (!isAdmin) return
       try {
         await store.updateSchema(updated)
         setSchemaError(null)
@@ -73,10 +84,11 @@ export default function OntologyPage() {
         setSchemaError(err instanceof Error ? err.message : "Failed to save schema")
       }
     },
-    [store]
+    [isAdmin, store]
   )
 
   const handleAddType = useCallback(async () => {
+    if (!isAdmin) return
     // Find next available name
     const existing = new Set(store.schemas.map((s) => s.type))
     let n = 1
@@ -98,14 +110,15 @@ export default function OntologyPage() {
       setSchemaError(err instanceof Error ? err.message : "Failed to save schema")
     }
     setSelectedId(id)
-  }, [store])
+  }, [isAdmin, store])
 
   const handleDeleteSchema = useCallback(
     (refId: string) => {
+      if (!isAdmin) return
       store.removeSchema(refId)
       if (selectedId === refId) setSelectedId(null)
     },
-    [selectedId, store]
+    [isAdmin, selectedId, store]
   )
 
   return (
