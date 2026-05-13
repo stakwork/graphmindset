@@ -20,6 +20,7 @@ interface GraphState {
   addNodes: (nodes: GraphNode[], edges: GraphEdge[]) => void
   setHoveredNode: (node: GraphNode | null) => void
   setSidebarSelectedNode: (node: GraphNode | null) => void
+  clearSelection: () => void
 }
 
 function edgeKey(e: GraphEdge): string {
@@ -52,4 +53,6 @@ export const useGraphStore = create<GraphState>((set) => ({
     }),
   setHoveredNode: (hoveredNode) => set({ hoveredNode }),
   setSidebarSelectedNode: (sidebarSelectedNode) => set({ sidebarSelectedNode }),
+  clearSelection: () =>
+    set({ selectedNode: null, sidebarSelectedNode: null, hoveredNode: null }),
 }))

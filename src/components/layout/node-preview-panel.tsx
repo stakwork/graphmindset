@@ -691,7 +691,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
           {/* Stakwork project link for admins */}
           {(() => {
-            const projectId = typeof props?.project_id === "string" ? props.project_id : null
+            const projectId = props?.project_id != null ? String(props.project_id) : null
             const status = typeof props?.status === "string" ? props.status : null
             const isLinkable = isAdmin && !!projectId
             if (!isLinkable) return null
