@@ -366,6 +366,21 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
     ],
     edges: [],
   },
+  n11: {
+    nodes: [
+      {
+        ref_id: "n11",
+        node_type: "Claim",
+        properties: {
+          name: "Lightning enables instant Bitcoin payments",
+          claim_text: "The Lightning Network allows Bitcoin transactions to settle instantly off-chain by routing payments through a network of bidirectional payment channels. This is achieved by locking funds into a 2-of-2 multisig address on-chain and exchanging signed commitment transactions off-chain, only broadcasting to the blockchain when the channel is closed.",
+          speaker_name: "Lightning developer",
+          source_role: "guest",
+        },
+      },
+    ],
+    edges: [],
+  },
 }
 
 export const MOCK_EDGES: GraphEdge[] = [
