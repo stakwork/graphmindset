@@ -72,6 +72,7 @@ export function GraphFloater() {
     }
     function onUp() {
       drag.current = null
+      setTimeout(() => { moved.current = false }, 0)
     }
     window.addEventListener("mousemove", onMove)
     window.addEventListener("mouseup", onUp)
