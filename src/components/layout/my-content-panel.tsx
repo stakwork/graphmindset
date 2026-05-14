@@ -48,6 +48,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -198,9 +199,15 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                   const isConfirming = deletingId === node.ref_id
 
                   const handleConfirmDelete = async () => {
-                    await deleteNode(node.ref_id)
-                    setNodes((prev) => prev.filter((n) => n.ref_id !== node.ref_id))
-                    setDeletingId(null)
+                    try {
+                      await deleteNode(node.ref_id)
+                      setNodes((prev) => prev.filter((n) => n.ref_id !== node.ref_id))
+                      setDeletingId(null)
+                      setDeleteError(null)
+                    } catch {
+                      setDeletingId(null)
+                      setDeleteError("Could not delete content. Please try again.")
+                    }
                   }
 
                   return (
@@ -218,7 +225,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                         {!isConfirming && (
                           <button
                             className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                            onClick={(e) => { e.stopPropagation(); setDeletingId(node.ref_id) }}
+                            onClick={(e) => { e.stopPropagation(); setDeletingId(node.ref_id); setDeleteError(null) }}
                             aria-label="Delete node"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -251,6 +258,11 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
               </div>
             )}
           </ScrollArea>
+          {deleteError && (
+            <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20">
+              <span className="text-xs text-destructive">{deleteError}</span>
+            </div>
+          )}
         </>
       )}
     </div>
