@@ -501,8 +501,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
   const rawDesc = pickString(props, schema?.description_key)
     ?? pickString(props, "description")
-  const description = rawDesc && rawDesc.length > 160
-    ? rawDesc.slice(0, 160) + "\u2026"
+  const description = rawDesc && rawDesc.length > 500
+    ? rawDesc.slice(0, 500) + "\u2026"
     : rawDesc
 
   const thumbnail = (props?.image_url ?? props?.thumbnail) as string | undefined
