@@ -106,6 +106,26 @@ This blob is NOT what goes in the Authorization header. Extract the
   with rate and source quality; spam and duplicates are filtered.
 - Identifying yourself in `User-Agent` is appreciated but not required.
 
+## Common task → endpoint cheatsheet
+
+When the human says…                | Hit this endpoint
+------------------------------------|-----------------------------------
+"search for X"                      | `GET /api/v2/nodes?q=X&limit=50`
+"add this URL"                      | `POST /api/v2/content` with `{content_type, source_link}`
+"show / list my content"            | `GET /api/v2/content?sort_by=date&limit=100`
+"what have I added"                 | `GET /api/v2/content?sort_by=date&limit=100`
+"what's still processing"           | `GET /api/v2/content` and read `totalProcessing`
+"open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
+"what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`
+"how many nodes / topics / people"  | `GET /api/stats` (free)
+"subscribe to this RSS / channel"   | `POST /radar` with `{source, source_type}`
+
+**For "my content" specifically: never fetch `/api/v2/nodes` and try to
+filter client-side.** Graph nodes have no `added_by` property and you
+will silently return wrong results. Always use `GET /api/v2/content`,
+which the server filters by the LSAT identity in your `Authorization`
+header.
+
 ## Rate limits
 
 - 50 challenge requests per window on the L402 issuer.

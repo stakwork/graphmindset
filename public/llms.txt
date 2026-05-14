@@ -25,6 +25,10 @@
    - Inspect: `GET /api/v2/nodes/<ref_id>?expand=edges`
    - Add: `POST /api/v2/content` body
      `{"content_type":"tweet","source_link":"https://x.com/<user>/status/<id>"}`
+   - **List MY content / what I added** (the *only* correct way — do
+     not fetch all nodes and try to filter client-side):
+     `GET /api/v2/content?sort_by=date&limit=100` — the server filters
+     by your LSAT identity automatically.
 
 ## API base
 
@@ -51,7 +55,7 @@ embedded invoice and resend with `Authorization: LSAT <macaroon>:<preimage_hex>`
 | GET | `/api/v2/nodes/<ref_id>` | Single node. |
 | GET | `/api/v2/nodes/<ref_id>?expand=edges` | Node + 1-hop neighbors. |
 | GET | `/api/v2/edges?limit=&skip=` | List edges. |
-| GET | `/api/v2/content?sort_by=date&limit=100` | Caller's own contributions. |
+| GET | `/api/v2/content?sort_by=date&limit=100` | **List the caller's own content / "my content" / "what I added".** Server-filtered by the LSAT identity in your `Authorization` header — never fetch `/api/v2/nodes` and filter client-side. Returns `{nodes, totalCount, totalProcessing}` where `totalProcessing` counts your submissions still being ingested. |
 | GET | `/api/v2/reviews?status=&type=&sort=&skip=&limit=` | Pending content reviews. |
 | GET | `/api/v2/schema/domains` | Domain roots, hidden_types, hidden_domains. |
 | GET | `/schema` | Full ontology. |
@@ -155,6 +159,46 @@ curl -sS \
   -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
   'https://ai.sphinx.chat/api/v2/nodes/32903013-d32e-4f20-9c24-60832379c1fe?expand=edges'
 ```
+
+### List my content / what I have added
+
+This is the only correct way to get the caller's own contributions. The
+server filters by the LSAT identity in your `Authorization` header.
+**Do not** fetch `/api/v2/nodes` and filter client-side — there is no
+`added_by` property on graph nodes to filter against, and the result
+would silently be wrong.
+
+```
+curl -sS \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  'https://ai.sphinx.chat/api/v2/content?sort_by=date&limit=100'
+```
+
+Response shape:
+
+```json
+{
+  "nodes": [
+    {
+      "ref_id": "32903013-d32e-4f20-9c24-60832379c1fe",
+      "node_type": "Tweet",
+      "properties": {
+        "source_link": "https://x.com/ClaudeDevs/status/2054639777685934564",
+        "content_type": "tweet",
+        "status": "completed"
+      },
+      "date_added_to_graph": 1779067200.0
+    }
+  ],
+  "totalCount": 1,
+  "totalProcessing": 0
+}
+```
+
+- `totalCount` — your total contributions (across pagination).
+- `totalProcessing` — how many of your submissions are still being
+  ingested (entity extraction, edge inference). Poll this endpoint or
+  `GET /api/v2/nodes/<ref_id>?expand=edges` to watch them finish.
 
 ## Node properties (common fields)
 
