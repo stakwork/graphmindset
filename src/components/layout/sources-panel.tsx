@@ -4,12 +4,14 @@ import { useCallback, useEffect, useState } from "react"
 import { ExternalLink, Trash2, Loader2, X, Video, GitFork, Rss, AtSign } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { useSourcesStore, type Source } from "@/stores/sources-store"
 import { useUserStore } from "@/stores/user-store"
 import { isMocksEnabled, MOCK_SOURCES } from "@/lib/mock-data"
 import {
   SOURCE_TYPES,
+  SOURCE_TYPE_LABELS,
   extractNameFromSource,
 } from "@/lib/source-detection"
 
@@ -17,19 +19,35 @@ const TWITTER_LINK = "https://x.com"
 
 function SourceIcon({ type }: { type: string }) {
   const cls = "h-3.5 w-3.5 shrink-0 text-muted-foreground"
+  const label = SOURCE_TYPE_LABELS[type] ?? type
+  let icon: React.ReactElement
   switch (type) {
     case SOURCE_TYPES.TWITTER_HANDLE:
     case SOURCE_TYPES.TWEET:
-      return <AtSign className={cls} />
+      icon = <AtSign className={cls} />
+      break
     case SOURCE_TYPES.YOUTUBE_CHANNEL:
-      return <Video className={cls} />
+      icon = <Video className={cls} />
+      break
     case SOURCE_TYPES.GITHUB_REPOSITORY:
-      return <GitFork className={cls} />
+      icon = <GitFork className={cls} />
+      break
     case SOURCE_TYPES.RSS:
-      return <Rss className={cls} />
+      icon = <Rss className={cls} />
+      break
     default:
-      return <ExternalLink className={cls} />
+      icon = <ExternalLink className={cls} />
   }
+  return (
+    <Tooltip>
+      <TooltipTrigger>
+        <span className="shrink-0">{icon}</span>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="text-xs">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function SourceRow({
@@ -57,6 +75,7 @@ function SourceRow({
   }, [canEdit, source.ref_id, onDelete])
 
   const displayName = extractNameFromSource(source.source, source.source_type as never)
+  const typeLabel = SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type
 
   const href =
     source.source_type === SOURCE_TYPES.TWITTER_HANDLE
@@ -89,6 +108,7 @@ function SourceRow({
             {displayName}
           </span>
         )}
+        <span className="text-[10px] text-muted-foreground">{typeLabel}</span>
         {source.topics && source.topics.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-0.5">
             {source.topics.map((t) => (
@@ -152,6 +172,9 @@ export function SourcesPanel({ onClose }: { onClose: () => void }) {
           <h3 className="text-sm font-heading font-semibold tracking-wide text-sidebar-foreground">
             Sources
           </h3>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            External feeds that continuously bring new content into the graph.
+          </p>
           <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
             {sources.length} sources
           </p>
@@ -171,10 +194,21 @@ export function SourcesPanel({ onClose }: { onClose: () => void }) {
           </div>
         ) : sources.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-            <p className="text-sm text-muted-foreground">No sources yet</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">
-              Add content to start building your graph
-            </p>
+            {isAdmin ? (
+              <>
+                <p className="text-sm text-muted-foreground">No sources yet</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">
+                  Add a YouTube channel, Twitter handle, RSS feed, or GitHub repo to start populating the graph.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">No sources configured yet</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">
+                  Ask an admin to add content sources.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <div className="py-1">
