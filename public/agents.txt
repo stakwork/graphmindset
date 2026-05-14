@@ -105,6 +105,49 @@ human operator for the credentials. Concrete protocol:
    keeps working until its balance is exhausted, at which point you
    get a fresh 402 and repeat the dance.
 
+### Presenting the invoice without breaking it
+
+BOLT11 strings are 250+ characters with no internal whitespace. Many
+chat / terminal renderers wrap long lines mid-string and silently
+insert spaces or newlines, producing a corrupted string the user's
+wallet rejects. Use a layered approach so the human always gets at
+least one form that works on their device:
+
+**Always emit (zero cost, works everywhere):**
+
+- The raw invoice on **its own line as plain text — no code fence,
+  no quotes, no markdown wrappers**. Fenced ` ``` ` blocks and
+  blockquotes are the most common cause of mid-string wrapping.
+  A bare paragraph line lets the user triple-click to select it.
+- The same invoice as a `lightning:` URI on a separate line:
+  `lightning:lnbc...`. On macOS / iOS / Android with a Lightning
+  wallet installed, this is clickable and opens the wallet directly.
+  Most terminals also auto-link it without wrapping inside the URL.
+- The amount in sats and what the payment unlocks ("10 sats for one
+  search", "1000 sats top-up", etc.).
+
+**Opportunistic, where you have shell access and can detect the OS:**
+
+Write the invoice to the user's system clipboard via a one-liner side
+channel, then tell them "it's on your clipboard, paste into your
+wallet." Eliminates the copy step entirely.
+
+- macOS:        `printf '%s' '<invoice>' | pbcopy`
+- Linux Wayland: `printf '%s' '<invoice>' | wl-copy`
+- Linux X11:     `printf '%s' '<invoice>' | xclip -selection clipboard`
+- Windows / WSL: `printf '%s' '<invoice>' | clip.exe`
+
+If the tool isn't installed or the platform is unknown, fail silently
+— the user still has the two text forms above.
+
+**When stuck, ask:**
+
+If the human reports the invoice doesn't scan or "has spaces in it,"
+the rendering is the culprit, not the invoice. Re-emit it as plain
+text on a single bare line and offer the `lightning:` URI and the
+clipboard write side by side — don't generate a fresh 402 (each one
+costs a new macaroon).
+
 ### Why the human only needs to say "paid"
 
 Most consumer Lightning wallets — Wallet of Satoshi, Muun, Phoenix —
@@ -166,10 +209,14 @@ When the human says…                | Hit this endpoint
 "how many sats do I have" /         | `GET /api/balance` → `{balance}`
   "check my balance"                |
 "show my transactions / history"    | `GET /api/transactions` → `{transactions[], scope}`
-"top me up N sats" /                | `GET /api/top_up_lsat` (with `Authorization: ` empty
-  "add more balance"                | to force a 402) → pay invoice → balance credits onto
-                                    | existing macaroon, keep using same auth header
-"mint a fresh token"                | `GET /api/buy_lsat` → pay invoice → build
+"top me up N sats" /                | TWO-STEP. (1) `POST /api/top_up_lsat`
+  "add more balance"                | body `{macaroon, amount}` → returns
+                                    | `{payment_request, payment_hash}`. (2) After
+                                    | invoice paid, `POST /api/top_up_confirm`
+                                    | body `{payment_hash}` (with same auth header) →
+                                    | `{new_balance}`. See `/llms.txt`.
+"mint a fresh token"                | `POST /api/buy_lsat` (no body) → 402 with
+                                    | macaroon+invoice → pay → use
                                     | `LSAT <macaroon-from-402>:paid`
 "open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
 "what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`

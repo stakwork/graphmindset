@@ -106,8 +106,10 @@ direct LN-node check (see `/agents.txt`). Any non-empty string after
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/buy_lsat` | Always returns 402 with a fresh invoice (do not auto-attach existing Authorization). |
-| GET | `/api/top_up_lsat` | Same — for topping up an existing token. |
+| POST | `/api/buy_lsat` | Mints a fresh LSAT. Returns 402 with `WWW-Authenticate: LSAT macaroon=…, invoice=…`. No body required. Do not auto-attach existing Authorization. |
+| POST | `/api/top_up_lsat` | Tops up an existing LSAT. Body `{macaroon: <yours>, amount: <sats>}` (max 10000 sats). Returns `200 {success, payment_request, payment_hash}` — a new BOLT11 invoice + its hash. Pay it, then call `/api/top_up_confirm`. |
+| POST | `/api/top_up_confirm` | Settles a paid top-up. Requires `Authorization: LSAT <macaroon>:paid`. Body `{payment_hash: <from top_up_lsat>}`. Returns `200 {success, new_balance}` once the LN node sees the invoice settled. Idempotency-protected: a payment_hash can only be confirmed once, by the LSAT it was issued for. |
+| GET | `/api/top_up_status/:payment_hash` | Poll whether a top-up's invoice has settled yet. Useful while waiting for the human to pay. |
 | GET | `/api/transactions` | History. Returns `{transactions: [{action, type:"debit"\|"credit", amount, created_at}, ...], scope}`. Amount is always positive; credits are top-ups/refunds, debits are searches/boosts/content adds. Filter out rows where `action="purchase"` and `amount=0` — those are synthetic free-re-access grants and shouldn't be shown to users. |
 
 ## Worked examples
@@ -255,32 +257,81 @@ Response:
 
 **Top up an existing token** ("add more sats to my balance"):
 
-The flow mirrors the initial 402-pay-retry, but uses `/api/top_up_lsat`
-and credits the *existing* macaroon's balance instead of issuing a new
-one. Critically, **do not auto-attach your current `Authorization`
-header** — the endpoint must return 402 with a fresh invoice.
+Two-step flow. `/api/top_up_lsat` issues a *separate* BOLT11 invoice
+keyed to a server-side `TopUp` record bound to your macaroon; once you
+pay it, `/api/top_up_confirm` credits the balance. This is *not* the
+402-challenge flow — it's a normal POST that returns the invoice in the
+body.
 
-1. Request a top-up invoice:
+1. Request a top-up invoice (POST, body specifies amount):
 
    ```
-   curl -sS -i -H 'Authorization: ' \
+   curl -sS -X POST -H 'Content-Type: application/json' \
+     -H 'Authorization: LSAT <macaroon>:paid' \
+     -d '{"macaroon":"<your-macaroon>","amount":500}' \
      https://ai.sphinx.chat/api/top_up_lsat
    ```
 
-   Server returns `402 Payment Required` with
-   `WWW-Authenticate: LSAT macaroon="<NEW_MAC>", invoice="lnbc..."`.
+   Response:
 
-2. Pay the BOLT11 invoice (or ask the human — see `/agents.txt`).
+   ```json
+   {
+     "success": true,
+     "payment_request": "lnbc500n1p...",
+     "payment_hash": "ab12cd..."
+   }
+   ```
 
-3. After payment settles, the **existing** token's balance increases.
-   No header change needed — just keep using the same
-   `Authorization: LSAT <macaroon>:paid` you had before.
+   - `amount` is in sats; max 10000 per top-up.
+   - The `Authorization` header is optional, but if present its
+     macaroon must match the one in the body.
 
-4. Verify with `GET /api/balance`.
+2. Pay the `payment_request` (BOLT11) in any Lightning wallet, or ask
+   the human — see `/agents.txt` "If you cannot pay invoices yourself".
 
-`/api/buy_lsat` works the same way but for **minting a fresh token**
-from scratch (no prior macaroon). After paying, build
-`Authorization: LSAT <NEW_MAC>:paid` and use that going forward.
+3. (Optional) Poll whether the invoice has settled yet:
+
+   ```
+   curl -sS https://ai.sphinx.chat/api/top_up_status/<payment_hash>
+   ```
+
+4. Confirm the top-up to credit your balance:
+
+   ```
+   curl -sS -X POST -H 'Content-Type: application/json' \
+     -H 'Authorization: LSAT <macaroon>:paid' \
+     -d '{"payment_hash":"<from step 1>"}' \
+     https://ai.sphinx.chat/api/top_up_confirm
+   ```
+
+   Response on success:
+
+   ```json
+   { "success": true, "new_balance": 1250 }
+   ```
+
+   The server verifies the invoice settled on its LN node, marks the
+   `TopUp` confirmed atomically (replay-protected: each `payment_hash`
+   can only be claimed once), creates a credit transaction, and
+   returns the new balance. Your `Authorization` header is unchanged
+   throughout — same macaroon and same `:paid` placeholder.
+
+**Mint a fresh token** ("I have no macaroon at all yet"):
+
+   ```
+   curl -sS -X POST -i https://ai.sphinx.chat/api/buy_lsat
+   ```
+
+Returns `402 Payment Required` with
+`WWW-Authenticate: LSAT macaroon="<NEW_MAC>", invoice="lnbc..."`.
+Pay the invoice; the macaroon activates automatically on the LN node's
+next confirmation. From then on, use `Authorization: LSAT <NEW_MAC>:paid`.
+
+**When to use which:**
+
+- `/api/buy_lsat` — agent has no LSAT at all (or wants a brand-new one).
+- `/api/top_up_lsat` + `/api/top_up_confirm` — agent already has an
+  activated LSAT and just wants more sats on it.
 
 ## Node properties (common fields)
 
