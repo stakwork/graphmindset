@@ -403,6 +403,47 @@ describe("MyContentPanel – delete button", () => {
     await waitFor(() => {
       expect(screen.queryByText("Orphan Node")).not.toBeInTheDocument()
     })
+    // No error banner on success
+    expect(screen.queryByText(/could not delete/i)).not.toBeInTheDocument()
+  })
+
+  it("error banner renders on delete failure; row not removed; confirm strip closed", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockDeleteNode.mockRejectedValueOnce(new Error("401"))
+    mockApiGet.mockResolvedValue(NODE)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole("button", { name: /delete node/i }))
+    fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not delete content/i)).toBeInTheDocument()
+    })
+    // Row must still be present
+    expect(screen.getByText("Orphan Node")).toBeInTheDocument()
+    // Confirm strip must be gone
+    expect(screen.queryByRole("button", { name: /confirm delete/i })).toBeNull()
+  })
+
+  it("error clears when user starts a new delete attempt", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockDeleteNode.mockRejectedValueOnce(new Error("401"))
+    mockApiGet.mockResolvedValue(NODE)
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Orphan Node")).toBeInTheDocument())
+
+    // First attempt — fails
+    fireEvent.click(screen.getByRole("button", { name: /delete node/i }))
+    fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/could not delete content/i)).toBeInTheDocument()
+    })
+
+    // Start a second delete attempt — error banner should disappear
+    fireEvent.click(screen.getByRole("button", { name: /delete node/i }))
+    expect(screen.queryByText(/could not delete content/i)).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /confirm delete/i })).toBeInTheDocument()
   })
 })
 
