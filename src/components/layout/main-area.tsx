@@ -7,24 +7,28 @@ import { SearchBar } from "@/components/search/search-bar"
 import { FeedView } from "@/components/feed/feed-view"
 import { SourcesPanel } from "./sources-panel"
 import { MyContentPanel } from "./my-content-panel"
+import { ClipsPanel } from "./clips-panel"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { cn } from "@/lib/utils"
 
-type Mode = "preview" | "sources" | "mycontent" | "feed"
+type Mode = "preview" | "sources" | "mycontent" | "clips" | "feed"
 
 export function MainArea() {
   const selectedNode = useGraphStore((s) => s.selectedNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
+  const clipsOpen = useAppStore((s) => s.clipsOpen)
   const setSourcesOpen = useAppStore((s) => s.setSourcesOpen)
   const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
+  const setClipsOpen = useAppStore((s) => s.setClipsOpen)
   const schemas = useSchemaStore((s) => s.schemas)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
   function pickMode(): Mode {
     if (sourcesOpen) return "sources"
     if (myContentOpen) return "mycontent"
+    if (clipsOpen) return "clips"
     if (selectedNode) return "preview"
     return "feed"
   }
@@ -69,6 +73,11 @@ export function MainArea() {
             <MyContentPanel onClose={() => setMyContentOpen(false)} />
           </CenteredPanel>
         )}
+        {mode === "clips" && (
+          <CenteredPanel>
+            <ClipsPanel onClose={() => setClipsOpen(false)} />
+          </CenteredPanel>
+        )}
         {mode === "feed" && <FeedView />}
       </div>
     </div>
@@ -78,6 +87,7 @@ export function MainArea() {
 function labelFor(mode: Mode, nodeType: string | undefined, searchTerm: string): string {
   if (mode === "sources") return "Sources"
   if (mode === "mycontent") return "My Content"
+  if (mode === "clips") return "Latest Clips"
   if (mode === "preview") return nodeType ?? "Node"
   return searchTerm ? `Search · ${searchTerm}` : "Latest"
 }

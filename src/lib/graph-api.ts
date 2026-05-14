@@ -81,18 +81,19 @@ export async function getLatestNodes(signal?: AbortSignal): Promise<NodesListRes
   return api.get<NodesListResponse>("/v2/nodes/latest?skip_cache=1", undefined, signal)
 }
 
-// Recent nodes of a given type, added after `sinceISO`. Used for Hot Takes
-// (Clip + 24h window). Server filter syntax: `filter=date_added_to_graph>ISO`.
-export async function listRecentByType(
+// Latest nodes of a given type, sorted by date_added_to_graph DESC.
+// Used for Hot Takes (Clip nodes) and the Latest Clips panel.
+export async function listLatestByType(
   type: string,
-  sinceISO: string,
   limit = 10,
+  skip = 0,
   signal?: AbortSignal
 ): Promise<NodesListResponse> {
   const params = new URLSearchParams({
-    filter: `date_added_to_graph>${sinceISO}`,
-    limit: String(limit),
     type,
+    limit: String(limit),
+    skip: String(skip),
+    sort: "date_added",
   })
   return api.get<NodesListResponse>(`/v2/nodes?${params.toString()}`, undefined, signal)
 }

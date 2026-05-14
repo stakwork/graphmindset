@@ -6,28 +6,30 @@ import React from "react"
 let myContentOpen = false
 
 // --- store mocks ---
-const mockSetMyContentOpen = vi.fn()
-const mockSetSearchTerm = vi.fn()
+const mockClearSelection = vi.fn()
+const mockToggleMyContent = vi.fn()
+const mockToggleSources = vi.fn()
 const mockSetGraphData = vi.fn()
 const mockSetHoveredNode = vi.fn()
 const mockSetSidebarSelectedNode = vi.fn()
 
 vi.mock("@/stores/app-store", () => {
-  const getState = () => ({
-    setSearchTerm: mockSetSearchTerm,
-  })
   const useAppStore = (sel?: (s: unknown) => unknown) => {
     const state = {
       myContentOpen,
-      setMyContentOpen: mockSetMyContentOpen,
+      sourcesOpen: false,
+      clipsOpen: false,
+      setMyContentOpen: vi.fn(),
+      setSourcesOpen: vi.fn(),
+      setClipsOpen: vi.fn(),
+      toggleMyContent: mockToggleMyContent,
+      toggleSources: mockToggleSources,
       searchTerm: "",
-      setSearchTerm: mockSetSearchTerm,
-      myContentNodes: [],
-      setMyContentNodes: vi.fn(),
+      setSearchTerm: vi.fn(),
     }
     return sel ? sel(state) : state
   }
-  useAppStore.getState = getState
+  useAppStore.getState = () => ({})
   return { useAppStore }
 })
 
@@ -36,6 +38,7 @@ vi.mock("@/stores/graph-store", () => {
     setGraphData: mockSetGraphData,
     setHoveredNode: mockSetHoveredNode,
     setSidebarSelectedNode: mockSetSidebarSelectedNode,
+    clearSelection: mockClearSelection,
   })
   const useGraphStore = (sel?: (s: unknown) => unknown) => {
     const state = {
@@ -85,8 +88,8 @@ vi.mock("@/components/layout/app-rail", () => ({
     </button>
   ),
 }))
-vi.mock("@/components/layout/unified-panel", () => ({ UnifiedPanel: () => <div>Unified Panel</div> }))
-vi.mock("@/components/universe", () => ({ Universe: () => <div>Universe</div> }))
+vi.mock("@/components/layout/main-area", () => ({ MainArea: () => <div>Main Area</div> }))
+vi.mock("@/components/universe/graph-floater", () => ({ GraphFloater: () => null }))
 vi.mock("@/components/modals/settings-modal", () => ({ SettingsModal: () => null }))
 vi.mock("@/components/modals/add-content-modal", () => ({ AddContentModal: () => null }))
 vi.mock("@/components/modals/add-node-modal", () => ({ AddNodeModal: () => null }))
@@ -106,33 +109,30 @@ describe("AppLayout – onToggleMyContent handler", () => {
     myContentOpen = false
   })
 
-  it("calls closeSearchResults (setSearchTerm + setGraphData) when opening My Content (myContentOpen=false)", () => {
+  it("clears the selected graph node when toggling My Content open", () => {
     myContentOpen = false
     render(<AppLayout />)
     fireEvent.click(screen.getByTestId("toggle-my-content"))
-    expect(mockSetSearchTerm).toHaveBeenCalledWith("")
-    expect(mockSetGraphData).toHaveBeenCalledWith([], [])
+    expect(mockClearSelection).toHaveBeenCalled()
   })
 
-  it("does NOT call closeSearchResults when closing My Content (myContentOpen=true)", () => {
-    myContentOpen = true
-    render(<AppLayout />)
-    fireEvent.click(screen.getByTestId("toggle-my-content"))
-    expect(mockSetSearchTerm).not.toHaveBeenCalled()
-    expect(mockSetGraphData).not.toHaveBeenCalled()
-  })
-
-  it("calls setMyContentOpen(true) when opening (myContentOpen=false)", () => {
+  it("calls toggleMyContent when the rail button is clicked (opening)", () => {
     myContentOpen = false
     render(<AppLayout />)
     fireEvent.click(screen.getByTestId("toggle-my-content"))
-    expect(mockSetMyContentOpen).toHaveBeenCalledWith(true)
+    expect(mockToggleMyContent).toHaveBeenCalled()
   })
 
-  it("calls setMyContentOpen(false) when closing (myContentOpen=true)", () => {
+  it("calls toggleMyContent when the rail button is clicked (closing)", () => {
     myContentOpen = true
     render(<AppLayout />)
     fireEvent.click(screen.getByTestId("toggle-my-content"))
-    expect(mockSetMyContentOpen).toHaveBeenCalledWith(false)
+    expect(mockToggleMyContent).toHaveBeenCalled()
+  })
+
+  it("passes current myContentOpen state to AppRail", () => {
+    myContentOpen = true
+    render(<AppLayout />)
+    expect(screen.getByTestId("toggle-my-content").getAttribute("data-open")).toBe("true")
   })
 })
