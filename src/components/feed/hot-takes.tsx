@@ -3,26 +3,22 @@
 import { useEffect, useState } from "react"
 import { Play, Flame, Clock, ChevronRight, Quote } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
+import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { pickString, resolveNodeTitle, resolveNodeThumbnail } from "@/lib/node-display"
-import { listRecentByType } from "@/lib/graph-api"
+import { listLatestByType } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_NODES } from "@/lib/mock-data"
 import type { GraphNode } from "@/lib/graph-api"
 
-const SINCE_HOURS = 24
 const LIMIT = 10
 
-function isoHoursAgo(hours: number): string {
-  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
-}
-
-function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `0:${String(s).padStart(2, "0")}`
 }
 
-function clipQuote(node: GraphNode): string | undefined {
+export function clipQuote(node: GraphNode): string | undefined {
   const p = node.properties || {}
   const desc = pickString(p, "description")
   if (desc) return desc
@@ -34,6 +30,7 @@ function clipQuote(node: GraphNode): string | undefined {
 export function HotTakes() {
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
+  const setClipsOpen = useAppStore((s) => s.setClipsOpen)
   const schemas = useSchemaStore((s) => s.schemas)
   const [clips, setClips] = useState<GraphNode[]>([])
 
@@ -49,7 +46,7 @@ export function HotTakes() {
     const controller = new AbortController()
     ;(async () => {
       try {
-        const res = await listRecentByType("Clip", isoHoursAgo(SINCE_HOURS), LIMIT, controller.signal)
+        const res = await listLatestByType("Clip", LIMIT, 0, controller.signal)
         setClips((res.nodes ?? []).filter((n) => clipQuote(n)))
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return
@@ -77,11 +74,15 @@ export function HotTakes() {
             <Flame className="h-4 w-4 text-amber" />
             <span className="font-semibold text-sm text-foreground">Hot Takes</span>
             <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              Last {SINCE_HOURS}h
+              Latest
             </span>
           </div>
           <button
             type="button"
+            onClick={() => {
+              useGraphStore.getState().clearSelection()
+              setClipsOpen(true)
+            }}
             className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
           >
             See all <ChevronRight className="h-3 w-3" />
@@ -169,7 +170,7 @@ function FeaturedCard({
   )
 }
 
-function SideCard({
+export function SideCard({
   node,
   onOpen,
   schemas,
