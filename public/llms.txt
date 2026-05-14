@@ -1,36 +1,175 @@
 # GraphMindset
 
-> Lightning-payable, L402-metered knowledge graph platform for exploring, building, and curating connected knowledge. Search nodes, discover content via a social-style feed, manage your ontology, and pay for API access with Bitcoin Lightning (Sphinx or WebLN).
+> Lightning-payable, L402-metered knowledge graph platform. Search
+> nodes, add content from URLs, traverse edges, manage ontology.
+> Pay-per-call with Bitcoin Lightning.
 
-## Features
+## Quickstart for AI agents
 
-- Feed-style discovery: browsable cards with thumbnails, type chips, and social metrics
-- Search with exact, fuzzy, and semantic matching
-- 3D radial graph viewport with camera navigation and bloom post-processing
-- Ontology/schema editor with 2D DAG view and toggleable 3D WebGL visualization
-- Content sources: Twitter/X, YouTube, RSS, GitHub, web pages, and documents
-- My Content panel — personal contribution history with status badges, delete, and admin deep-links
-- In-app audio/video player (persistent, floating overlay, fullscreen)
-- Node deep-link sharing via `?id=` query parameter
+1. Read `/agents.txt` for the full L402 auth flow — especially the
+   "If you cannot pay invoices yourself" section if you have no
+   wallet integration.
+2. Explore for free first (no auth required):
+   - `GET /api/stats`, `GET /api/about`, `GET /api/v2/schema/domains`
+   - `GET /api/v2/nodes/topic-check?name=<name>`
+   - `GET /api/v2/nodes/check?node_type=<T>&key=<k>`
+3. For paid actions (search, node lookup, content add):
+   - Send the request with no `Authorization` header → get a 402.
+   - Parse `macaroon` and `invoice` from the `WWW-Authenticate` header.
+   - Pay the BOLT11 invoice (or ask the human to). Capture the
+     32-byte preimage your wallet returns.
+   - Retry with `Authorization: LSAT <macaroon>:<preimage_hex>`.
+   - Reuse that token until you get a fresh 402 (balance exhausted).
+4. Example calls:
+   - Search: `GET /api/v2/nodes?q=<query>&limit=50&skip=0`
+   - Inspect: `GET /api/v2/nodes/<ref_id>?expand=edges`
+   - Add: `POST /api/v2/content` body
+     `{"content_type":"tweet","source_link":"https://x.com/<user>/status/<id>"}`
 
-## Lightning & L402
+## API base
 
-- Top up sats balance via Sphinx wallet or WebLN/Alby browser extension
-- Pay-per-call L402-metered endpoints (search, content creation, node unlocks)
-- Boost nodes with keysend payments; boost counter recorded on the graph
-- Transaction history showing searches, boosts, top-ups, and content adds
-- Export/import L402 token for backup and cross-device restore
-- Content-creator payouts: contributors earn sats when their nodes are unlocked
+- This deployment: same origin, prefix `/api`
+  - e.g. `https://ai.sphinx.chat/api/v2/nodes?q=karpathy`
+- Frontend default (`src/lib/api.ts`): `https://bitcoin.sphinx.chat/api`
+  unless `NEXT_PUBLIC_API_URL` is set or the page is served on the same
+  origin as the API. Swarm deploys rewrite `nav.*.swarm.*` →
+  `boltwall.*.swarm.*`.
 
-## Admin
+## Endpoints
 
-- Content sources management (subscribe/delete external sources)
-- Radar & janitor scheduling (cron config, immediate-trigger, run history)
-- Content review & moderation (approve/dismiss AI-generated graph suggestions)
-- Graph settings & domain visibility (name, description, node-type/domain-root toggles)
+All endpoints are JSON. Paid endpoints respond `402 Payment Required`
+on the first call with a `WWW-Authenticate: LSAT ...` challenge; pay the
+embedded invoice and resend with `Authorization: LSAT <macaroon>:<preimage_hex>`.
 
-## Authentication
+### Search & read (paid)
 
-- Sphinx app bridge (postMessage WebView)
-- WebLN browser extension fallback
-- Anonymous L402-only mode (no Lightning identity required)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/v2/nodes?q=&limit=&skip=&node_type=&domains=` | Hybrid search (exact + fuzzy + semantic). Returns `{nodes, edges, total}`. |
+| GET | `/api/v2/nodes/latest?skip_cache=1` | Latest 100 nodes + 1-hop edges. |
+| GET | `/api/v2/nodes?filter=date_added_to_graph>&lt;ISO&gt;&type=&limit=` | Recent nodes of a type. |
+| GET | `/api/v2/nodes/<ref_id>` | Single node. |
+| GET | `/api/v2/nodes/<ref_id>?expand=edges` | Node + 1-hop neighbors. |
+| GET | `/api/v2/edges?limit=&skip=` | List edges. |
+| GET | `/api/v2/content?sort_by=date&limit=100` | Caller's own contributions. |
+| GET | `/api/v2/reviews?status=&type=&sort=&skip=&limit=` | Pending content reviews. |
+| GET | `/api/v2/schema/domains` | Domain roots, hidden_types, hidden_domains. |
+| GET | `/schema` | Full ontology. |
+| GET | `/stats` | `{num_nodes, num_episodes, num_people, num_audio, num_video, num_tweet, num_documents, …}`. |
+| GET | `/about` | Graph identity (title, description). |
+| GET | `/balance` | Caller's sats balance. |
+
+### Write (paid)
+
+| Method | Path | Body | Purpose |
+|--------|------|------|---------|
+| POST | `/api/v2/content` | `{content_type, source_link}` | **Primary agent-facing add.** content_type ∈ {`tweet`, `youtube_video`, `youtube_short`, `youtube_live`, `youtube_channel`, `twitter_handle`, `rss`, `github_repository`, `web_page`, `document`, `link`}. Returns `{nodes:[{ref_id, project_id}], status:"Success"}`. |
+| POST | `/radar` | `{source, source_type, topics?}` | Subscribe to an external source (Twitter handle, YouTube channel, RSS, GitHub repo, topic). |
+| POST | `/api/v2/nodes` | `{node_type, node_data}` | Generic typed-node create. |
+| POST | `/api/v2/nodes/<ref_id>` | partial node | Update properties. |
+| DELETE | `/api/v2/nodes/<ref_id>` | — | Delete. |
+| POST | `/api/v2/edges` | edge or `[edge,...]` | Create one or many edges. |
+| DELETE | `/api/v2/edges/<ref_id>` | — | Delete edge. |
+| POST | `/about` | `{title, description, hidden_types?, hidden_domains?}` | Update graph identity & hidden lists. |
+| POST | `/api/v2/reviews/<ref_id>/approve` | `{}` | Approve a pending review. |
+| POST | `/api/v2/reviews/<ref_id>/dismiss` | `{reason?}` | Dismiss a pending review. |
+
+### Cron / radar (admin)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/v2/cron/config?kind=source\|janitor` | List schedules. |
+| PUT | `/api/v2/cron/config/<source_type>` | Update `{enabled, cadence, workflow_id}`. |
+| POST | `/api/v2/cron/<source_type>/run` | Trigger an immediate run. |
+| GET | `/api/v2/cron/runs?source_type=&kind=&limit=` | Recent runs. |
+
+### Free / preflight (no payment)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/v2/nodes/topic-check?name=<name>` | Does a Topic node exist by name? |
+| GET | `/api/v2/nodes/check?node_type=&key=` | Generic duplicate check using ontology node_key. |
+| GET | `/api/` | Health (returns "Hello world"). |
+
+### Payment
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/buy_lsat` | Always returns 402 with a fresh invoice (do not auto-attach existing Authorization). |
+| GET | `/api/top_up_lsat` | Same — for topping up an existing token. |
+| GET | `/api/transactions` | History: `{action, type:"debit"\|"credit", amount, created_at}`. Amount is always positive; credits are top-ups/refunds, debits are searches/boosts/content adds. |
+
+## Worked examples
+
+### Search
+
+```
+curl -sS \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  'https://ai.sphinx.chat/api/v2/nodes?q=karpathy&limit=50&skip=0'
+```
+
+Response shape:
+
+```json
+{
+  "total": 100,
+  "nodes": [
+    {
+      "ref_id": "f50ac030-96c6-4c41-999e-4b5446715c71",
+      "node_type": "Twitteraccount",
+      "properties": { "name": "Andrej Karpathy", "twitter_handle": "karpathy" },
+      "score": 1,
+      "match_type": "hybrid",
+      "matched_property": "twitter_handle",
+      "date_added_to_graph": 1777378849.806
+    }
+  ],
+  "edges": [ { "source": "...", "target": "...", "edge_type": "MENTIONED_IN", "ref_id": "..." } ]
+}
+```
+
+### Add a tweet
+
+```
+curl -sS -X POST \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  -H 'Content-Type: application/json' \
+  -d '{"content_type":"tweet","source_link":"https://x.com/ClaudeDevs/status/2054639777685934564"}' \
+  https://ai.sphinx.chat/api/v2/content
+```
+
+Response:
+
+```json
+{"nodes":[{"ref_id":"32903013-d32e-4f20-9c24-60832379c1fe","project_id":145671982}],"status":"Success","status_messages":[]}
+```
+
+The backend then auto-extracts entities, topics, and edges. Poll
+`GET /api/v2/nodes/<ref_id>?expand=edges` to see them appear.
+
+### Inspect a node and its neighbors
+
+```
+curl -sS \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  'https://ai.sphinx.chat/api/v2/nodes/32903013-d32e-4f20-9c24-60832379c1fe?expand=edges'
+```
+
+## Node properties (common fields)
+
+- `text` — tweet/claim body
+- `name` / `title` — display label
+- `source_link` — origin URL
+- `media_url`, `image_url`, `thumbnail` — assets
+- `tweet_id`, `author`, `twitter_handle` — Twitter
+- `episode_title`, `episode_number`, `file_size`, `content_type` — Episode
+- `date_added_to_graph` — Unix seconds (float)
+
+## Rate limits & errors
+
+- `X-RateLimit-Limit: 50` per window on the L402 challenge endpoint.
+- `429` and `503` should be respected with exponential backoff.
+- `400 INVALID_DOMAIN` if you pass an unknown domain to search.
+- `404` after sending a valid LSAT to a non-existent path — your auth
+  worked; the route is wrong (this is the silent failure to watch for).
