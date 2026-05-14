@@ -47,16 +47,47 @@ it's debited to zero.
    Subsequent calls reuse the same header until the token's balance is
    exhausted; a new 402 then issues a fresh challenge.
 
+### If you cannot pay invoices yourself
+
+If you are an AI assistant or other unattended agent without
+Lightning-payment capability, do not give up at the 402 — ask the
+human operator for the credentials. Concrete protocol:
+
+1. Capture `macaroon` and `invoice` from the 402's `WWW-Authenticate`
+   header. Do not retry blindly — each 402 issues a fresh macaroon/
+   invoice pair and re-trying without paying just discards the previous
+   challenge.
+2. Tell the human, in one short message:
+   - what action you were trying to perform (e.g. "search 'Karpathy'"
+     or "add tweet https://x.com/…/status/…"),
+   - the invoice amount in sats (parse the `lnbcNNN<unit>…` part —
+     `100n` = 10 sats, `1u` = 100 sats, `1m` = 100 000 sats) and the
+     full BOLT11 invoice string,
+   - that they can satisfy the request by pasting back **either**:
+     a) the 64-hex-char preimage their wallet returned after paying,
+        in which case you reuse the macaroon from that same 402; OR
+     b) a pre-funded LSAT token: the base64 JSON blob
+        `{"macaroon":"…","identifier":"…","preimage":"…"}` exported
+        from the Sphinx app or another L402 client.
+3. Build `Authorization: LSAT <macaroon>:<preimage>` and retry the
+   original request.
+4. Persist the resulting token across calls in the same session — it
+   keeps working until its balance is exhausted, at which point you
+   get a fresh 402 and repeat the dance.
+
 ### Anonymous / probe mode
 
-On this deployment, sending `Authorization: LSAT <macaroon>:` (trailing
-colon, empty preimage) is accepted on **read** routes. This lets agents
-verify they have the right path/params before paying. Write endpoints
-(`POST /api/v2/content`, `POST /api/v2/nodes`, etc.) still require a
-real preimage.
+A macaroon that already has server-side balance accepts the form
+`Authorization: LSAT <macaroon>:` (trailing colon, empty preimage) on
+**read** routes — this is what the Sphinx frontend uses for cheap
+follow-up reads after a top-up. It does **not** work for a freshly
+issued macaroon from an unpaid 402 — that still returns 402. Write
+endpoints (`POST /api/v2/content`, `POST /api/v2/nodes`, etc.) always
+require a real preimage regardless of balance.
 
-A useful side effect: a 404 returned **with** an LSAT header means your
-auth was accepted but the route is wrong — don't retry the same path.
+A useful side effect: a 404 returned **with** an LSAT header means
+your auth was accepted but the route is wrong — don't retry the same
+path.
 
 ### Token formats you may see
 
@@ -84,7 +115,15 @@ This blob is NOT what goes in the Authorization header. Extract the
 ## Sandbox
 
 There is no separate sandbox host — every call settles real (10-sat
-class) Lightning payments. Use the empty-preimage probe form to dry-run.
+class) Lightning payments. The truly-free endpoints (see `/llms.txt`
+"Free / preflight") let an agent confirm the API is reachable and
+explore the ontology before asking the human to fund a token:
+
+- `GET /api/stats`
+- `GET /api/about`
+- `GET /api/v2/schema/domains`
+- `GET /api/v2/nodes/topic-check?name=<name>`
+- `GET /api/v2/nodes/check?node_type=<T>&key=<k>`
 
 ## Contact
 

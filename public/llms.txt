@@ -1,24 +1,30 @@
 # GraphMindset
 
-> Lightning-payable, L402-metered knowledge graph platform. Search nodes,
-> add content from URLs, traverse edges, manage ontology. Pay-per-call
-> with Bitcoin Lightning (or use the anonymous-mode empty-preimage token
-> for free-tier probe calls).
+> Lightning-payable, L402-metered knowledge graph platform. Search
+> nodes, add content from URLs, traverse edges, manage ontology.
+> Pay-per-call with Bitcoin Lightning.
 
 ## Quickstart for AI agents
 
-1. Read /agents.txt for the L402 auth flow.
-2. Hit `GET /api/v2/nodes?q=<query>&limit=50&skip=0` with header
-   `Authorization: LSAT <macaroon>:` (trailing colon, empty preimage).
-   - If you have no macaroon yet, send no Authorization header and parse
-     the `WWW-Authenticate: LSAT macaroon="...", invoice="..."` value
-     from the 402 response. Reuse that macaroon on subsequent calls.
-   - The empty-preimage form (`<macaroon>:`) is accepted on this
-     deployment as an anonymous probe token. Paid endpoints still
-     require a real `<preimage_hex>` after paying the BOLT11 invoice.
-3. Inspect a hit with `GET /api/v2/nodes/<ref_id>?expand=edges`.
-4. Add content with `POST /api/v2/content`
-   body: `{"content_type":"tweet","source_link":"https://x.com/<user>/status/<id>"}`
+1. Read `/agents.txt` for the full L402 auth flow — especially the
+   "If you cannot pay invoices yourself" section if you have no
+   wallet integration.
+2. Explore for free first (no auth required):
+   - `GET /api/stats`, `GET /api/about`, `GET /api/v2/schema/domains`
+   - `GET /api/v2/nodes/topic-check?name=<name>`
+   - `GET /api/v2/nodes/check?node_type=<T>&key=<k>`
+3. For paid actions (search, node lookup, content add):
+   - Send the request with no `Authorization` header → get a 402.
+   - Parse `macaroon` and `invoice` from the `WWW-Authenticate` header.
+   - Pay the BOLT11 invoice (or ask the human to). Capture the
+     32-byte preimage your wallet returns.
+   - Retry with `Authorization: LSAT <macaroon>:<preimage_hex>`.
+   - Reuse that token until you get a fresh 402 (balance exhausted).
+4. Example calls:
+   - Search: `GET /api/v2/nodes?q=<query>&limit=50&skip=0`
+   - Inspect: `GET /api/v2/nodes/<ref_id>?expand=edges`
+   - Add: `POST /api/v2/content` body
+     `{"content_type":"tweet","source_link":"https://x.com/<user>/status/<id>"}`
 
 ## API base
 
@@ -99,7 +105,7 @@ embedded invoice and resend with `Authorization: LSAT <macaroon>:<preimage_hex>`
 
 ```
 curl -sS \
-  -H 'Authorization: LSAT <macaroon>:' \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
   'https://ai.sphinx.chat/api/v2/nodes?q=karpathy&limit=50&skip=0'
 ```
 
@@ -146,7 +152,7 @@ The backend then auto-extracts entities, topics, and edges. Poll
 
 ```
 curl -sS \
-  -H 'Authorization: LSAT <macaroon>:' \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
   'https://ai.sphinx.chat/api/v2/nodes/32903013-d32e-4f20-9c24-60832379c1fe?expand=edges'
 ```
 
