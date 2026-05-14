@@ -24,7 +24,7 @@ import { ConnectionsSection } from "./connections-section"
 import { formatDateAbsolute } from "@/lib/date-format"
 
 const INTERNAL_FIELDS = new Set([
-  "ref_id", "pubkey", "node_type", "date_added_to_graph", "status", "project_id",
+  "ref_id", "pubkey", "owner_reference_id", "node_type", "date_added_to_graph", "status", "project_id",
   // Fields rendered by rich widgets — hide from the fallback key/value list
   "name", "title", "description", "text", "transcript", "summary", "media_url", "link",
   "image_url", "thumbnail", "source_link", "tweet_id", "author",
