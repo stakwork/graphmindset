@@ -53,7 +53,7 @@ vi.mock("@/lib/sphinx", () => ({
   payInvoice: (...args: unknown[]) => mockPayInvoice(...args),
   payL402: (...args: unknown[]) => mockPayL402(...args),
   topUpLsat: (...args: unknown[]) => mockTopUpLsat(...args),
-  topUpConfirm: (...args: unknown[]) => mockTopUpConfirm(...args),
+  topUpConfirm: (...args: unknown[]) => mockTopUpConfirm(...args), // kept for compat but no longer called
   pollPaymentStatus: (...args: unknown[]) => mockPollPaymentStatus(...args),
   fetchBuyLsatChallenge: (...args: unknown[]) => mockFetchBuyLsatChallenge(...args),
   fetchTransactionHistory: (...args: unknown[]) => mockFetchTransactionHistory(...args),
@@ -405,6 +405,115 @@ describe("BudgetModal back-nav poll cancellation", () => {
 
     expect(screen.queryByText(/Payment not detected/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Processing/)).not.toBeInTheDocument()
+  })
+})
+
+describe("BudgetModal handlePay — no topUpConfirm, reassuring copy on timeout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 500
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockApiGet.mockReset()
+    mockTopUpLsat.mockResolvedValue({ payment_request: "lnbctest123", payment_hash: "hash123" })
+    mockTopUpConfirm.mockResolvedValue(undefined)
+    // Provide existing L402 so handleTopUp routes to amount step
+    cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
+  })
+
+  it("manual QR: pollPaymentStatus true → topUpConfirm NOT called, refreshBalance called, success step", async () => {
+    mockPollPaymentStatus.mockResolvedValue(true)
+
+    render(<BudgetModal />)
+
+    // Navigate to amount step
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Custom amount")).toBeInTheDocument())
+
+    // Select preset amount
+    fireEvent.click(screen.getByText("100"))
+
+    // Click Generate Invoice (manual path — no Sphinx/WebLN)
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    await waitFor(() => {
+      expect(screen.getByText("Top-up complete")).toBeInTheDocument()
+    })
+
+    // topUpConfirm must NOT be called
+    expect(mockTopUpConfirm).not.toHaveBeenCalled()
+    // refreshBalance must be called
+    expect(mockRefreshBalance).toHaveBeenCalled()
+    // Success step shown
+    expect(screen.getByText("Top-up complete")).toBeInTheDocument()
+  })
+
+  it("manual QR: pollPaymentStatus false (timeout) → reassuring error copy, stays on invoice step", async () => {
+    mockPollPaymentStatus.mockResolvedValue(false)
+
+    render(<BudgetModal />)
+
+    // Navigate to amount step
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Custom amount")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("100"))
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    // Wait for the invoice QR step to appear (step = "invoice")
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    // After poll timeout, error should appear — reassuring copy
+    await waitFor(() => {
+      expect(screen.getByText(/we'll credit your balance automatically/i)).toBeInTheDocument()
+    })
+
+    // Must stay on invoice step (QR still visible), NOT navigated to amount
+    expect(screen.queryByPlaceholderText("Custom amount")).not.toBeInTheDocument()
+    // topUpConfirm must NOT be called
+    expect(mockTopUpConfirm).not.toHaveBeenCalled()
+  })
+})
+
+describe("BudgetModal handleFirstPurchaseInvoice — reassuring copy on timeout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 500
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockApiGet.mockReset()
+    mockFetchBuyLsatChallenge.mockResolvedValue({
+      invoice: "lnbcbuy123",
+      baseMacaroon: "macaroon123",
+      paymentHash: "buyhash123",
+      id: "lsatid123",
+    })
+    cookieStorage.removeItem("l402")
+  })
+
+  it("timeout → reassuring error copy, stays on first-invoice step (not navigated to first-purchase)", async () => {
+    mockPollPaymentStatus.mockResolvedValue(false)
+
+    render(<BudgetModal />)
+
+    // Start first-purchase flow
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByText("Get Started")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    // Wait for first-invoice step (QR shown)
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    // After timeout, reassuring copy should appear
+    await waitFor(() => {
+      expect(screen.getByText(/we'll credit your balance automatically/i)).toBeInTheDocument()
+    })
+
+    // Must stay on first-invoice step — NOT navigated back to first-purchase amount screen
+    expect(screen.queryByText("Get Started")).not.toBeInTheDocument()
   })
 })
 

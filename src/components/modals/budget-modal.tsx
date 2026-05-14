@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, topUpConfirm, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, TransactionRow } from "@/lib/sphinx"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, TransactionRow } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor, isViewGrantRow } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 import { cookieStorage } from "@/lib/cookie-storage"
@@ -213,11 +213,10 @@ export function BudgetModal() {
       setFirstPurchaseRequest(challenge.invoice)
       setStep("first-invoice")
 
-      const paid = await pollPaymentStatus(challenge.paymentHash, 20, 2000, controller.signal)
+      const paid = await pollPaymentStatus(challenge.paymentHash, 1800, 2000, controller.signal)
       if (controller.signal.aborted) return
       if (!paid) {
-        setError("Payment not detected. Try again.")
-        setStep("first-purchase")
+        setError("Still waiting for your payment — we'll credit your balance automatically as soon as it lands. You can close this safely.")
         return
       }
 
@@ -279,7 +278,6 @@ export function BudgetModal() {
           setLoading(false)
           return
         }
-        await topUpConfirm(result.payment_hash, macaroon)
         console.log("[topUp] confirmed, refreshing balance...")
         await refreshBalance()
         setStep("success")
@@ -293,25 +291,14 @@ export function BudgetModal() {
 
       const manualController = new AbortController()
       pollAbortRef.current = manualController
-      let confirming = false
-      const paid = await pollPaymentStatus(result.payment_hash, 100, 3000, manualController.signal)
+      const paid = await pollPaymentStatus(result.payment_hash, 1200, 3000, manualController.signal)
       if (manualController.signal.aborted) return
       if (!paid) {
-        setError("Payment not detected. Try again.")
-        setStep("amount")
+        setError("Still waiting for your payment — we'll credit your balance automatically as soon as it lands. You can close this safely.")
         return
       }
-      if (!confirming) {
-        confirming = true
-        try {
-          await topUpConfirm(result.payment_hash, macaroon)
-          await refreshBalance()
-          setStep("success")
-        } catch {
-          setError("Payment received but confirmation failed. Try refreshing balance.")
-          setStep("amount")
-        }
-      }
+      await refreshBalance()
+      setStep("success")
     } catch (err) {
       console.error("[topUp] error:", err)
       setError("Failed to generate invoice. Try again.")
@@ -557,6 +544,10 @@ export function BudgetModal() {
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-amber" />
                   <span className="text-xs text-muted-foreground">Waiting for payment...</span>
                 </div>
+
+                {error && (
+                  <p className="text-xs text-muted-foreground text-center">{error}</p>
+                )}
               </div>
             </>
           )}
@@ -661,6 +652,10 @@ export function BudgetModal() {
                     Waiting for payment...
                   </span>
                 </div>
+
+                {error && (
+                  <p className="text-xs text-muted-foreground text-center">{error}</p>
+                )}
               </div>
             </>
           )}
