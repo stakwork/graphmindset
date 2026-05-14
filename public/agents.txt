@@ -1,23 +1,91 @@
 # GraphMindset — AI Agent Policy
 
 ## About
-GraphMindset is a Lightning-payable knowledge graph platform for exploring, building, and curating connected knowledge with an L402-metered API.
+
+GraphMindset is a Lightning-payable knowledge graph platform with an
+L402-metered HTTP API. Agents can read public graph data, add content
+from URLs, and traverse the ontology — paid endpoints settle in
+satoshis over Lightning.
+
+For the endpoint catalog with curl examples see `/llms.txt`.
+
+## Authentication — L402 (LSAT)
+
+Every paid request uses this single header:
+
+    Authorization: LSAT <macaroon>:<preimage_hex>
+
+Where `<macaroon>` is a base64 token issued by the server and
+`<preimage_hex>` is the 32-byte payment preimage you receive after
+paying the BOLT11 invoice that came with that macaroon. An LSAT token
+(macaroon + preimage) is per-deployment and reusable across calls until
+it's debited to zero.
+
+### The 402 → pay → retry flow
+
+1. Send a request with no `Authorization` header (or `Authorization: `
+   to opt out of auto-attach):
+
+       GET /api/v2/nodes?q=karpathy
+
+   Server responds:
+
+       HTTP/2 402 Payment Required
+       WWW-Authenticate: LSAT macaroon="AgEOY...", invoice="lnbc100n1p..."
+       Access-Control-Expose-Headers: www-authenticate
+       Content-Type: application/json
+       {"error":{"message":"Payment required"}}
+
+2. Pay the `invoice` (BOLT11) with any Lightning wallet — Sphinx,
+   Phoenix, Wallet of Satoshi, Alby, etc. Capture the 32-byte
+   **payment preimage** returned by the wallet.
+
+3. Resend the original request with:
+
+       Authorization: LSAT <macaroon-from-step-1>:<preimage-from-step-2>
+
+   Subsequent calls reuse the same header until the token's balance is
+   exhausted; a new 402 then issues a fresh challenge.
+
+### Anonymous / probe mode
+
+On this deployment, sending `Authorization: LSAT <macaroon>:` (trailing
+colon, empty preimage) is accepted on **read** routes. This lets agents
+verify they have the right path/params before paying. Write endpoints
+(`POST /api/v2/content`, `POST /api/v2/nodes`, etc.) still require a
+real preimage.
+
+A useful side effect: a 404 returned **with** an LSAT header means your
+auth was accepted but the route is wrong — don't retry the same path.
+
+### Token formats you may see
+
+The Sphinx frontend persists the token as a base64-encoded JSON blob:
+
+    {"macaroon":"<base64>", "identifier":"<hex>", "preimage":"<hex-or-empty>"}
+
+This blob is NOT what goes in the Authorization header. Extract the
+`macaroon` and `preimage` fields and combine them as
+`LSAT <macaroon>:<preimage>`.
 
 ## Allowed
-- Read public graph data via standard HTTP GET requests
-- Browse /llms.txt for a structured site description
-- Follow standard HTTP semantics (respect 429, 503 responses)
 
-## Paid Endpoints
-The following actions require L402 payment (Bitcoin Lightning):
-- Search (exact, fuzzy, semantic)
-- Content creation (nodes, topics)
-- Node unlocks and graph path queries
-- Boost payments to content nodes
-Agents must present a valid LSAT bearer token or respond to a 402 Payment Required challenge.
+- All `GET` requests against documented endpoints (see `/llms.txt`).
+- Programmatic content adds via `POST /api/v2/content` — be sensible
+  with rate and source quality; spam and duplicates are filtered.
+- Identifying yourself in `User-Agent` is appreciated but not required.
 
-## Rate Limits
-Be respectful of server resources. Abusive crawling or automated bulk requests may be rate-limited or blocked at the edge.
+## Rate limits
+
+- 50 challenge requests per window on the L402 issuer.
+- 429 / 503 → back off exponentially.
+- Bulk crawling without payment will be edge-blocked.
+
+## Sandbox
+
+There is no separate sandbox host — every call settles real (10-sat
+class) Lightning payments. Use the empty-preimage probe form to dry-run.
 
 ## Contact
-# (ops contact — leave blank until provided)
+
+Issues and disclosures: github.com/nicksparks/sphinx-nav-fiber/issues
