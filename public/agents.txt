@@ -13,13 +13,35 @@ For the endpoint catalog with curl examples see `/llms.txt`.
 
 Every paid request uses this single header:
 
-    Authorization: LSAT <macaroon>:<preimage_hex>
+    Authorization: LSAT <macaroon>:<placeholder>
 
-Where `<macaroon>` is a base64 token issued by the server and
-`<preimage_hex>` is the 32-byte payment preimage you receive after
-paying the BOLT11 invoice that came with that macaroon. An LSAT token
-(macaroon + preimage) is per-deployment and reusable across calls until
-it's debited to zero.
+Where `<macaroon>` is the base64 token issued by the server in the 402
+challenge and `<placeholder>` is any non-empty string. The macaroon is
+what actually authenticates you — the server identifies your LSAT and
+checks its balance by macaroon alone.
+
+The value after the colon must be present (the parser splits on `:`
+and requires both sides), but its content **is not currently
+validated**. In the boltwall middleware
+(`src/middleware/checkLsat.ts`), `parseAuth` extracts the preimage
+field but `checkingLsat` never compares it against anything — the
+known-broken test `checkLsat.test.ts` "rejects authorization when
+SHA256(preimage) does not match paymentHash (currently not enforced)"
+documents this as a temporary state. In practice the official tests
+use the literal string `"somepreimage"`. Treat the placeholder as a
+syntactic marker, not a credential; **do not waste effort extracting a
+real preimage from a wallet** — most consumer wallets don't expose one
+anyway.
+
+Forward-compatibility: if cryptographic preimage verification is added
+later, paid clients will need to provide the real 32-byte preimage
+from the wallet that settled the invoice. Until then `:paid` (or any
+non-empty string) is sufficient.
+
+The activation check that *does* matter: a fresh macaroon is rejected
+until its embedded `paymentHash` corresponds to a confirmed invoice on
+the Lightning node. Once your wallet pays, the server sees the
+settlement on its LN node and activates the LSAT on the next request.
 
 ### The 402 → pay → retry flow
 
@@ -37,15 +59,18 @@ it's debited to zero.
        {"error":{"message":"Payment required"}}
 
 2. Pay the `invoice` (BOLT11) with any Lightning wallet — Sphinx,
-   Phoenix, Wallet of Satoshi, Alby, etc. Capture the 32-byte
-   **payment preimage** returned by the wallet.
+   Phoenix, Wallet of Satoshi, Muun, Alby, etc. You do **not** need to
+   extract the payment preimage from your wallet; the server detects
+   settlement directly from its LN node via the macaroon's embedded
+   `paymentHash`.
 
 3. Resend the original request with:
 
-       Authorization: LSAT <macaroon-from-step-1>:<preimage-from-step-2>
+       Authorization: LSAT <macaroon-from-step-1>:paid
 
-   Subsequent calls reuse the same header until the token's balance is
-   exhausted; a new 402 then issues a fresh challenge.
+   The string after the colon is currently not validated; any non-empty
+   placeholder works. Subsequent calls reuse the same header until the
+   token's balance is exhausted; a new 402 then issues a fresh challenge.
 
 ### If you cannot pay invoices yourself
 
@@ -63,27 +88,49 @@ human operator for the credentials. Concrete protocol:
    - the invoice amount in sats (parse the `lnbcNNN<unit>…` part —
      `100n` = 10 sats, `1u` = 100 sats, `1m` = 100 000 sats) and the
      full BOLT11 invoice string,
-   - that they can satisfy the request by pasting back **either**:
-     a) the 64-hex-char preimage their wallet returned after paying,
-        in which case you reuse the macaroon from that same 402; OR
-     b) a pre-funded LSAT token: the base64 JSON blob
-        `{"macaroon":"…","identifier":"…","preimage":"…"}` exported
-        from the Sphinx app or another L402 client.
-3. Build `Authorization: LSAT <macaroon>:<preimage>` and retry the
-   original request.
+   - that they only need to **pay the invoice in any wallet** (Wallet
+     of Satoshi, Muun, Phoenix, Sphinx — anything) and reply "paid".
+     They do not need to copy a preimage; the server detects payment
+     on its LN node.
+   - alternatively, if the human prefers a session-long credential
+     instead of pay-per-call, they can paste a pre-funded LSAT token
+     blob exported from the web UI / Sphinx app:
+     `{"macaroon":"…","identifier":"…","preimage":"…"}` — extract its
+     `macaroon` field (the `preimage` field is also currently not
+     validated, so it can be ignored).
+3. Build `Authorization: LSAT <macaroon-from-step-1>:paid` and retry
+   the original request. (If the human pasted a token blob in step 2b,
+   use that macaroon instead and still send `:paid` after the colon.)
 4. Persist the resulting token across calls in the same session — it
    keeps working until its balance is exhausted, at which point you
    get a fresh 402 and repeat the dance.
 
-### Anonymous / probe mode
+### Why the human only needs to say "paid"
 
-A macaroon that already has server-side balance accepts the form
-`Authorization: LSAT <macaroon>:` (trailing colon, empty preimage) on
-**read** routes — this is what the Sphinx frontend uses for cheap
-follow-up reads after a top-up. It does **not** work for a freshly
-issued macaroon from an unpaid 402 — that still returns 402. Write
-endpoints (`POST /api/v2/content`, `POST /api/v2/nodes`, etc.) always
-require a real preimage regardless of balance.
+Most consumer Lightning wallets — Wallet of Satoshi, Muun, Phoenix —
+do not surface the payment preimage in their UI. Insisting that the
+human dig one out would block almost everyone except CLI / Sphinx
+users. Fortunately this server doesn't need it: `activateDynamicLsat`
+in `src/utils/lsat.ts` decodes the macaroon to extract its
+`paymentHash`, queries the LN node for that hash, and proceeds when
+`invoice.is_confirmed` is true. The Authorization header's preimage
+slot is a syntactic remnant of the L402 spec, not a verified
+credential in the current implementation.
+
+### Probing without a real payment
+
+Any LSAT macaroon that is already activated (i.e. its embedded invoice
+has been paid and the server has a `DynamicLsat` record for it) will
+accept any non-empty string after the colon — including the empty
+form `LSAT <macaroon>:` on some endpoints — for both read and write
+routes, because the preimage is not currently validated. A **fresh**
+macaroon from an unpaid 402 will be rejected regardless of what you
+put after the colon: `ensureDynamicLsat` won't create the record until
+the LN node confirms the invoice is paid.
+
+Practical implication: you cannot bypass payment by guessing or
+recycling someone else's macaroon — but once activated, the macaroon
+behaves like a bearer balance, so treat it as a secret.
 
 A useful side effect: a 404 returned **with** an LSAT header means
 your auth was accepted but the route is wrong — don't retry the same
@@ -96,8 +143,9 @@ The Sphinx frontend persists the token as a base64-encoded JSON blob:
     {"macaroon":"<base64>", "identifier":"<hex>", "preimage":"<hex-or-empty>"}
 
 This blob is NOT what goes in the Authorization header. Extract the
-`macaroon` and `preimage` fields and combine them as
-`LSAT <macaroon>:<preimage>`.
+`macaroon` field and build `LSAT <macaroon>:paid` (or `<macaroon>:<preimage>`
+if the blob carries one — it makes no difference to the current server,
+but matches the future verified form).
 
 ## Allowed
 
@@ -121,8 +169,8 @@ When the human says…                | Hit this endpoint
 "top me up N sats" /                | `GET /api/top_up_lsat` (with `Authorization: ` empty
   "add more balance"                | to force a 402) → pay invoice → balance credits onto
                                     | existing macaroon, keep using same auth header
-"mint a fresh token"                | `GET /api/buy_lsat` → pay invoice → build new
-                                    | `LSAT <mac>:<preimage>` from the response
+"mint a fresh token"                | `GET /api/buy_lsat` → pay invoice → build
+                                    | `LSAT <macaroon-from-402>:paid`
 "open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
 "what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`
 "how many nodes / topics / people"  | `GET /api/stats` (free)
