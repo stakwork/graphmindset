@@ -916,3 +916,64 @@ describe("NodePreviewPanel – share button", () => {
     vi.useRealTimers()
   })
 })
+
+describe("NodePreviewPanel – description truncation cap", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  it("renders full claim_text without truncation when between 160–500 chars (unlocked)", async () => {
+    const claimText =
+      "The Lightning Network allows Bitcoin transactions to settle instantly off-chain by routing payments through a network of bidirectional payment channels. " +
+      "This is achieved by locking funds into a 2-of-2 multisig address on-chain and exchanging signed commitment transactions off-chain."
+    // Verify the text is between 160 and 500 chars
+    expect(claimText.length).toBeGreaterThan(160)
+    expect(claimText.length).toBeLessThanOrEqual(500)
+
+    const claimNode: GraphNode = {
+      ref_id: "cl1",
+      node_type: "Claim",
+      properties: { name: "Lightning claim", claim_text: claimText },
+    }
+    // Probe returns 200 → unlocked state; fullNode carries claim_text
+    mockApiGet.mockResolvedValue(makeGraphData(claimNode))
+
+    // Provide a schema that designates claim_text as the description_key
+    const schema = {
+      ref_id: "schema-claim",
+      node_type: "SchemaNode",
+      properties: {
+        schema_node_type: "Claim",
+        title_key: "name",
+        description_key: "claim_text",
+        attributes: [],
+      },
+    }
+
+    render(<NodePreviewPanel node={claimNode} onBack={vi.fn()} schemas={[schema as never]} />)
+
+    await waitFor(() => {
+      // Full text should be present — no ellipsis appended
+      expect(screen.getByText(claimText)).toBeInTheDocument()
+    })
+  })
+
+  it("caps description at 500 chars and appends ellipsis when text exceeds 500 chars", async () => {
+    const longDesc = "B".repeat(600)
+    const node: GraphNode = {
+      ref_id: "d1",
+      node_type: "Topic",
+      properties: { name: "Long Desc Node", description: longDesc },
+    }
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const el = document.querySelector("p.text-xs.text-muted-foreground")
+      expect(el).toBeTruthy()
+      expect(el!.textContent).toBe("B".repeat(500) + "\u2026")
+    })
+  })
+})
