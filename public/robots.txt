@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
 
-# LLM agent files
-Sitemap: /llms.txt
+# LLM-facing site description
+# See: /llms.txt
+# AI agent policy: /agents.txt
