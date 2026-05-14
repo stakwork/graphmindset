@@ -29,15 +29,15 @@ describe("listLatestByType", () => {
     global.fetch = originalFetch
   })
 
-  it("sends type, limit, skip, and sort=date_added params", async () => {
+  it("sends type, limit, skip params to /v2/nodes/latest", async () => {
     await listLatestByType("Clip", 10, 0)
 
     const [[url]] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
-    expect(url).toContain("/api/v2/nodes")
+    expect(url).toContain("/api/v2/nodes/latest")
     expect(url).toContain("type=Clip")
     expect(url).toContain("limit=10")
     expect(url).toContain("skip=0")
-    expect(url).toContain("sort=date_added")
+    expect(url).not.toContain("sort=date_added")
   })
 
   it("does NOT send a filter= param (old broken param is gone)", async () => {

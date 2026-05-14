@@ -457,9 +457,7 @@ export function BudgetModal() {
           {/* Step: First Purchase — amount input */}
           {step === "first-purchase" && (
             <>
-              <p className="text-xs text-muted-foreground text-center">
-                Pay a Lightning invoice with any wallet to create your L402 balance.
-              </p>
+
 
               <div className="grid grid-cols-4 gap-2">
                 {PRESET_AMOUNTS.map((preset) => (
