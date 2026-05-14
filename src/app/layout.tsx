@@ -27,6 +27,15 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.svg",
   },
+  alternates: {
+    types: {
+      "text/markdown": "/llms.txt",
+    },
+  },
+  other: {
+    "ai-policy": "/agents.txt",
+    "llms-txt": "/llms.txt",
+  },
 }
 
 export default function RootLayout({
