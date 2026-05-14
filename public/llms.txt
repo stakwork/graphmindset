@@ -101,7 +101,7 @@ embedded invoice and resend with `Authorization: LSAT <macaroon>:<preimage_hex>`
 |--------|------|---------|
 | GET | `/api/buy_lsat` | Always returns 402 with a fresh invoice (do not auto-attach existing Authorization). |
 | GET | `/api/top_up_lsat` | Same — for topping up an existing token. |
-| GET | `/api/transactions` | History: `{action, type:"debit"\|"credit", amount, created_at}`. Amount is always positive; credits are top-ups/refunds, debits are searches/boosts/content adds. |
+| GET | `/api/transactions` | History. Returns `{transactions: [{action, type:"debit"\|"credit", amount, created_at}, ...], scope}`. Amount is always positive; credits are top-ups/refunds, debits are searches/boosts/content adds. Filter out rows where `action="purchase"` and `amount=0` — those are synthetic free-re-access grants and shouldn't be shown to users. |
 
 ## Worked examples
 
@@ -199,6 +199,82 @@ Response shape:
 - `totalProcessing` — how many of your submissions are still being
   ingested (entity extraction, edge inference). Poll this endpoint or
   `GET /api/v2/nodes/<ref_id>?expand=edges` to watch them finish.
+
+### Balance & top-up
+
+**Check current balance** ("how many sats do I have"):
+
+```
+curl -sS \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  https://ai.sphinx.chat/api/balance
+```
+
+Response:
+
+```json
+{ "balance": 4280 }
+```
+
+The number is sats remaining on the LSAT token in your `Authorization`
+header.
+
+**Transaction history** ("show my recent activity"):
+
+```
+curl -sS \
+  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  https://ai.sphinx.chat/api/transactions
+```
+
+Response:
+
+```json
+{
+  "transactions": [
+    { "action": "top_up",  "type": "credit", "amount": 1000, "created_at": 1779067200 },
+    { "action": "search",  "type": "debit",  "amount": 10,   "created_at": 1779067260 },
+    { "action": "content", "type": "debit",  "amount": 10,   "created_at": 1779067320 }
+  ],
+  "scope": "token"
+}
+```
+
+- `amount` is always positive — sign comes from `type`.
+- Skip rows where `action="purchase"` and `amount=0`; those are
+  synthetic free-re-access grants, not real activity.
+- Common `action` values: `top_up`, `search`, `content`, `boost`,
+  `node_unlock`, `purchase`.
+
+**Top up an existing token** ("add more sats to my balance"):
+
+The flow mirrors the initial 402-pay-retry, but uses `/api/top_up_lsat`
+and credits the *existing* macaroon's balance instead of issuing a new
+one. Critically, **do not auto-attach your current `Authorization`
+header** — the endpoint must return 402 with a fresh invoice.
+
+1. Request a top-up invoice:
+
+   ```
+   curl -sS -i -H 'Authorization: ' \
+     https://ai.sphinx.chat/api/top_up_lsat
+   ```
+
+   Server returns `402 Payment Required` with
+   `WWW-Authenticate: LSAT macaroon="<NEW_MAC>", invoice="lnbc..."`.
+
+2. Pay the BOLT11 invoice (or ask the human — see `/agents.txt`).
+
+3. After payment settles, the **existing** token's balance increases.
+   No header change needed — just keep using the same
+   `Authorization: LSAT <macaroon>:<preimage_hex>` you had before.
+
+4. Verify with `GET /api/balance`.
+
+`/api/buy_lsat` works the same way but for **minting a fresh token**
+from scratch (no prior macaroon). After paying, build
+`Authorization: LSAT <NEW_MAC>:<NEW_PREIMAGE>` and use that going
+forward.
 
 ## Node properties (common fields)
 

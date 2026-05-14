@@ -115,6 +115,14 @@ When the human says…                | Hit this endpoint
 "show / list my content"            | `GET /api/v2/content?sort_by=date&limit=100`
 "what have I added"                 | `GET /api/v2/content?sort_by=date&limit=100`
 "what's still processing"           | `GET /api/v2/content` and read `totalProcessing`
+"how many sats do I have" /         | `GET /api/balance` → `{balance}`
+  "check my balance"                |
+"show my transactions / history"    | `GET /api/transactions` → `{transactions[], scope}`
+"top me up N sats" /                | `GET /api/top_up_lsat` (with `Authorization: ` empty
+  "add more balance"                | to force a 402) → pay invoice → balance credits onto
+                                    | existing macaroon, keep using same auth header
+"mint a fresh token"                | `GET /api/buy_lsat` → pay invoice → build new
+                                    | `LSAT <mac>:<preimage>` from the response
 "open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
 "what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`
 "how many nodes / topics / people"  | `GET /api/stats` (free)
