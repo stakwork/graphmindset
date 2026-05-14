@@ -10,7 +10,7 @@ import type { GraphNode, GraphEdge } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
 type Mode = "collapsed" | "mini" | "expanded"
-type DragTarget = "collapsed" | "mini"
+type DragTarget = "mini"
 
 const MINI_W = 360
 const MINI_H = 260
@@ -47,14 +47,10 @@ export function GraphFloater() {
 
   const [mode, setMode] = useState<Mode>("mini")
   const [miniPos, setMiniPos] = useState<Position>(() => defaultPos(MINI_W, MINI_H))
-  const [collapsedPos, setCollapsedPos] = useState<Position>(() =>
-    defaultPos(COLLAPSED_SIZE, COLLAPSED_SIZE)
-  )
 
   useEffect(() => {
     function onResize() {
       setMiniPos((p) => clampToViewport(p, MINI_W, MINI_H))
-      setCollapsedPos((p) => clampToViewport(p, COLLAPSED_SIZE, COLLAPSED_SIZE))
     }
     window.addEventListener("resize", onResize)
     return () => window.removeEventListener("resize", onResize)
@@ -72,11 +68,7 @@ export function GraphFloater() {
       const dx = e.clientX - drag.current.startX
       const dy = e.clientY - drag.current.startY
       const next = { x: drag.current.startPos.x + dx, y: drag.current.startPos.y + dy }
-      if (drag.current.target === "collapsed") {
-        setCollapsedPos(clampToViewport(next, COLLAPSED_SIZE, COLLAPSED_SIZE))
-      } else {
-        setMiniPos(clampToViewport(next, MINI_W, MINI_H))
-      }
+      setMiniPos(clampToViewport(next, MINI_W, MINI_H))
     }
     function onUp() {
       drag.current = null
@@ -96,7 +88,7 @@ export function GraphFloater() {
     drag.current = {
       startX: e.clientX,
       startY: e.clientY,
-      startPos: target === "collapsed" ? collapsedPos : miniPos,
+      startPos: miniPos,
       target,
     }
   }
@@ -111,21 +103,20 @@ export function GraphFloater() {
   if (mode === "collapsed") {
     return (
       <div
-        onMouseDown={(e) => onDragStart(e, "collapsed")}
         onClick={() => {
           if (moved.current) return
           setMode("mini")
         }}
         style={{
           position: "fixed",
-          left: collapsedPos.x,
-          top: collapsedPos.y,
+          bottom: GUTTER,
+          right: GUTTER,
           width: COLLAPSED_SIZE,
           height: COLLAPSED_SIZE,
           zIndex: 60,
         }}
         className={cn(
-          "rounded-full flex items-center justify-center group cursor-grab active:cursor-grabbing",
+          "rounded-full flex items-center justify-center group cursor-pointer",
           "bg-popover/95 border border-primary/30 backdrop-blur-md",
           "shadow-[0_8px_30px_oklch(0_0_0/0.4),0_0_24px_oklch(0.72_0.14_200/0.18)]",
           "hover:border-primary/60 hover:shadow-[0_8px_30px_oklch(0_0_0/0.4),0_0_32px_oklch(0.72_0.14_200/0.3)] transition-all"
