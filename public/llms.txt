@@ -16,9 +16,11 @@
 3. For paid actions (search, node lookup, content add):
    - Send the request with no `Authorization` header → get a 402.
    - Parse `macaroon` and `invoice` from the `WWW-Authenticate` header.
-   - Pay the BOLT11 invoice (or ask the human to). Capture the
-     32-byte preimage your wallet returns.
-   - Retry with `Authorization: LSAT <macaroon>:<preimage_hex>`.
+   - Pay the BOLT11 invoice (or ask the human to). You do **not** need
+     to extract the wallet's preimage — the server detects settlement
+     via the `paymentHash` embedded in the macaroon (see `/agents.txt`).
+   - Retry with `Authorization: LSAT <macaroon>:paid`. The value after
+     the colon is currently not validated; any non-empty string works.
    - Reuse that token until you get a fresh 402 (balance exhausted).
 4. Example calls:
    - Search: `GET /api/v2/nodes?q=<query>&limit=50&skip=0`
@@ -42,8 +44,13 @@
 ## Endpoints
 
 All endpoints are JSON. Paid endpoints respond `402 Payment Required`
-on the first call with a `WWW-Authenticate: LSAT ...` challenge; pay the
-embedded invoice and resend with `Authorization: LSAT <macaroon>:<preimage_hex>`.
+on the first call with a `WWW-Authenticate: LSAT ...` challenge; pay
+the embedded invoice and resend with `Authorization: LSAT <macaroon>:paid`.
+The value after the colon is currently not validated by the server —
+the macaroon's embedded `paymentHash` is what authenticates you, via a
+direct LN-node check (see `/agents.txt`). Any non-empty string after
+`:` works today; a future tightening of the spec may require the real
+32-byte preimage from the wallet that paid.
 
 ### Search & read (paid)
 
@@ -109,7 +116,7 @@ embedded invoice and resend with `Authorization: LSAT <macaroon>:<preimage_hex>`
 
 ```
 curl -sS \
-  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  -H 'Authorization: LSAT <macaroon>:paid' \
   'https://ai.sphinx.chat/api/v2/nodes?q=karpathy&limit=50&skip=0'
 ```
 
@@ -137,7 +144,7 @@ Response shape:
 
 ```
 curl -sS -X POST \
-  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  -H 'Authorization: LSAT <macaroon>:paid' \
   -H 'Content-Type: application/json' \
   -d '{"content_type":"tweet","source_link":"https://x.com/ClaudeDevs/status/2054639777685934564"}' \
   https://ai.sphinx.chat/api/v2/content
@@ -156,7 +163,7 @@ The backend then auto-extracts entities, topics, and edges. Poll
 
 ```
 curl -sS \
-  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  -H 'Authorization: LSAT <macaroon>:paid' \
   'https://ai.sphinx.chat/api/v2/nodes/32903013-d32e-4f20-9c24-60832379c1fe?expand=edges'
 ```
 
@@ -170,7 +177,7 @@ would silently be wrong.
 
 ```
 curl -sS \
-  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  -H 'Authorization: LSAT <macaroon>:paid' \
   'https://ai.sphinx.chat/api/v2/content?sort_by=date&limit=100'
 ```
 
@@ -206,7 +213,7 @@ Response shape:
 
 ```
 curl -sS \
-  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  -H 'Authorization: LSAT <macaroon>:paid' \
   https://ai.sphinx.chat/api/balance
 ```
 
@@ -223,7 +230,7 @@ header.
 
 ```
 curl -sS \
-  -H 'Authorization: LSAT <macaroon>:<preimage_hex>' \
+  -H 'Authorization: LSAT <macaroon>:paid' \
   https://ai.sphinx.chat/api/transactions
 ```
 
@@ -267,14 +274,13 @@ header** — the endpoint must return 402 with a fresh invoice.
 
 3. After payment settles, the **existing** token's balance increases.
    No header change needed — just keep using the same
-   `Authorization: LSAT <macaroon>:<preimage_hex>` you had before.
+   `Authorization: LSAT <macaroon>:paid` you had before.
 
 4. Verify with `GET /api/balance`.
 
 `/api/buy_lsat` works the same way but for **minting a fresh token**
 from scratch (no prior macaroon). After paying, build
-`Authorization: LSAT <NEW_MAC>:<NEW_PREIMAGE>` and use that going
-forward.
+`Authorization: LSAT <NEW_MAC>:paid` and use that going forward.
 
 ## Node properties (common fields)
 
