@@ -158,6 +158,12 @@ function SourceChips({
 
 // ── Confirm action popover (used for both Approve and Dismiss) ────────────────
 
+const APPROVE_PROMPTS: Record<string, string> = {
+  merge_nodes: "Approve this merge?",
+  soft_delete: "Approve deleting this topic?",
+  supersede:   "Approve this supersede?",
+}
+
 function ConfirmActionPopover({
   tone,
   triggerLabel,
@@ -412,7 +418,7 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
               <ConfirmActionPopover
                 tone="approve"
                 triggerLabel="Approve"
-                prompt="Approve this merge?"
+                prompt={APPROVE_PROMPTS[review.action_name] ?? "Approve this action?"}
                 loadingLabel="Approving…"
                 loading={approving}
                 onConfirm={() => handleApprove()}
