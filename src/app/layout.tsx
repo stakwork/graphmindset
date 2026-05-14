@@ -49,6 +49,22 @@ export default function RootLayout({
       className={`${rajdhani.variable} ${jakarta.variable} ${firaCode.variable} h-full antialiased dark`}
     >
       <body className="h-full overflow-hidden">
+        <noscript>
+          <h1>GraphMindset</h1>
+          <p>
+            This page is a JavaScript-rendered single-page app — interactive
+            graph exploration requires a browser with JS enabled.
+          </p>
+          <p>
+            <strong>AI agents and automated clients:</strong> the API is
+            described in machine-readable form. See{" "}
+            <a href="/llms.txt">/llms.txt</a> for the endpoint catalog with
+            curl examples, and <a href="/agents.txt">/agents.txt</a> for the
+            L402 authentication and Lightning payment policy (including the
+            protocol for asking a human operator to pay the invoice when you
+            do not have a wallet integration).
+          </p>
+        </noscript>
         <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>
