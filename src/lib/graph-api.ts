@@ -92,9 +92,8 @@ export async function listLatestByType(
     type,
     limit: String(limit),
     skip: String(skip),
-    sort: "date_added",
   })
-  return api.get<NodesListResponse>(`/v2/nodes?${params.toString()}`, undefined, signal)
+  return api.get<NodesListResponse>(`/v2/nodes/latest?${params.toString()}`, undefined, signal)
 }
 
 // List nodes (no search query)
