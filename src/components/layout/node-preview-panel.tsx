@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign } from "lucide-react"
-import { getSchemaIconInfo } from "@/lib/schema-icons"
+
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
 import { Button } from "@/components/ui/button"
@@ -476,7 +476,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const paidProperties = schema?.paid_properties ?? []
-  const { icon: PlaceholderIcon, accent: schemaAccent } = getSchemaIconInfo(schema?.icon)
+
   const props = node.properties
   const nodeIsBlocked = isBlockedStatus(props?.status)
   const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
@@ -667,18 +667,13 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-4 py-4 space-y-4">
-          {/* Thumbnail or placeholder (skipped when MediaCard is already
-              rendering the video frame for this node) */}
-          {showThumbnail ? (
+          {/* Thumbnail — only rendered when a real image exists */}
+          {showThumbnail && (
             <img
               src={thumbnail}
               alt={title}
               className="w-full h-32 object-cover rounded-md"
             />
-          ) : isThisNodePlayingHere ? null : (
-            <div className="w-full h-32 rounded-md bg-muted/30 border border-border/50 flex items-center justify-center">
-              <PlaceholderIcon className="h-8 w-8" style={{ color: `${schemaAccent}50` }} />
-            </div>
           )}
 
           {/* Title */}
