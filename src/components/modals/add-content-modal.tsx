@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, CheckCircle2, LinkIcon, Zap, X } from "lucide-react"
+import { Loader2, CheckCircle2, LinkIcon, Zap, X, RefreshCw } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -373,6 +373,16 @@ export function AddContentModal() {
             </div>
           )}
 
+          {/* Subscription source callout */}
+          {detectedType && !detecting && isSubscriptionSource(detectedType) && (
+            <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 animate-fade-in-up">
+              <RefreshCw className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+              <span className="text-xs text-primary/80">
+                This source will be ingested continuously on a schedule — new content appears automatically.
+              </span>
+            </div>
+          )}
+
           {/* Cache state badge */}
           {cacheStatus === "hit-completed" && !detecting && (
             <div className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 animate-fade-in-up">
@@ -471,6 +481,13 @@ export function AddContentModal() {
           {!pubKey && (
             <p className="text-xs text-muted-foreground mt-2">
               Earnings are credited to this browser&#39;s L402. Clearing storage will lose your sats.
+            </p>
+          )}
+
+          {/* Post-submit success note for subscription sources */}
+          {success && detectedType && isSubscriptionSource(detectedType) && (
+            <p className="text-xs text-muted-foreground text-center">
+              Ingestion begins on the next scheduled run.
             </p>
           )}
 

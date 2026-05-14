@@ -88,7 +88,14 @@ const mockIsSubscriptionSource = vi.fn().mockReturnValue(false)
 
 vi.mock("@/lib/source-detection", () => ({
   detectSourceType: (...args: unknown[]) => mockDetectSourceType(...args),
-  SOURCE_TYPE_LABELS: { youtube_video: "YouTube Video", link: "Link" },
+  SOURCE_TYPE_LABELS: {
+    youtube_video: "YouTube Video",
+    link: "Link",
+    youtube_channel: "YouTube Channel",
+    twitter_handle: "Twitter Handle",
+    rss: "RSS Feed",
+    github_repository: "GitHub Repo",
+  },
   SOURCE_TYPES: {
     TWEET: "tweet",
     LINK: "link",
@@ -98,6 +105,9 @@ vi.mock("@/lib/source-detection", () => ({
     WEB_PAGE: "web_page",
     DOCUMENT: "document",
     TWITTER_HANDLE: "twitter_handle",
+    YOUTUBE_CHANNEL: "youtube_channel",
+    RSS: "rss",
+    GITHUB_REPOSITORY: "github_repository",
   },
   isSubscriptionSource: (...args: unknown[]) => mockIsSubscriptionSource(...args),
 }))
@@ -274,5 +284,51 @@ describe("AddContentModal — preview probe", () => {
 
     expect(mockCheckNodeExists).not.toHaveBeenCalled()
     expect(mockApiGet).not.toHaveBeenCalled()
+  })
+})
+
+describe("AddContentModal — subscription source callout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockActiveModal = "addContent"
+    mockGetL402.mockResolvedValue(null)
+    mockPayL402.mockResolvedValue(undefined)
+    mockGetPrice.mockResolvedValue(10)
+    mockApiPost.mockResolvedValue({})
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+  })
+
+  it("shows subscription callout when isSubscriptionSource returns true", async () => {
+    mockDetectSourceType.mockResolvedValue("youtube_channel")
+    mockIsSubscriptionSource.mockReturnValue(true)
+
+    render(<AddContentModal />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/c/testchannel")
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/This source will be ingested continuously on a schedule/i)
+      ).toBeInTheDocument()
+    })
+  })
+
+  it("does not show subscription callout for one-off types", async () => {
+    mockDetectSourceType.mockResolvedValue("youtube_video")
+    mockIsSubscriptionSource.mockReturnValue(false)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+
+    render(<AddContentModal />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/watch?v=abc123")
+
+    await waitFor(() => {
+      expect(mockDetectSourceType).toHaveBeenCalled()
+    })
+
+    expect(
+      screen.queryByText(/This source will be ingested continuously on a schedule/i)
+    ).not.toBeInTheDocument()
   })
 })
