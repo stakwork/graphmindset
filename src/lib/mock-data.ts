@@ -433,6 +433,38 @@ export const MOCK_CONTENT = {
   totalProcessing: 2,
 }
 
+export const MOCK_PURCHASED_NODES: { nodes: GraphNode[] } = {
+  nodes: [
+    {
+      ref_id: 'mock-purchased-1',
+      node_type: 'Episode',
+      properties: {
+        name: 'The Future of Bitcoin Layer 2',
+        status: 'completed',
+        thumbnail: null,
+      },
+    },
+    {
+      ref_id: 'mock-purchased-2',
+      node_type: 'Topic',
+      properties: {
+        name: 'Zero Knowledge Proofs',
+        status: 'completed',
+        thumbnail: null,
+      },
+    },
+    {
+      ref_id: 'mock-purchased-3',
+      node_type: 'Video',
+      properties: {
+        name: 'Lightning Network Deep Dive',
+        status: 'completed',
+        thumbnail: null,
+      },
+    },
+  ],
+}
+
 export const MOCK_TRANSACTIONS = {
   transactions: [
     { action: "top_up", type: "credit" as const, amount: 500, created_at: "2026-04-15T10:00:00Z" },
