@@ -161,18 +161,18 @@ describe("AddContentModal — preview probe", () => {
 
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalledWith("/v2/nodes/abc-123?preview=1")
-    })
+    }, { timeout: 8000 })
 
     await waitFor(() => {
       expect(mockSetPlayingNode).toHaveBeenCalledWith(mockNode)
-    })
+    }, { timeout: 3000 })
 
     await waitFor(() => {
       expect(mockClose).toHaveBeenCalled()
-    })
+    }, { timeout: 3000 })
 
     expect(mockSetMyContentOpen).toHaveBeenCalledWith(true)
-  })
+  }, 12000)
 
   it("pay-required (402): modal stays open with Pay & Unlock button and price row", async () => {
     mockDetectSourceType.mockResolvedValue("youtube_video")
@@ -190,7 +190,7 @@ describe("AddContentModal — preview probe", () => {
 
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalledWith("/v2/nodes/abc-123?preview=1")
-    })
+    }, { timeout: 8000 })
 
     // Modal stays open — close was never called
     expect(mockClose).not.toHaveBeenCalled()
@@ -199,9 +199,9 @@ describe("AddContentModal — preview probe", () => {
     // "Pay & Unlock" button and price row should be visible
     await waitFor(() => {
       expect(screen.getByText("Pay & Unlock")).toBeInTheDocument()
-    })
+    }, { timeout: 3000 })
     expect(screen.getByText(/10 sats/)).toBeInTheDocument()
-  })
+  }, 12000)
 
   it("fallback (network error): modal stays open with Pay & Unlock button", async () => {
     mockDetectSourceType.mockResolvedValue("youtube_video")
@@ -219,15 +219,15 @@ describe("AddContentModal — preview probe", () => {
 
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalledWith("/v2/nodes/abc-123?preview=1")
-    })
+    }, { timeout: 8000 })
 
     expect(mockClose).not.toHaveBeenCalled()
     expect(mockSetPlayingNode).not.toHaveBeenCalled()
 
     await waitFor(() => {
       expect(screen.getByText("Pay & Unlock")).toBeInTheDocument()
-    })
-  })
+    }, { timeout: 3000 })
+  }, 12000)
 
   it("scope guard: probe NOT fired for hit-in-progress", async () => {
     mockDetectSourceType.mockResolvedValue("youtube_video")

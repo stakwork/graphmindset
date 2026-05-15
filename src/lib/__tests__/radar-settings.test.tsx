@@ -24,6 +24,13 @@ describe("snapToPreset", () => {
 
 // ---- Component tests ----
 // Mock modules before importing the component
+vi.mock("@/stores/user-store", () => ({
+  useUserStore: (sel?: (s: { isAdmin: boolean }) => unknown) => {
+    const state = { isAdmin: true }
+    return sel ? sel(state) : state
+  },
+}))
+
 vi.mock("@/lib/graph-api", () => ({
   getCronConfig: vi.fn(),
   updateCronConfig: vi.fn(),

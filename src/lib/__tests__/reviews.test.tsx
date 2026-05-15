@@ -126,7 +126,8 @@ describe("ReviewRow", () => {
     const { getByText } = render(
       <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
     )
-    expect(getByText("Approve")).toBeTruthy()
+    // default makeReview uses action_name: "merge_nodes" → approve label is "Merge"
+    expect(getByText("Merge")).toBeTruthy()
     expect(getByText("Dismiss")).toBeTruthy()
   })
 
@@ -193,8 +194,9 @@ describe("ReviewRow", () => {
     )
 
     // First click opens the confirm popover
-    await user.click(getByText("Approve"))
-    expect(getByText("Approve this merge?")).toBeTruthy()
+    // action_name: "merge_nodes" → approve label is "Merge", prompt is "Merge these nodes?"
+    await user.click(getByText("Merge"))
+    expect(getByText("Merge these nodes?")).toBeTruthy()
 
     // Confirm in the popover triggers the API
     await user.click(getByText("Confirm"))
@@ -213,7 +215,8 @@ describe("ReviewRow", () => {
       <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
     )
 
-    await user.click(getByText("Approve"))
+    // action_name: "merge_nodes" → approve label is "Merge"
+    await user.click(getByText("Merge"))
     await user.click(getByText("Confirm"))
 
     const errEl = await findByText(/no handler registered for action: supersede/)
@@ -377,9 +380,10 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // Row renders with an svg icon and subject count
+    // Row renders with an svg icon and action row label
+    // soft_delete with a single named subject renders "Hide Mock Episode"
     expect(container.querySelector("svg")).toBeTruthy()
-    expect(getByText(/1 subject/)).toBeTruthy()
+    expect(getByText(/Hide Mock Episode/)).toBeTruthy()
   })
 
   it("renders topic_review_candidate row without errors", () => {
@@ -402,9 +406,10 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // Row renders with an svg icon and subject count
+    // Row renders with an svg icon and action row label
+    // soft_delete with a single named subject renders "Hide Orphaned Topic"
     expect(container.querySelector("svg")).toBeTruthy()
-    expect(getByText(/1 subject/)).toBeTruthy()
+    expect(getByText(/Hide Orphaned Topic/)).toBeTruthy()
   })
 })
 

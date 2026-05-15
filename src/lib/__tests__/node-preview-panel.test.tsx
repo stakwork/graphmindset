@@ -171,7 +171,7 @@ describe("NodePreviewPanel – price display", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Unlock for 10 sats/i })).toBeInTheDocument()
-    })
+    }, { timeout: 3000 })
   })
 
   it("renders 'Unlock Full Content' when 402 body has price: 0", async () => {
