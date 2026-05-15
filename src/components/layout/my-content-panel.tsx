@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { X, Loader2, BookMarked, Trash2, ShoppingBag } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { NodeRow } from "./node-row"
 import { api } from "@/lib/api"
 import { deleteNode } from "@/lib/graph-api"
-import { isMocksEnabled, MOCK_CONTENT, MOCK_PURCHASED_NODES } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_CONTENT, MOCK_PURCHASED_NODES, MOCK_CREATOR_INSIGHTS } from "@/lib/mock-data"
 import { getL402 } from "@/lib/sphinx"
 import { cookieStorage } from "@/lib/cookie-storage"
 import { useUserStore } from "@/stores/user-store"
@@ -17,6 +18,9 @@ import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { isInProgress } from "@/lib/node-status"
+import { cn } from "@/lib/utils"
+import { fetchCreatorInsights, getGrowthBadge } from "@/lib/creator-insights"
+import type { CreatorInsightsResponse, NodeInsight } from "@/lib/creator-insights"
 import type { GraphNode } from "@/lib/graph-api"
 
 const POLL_INTERVAL_MS = 5000
@@ -54,6 +58,10 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<'added' | 'purchased'>('added')
   const [purchasedNodes, setPurchasedNodes] = useState<GraphNode[]>([])
   const [purchasedLoading, setPurchasedLoading] = useState(false)
+
+  const [period, setPeriod] = useState<'week' | 'month'>('week')
+  const [insights, setInsights] = useState<CreatorInsightsResponse | null>(null)
+  const [insightsLoading, setInsightsLoading] = useState(false)
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -147,6 +155,34 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
 
   const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
 
+  // Insights map for quick lookup by ref_id
+  const insightsMap = useMemo(() => {
+    const m = new Map<string, NodeInsight>()
+    insights?.nodes.forEach((n) => m.set(n.ref_id, n))
+    return m
+  }, [insights])
+
+  // Fetch creator insights when on Added tab with identity
+  useEffect(() => {
+    if (activeTab !== 'added' || !hasIdentity) return
+    let cancelled = false
+    const run = async () => {
+      setInsightsLoading(true)
+      try {
+        const res = mocksEnabled
+          ? MOCK_CREATOR_INSIGHTS
+          : await fetchCreatorInsights(period)
+        if (!cancelled) setInsights(res)
+      } catch {
+        if (!cancelled) setInsights(null)
+      } finally {
+        if (!cancelled) setInsightsLoading(false)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [period, activeTab, hasIdentity, mocksEnabled])
+
   useEffect(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current)
@@ -214,6 +250,49 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
             </TabsList>
 
             <TabsContent value="added" className="flex-1 min-h-0 mt-0 data-[state=active]:flex data-[state=active]:flex-col">
+              {hasIdentity && (
+                <div className="px-4 py-3 border-b border-sidebar-border shrink-0 space-y-2">
+                  {/* Period toggle */}
+                  <div className="flex gap-1">
+                    {(["week", "month"] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setPeriod(p)}
+                        className={cn(
+                          "px-3 py-0.5 rounded-full text-[10px] font-mono transition-colors",
+                          period === p
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {p === "week" ? "This Week" : "This Month"}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Stat tiles */}
+                  {insightsLoading ? (
+                    <div className="flex gap-4">
+                      <Skeleton className="h-8 w-24" />
+                      <Skeleton className="h-8 w-20" />
+                    </div>
+                  ) : insights && insights.total_unlocks > 0 ? (
+                    <div className="flex gap-4">
+                      <div>
+                        <p className="font-mono text-sm font-semibold text-foreground">⚡ {insights.total_sats_earned}</p>
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">sats earned</p>
+                      </div>
+                      <div>
+                        <p className="font-mono text-sm font-semibold text-foreground">🔓 {insights.total_unlocks}</p>
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">unlocks</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground/60">
+                      Start earning — share your content to get unlocks
+                    </p>
+                  )}
+                </div>
+              )}
               <ScrollArea className="relative z-10 flex-1 min-h-0">
                 {loading ? (
                   <div className="flex items-center justify-center py-12">
@@ -252,6 +331,11 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                         }
                       }
 
+                      const insight = insightsMap.get(node.ref_id)
+                      const nodeBadge = insight && insight.unlock_count > 0
+                        ? getGrowthBadge(insight.unlock_count, insight.previous_unlock_count)
+                        : undefined
+
                       return (
                         <div key={node.ref_id}>
                           <div className="relative group">
@@ -263,6 +347,8 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                               onMouseLeave={() => setHoveredNode(null)}
                               hideBoost={true}
                               isAdmin={isAdmin}
+                              unlockCount={insight?.unlock_count}
+                              growthBadge={nodeBadge}
                             />
                             {!isConfirming && (
                               <button
