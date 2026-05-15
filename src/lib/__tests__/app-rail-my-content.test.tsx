@@ -55,6 +55,8 @@ const defaultProps = {
   myContentOpen: false,
   onToggleSources: noop,
   sourcesOpen: false,
+  onToggleFollowing: noop,
+  followingOpen: false,
 }
 
 describe("AppRail – My Content nav item visibility", () => {
