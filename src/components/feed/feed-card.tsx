@@ -152,7 +152,9 @@ function CardBody({
   const type = node.node_type ?? "Unknown"
 
   if (type === "Tweet") {
-    return body ? <p className="text-[15px] text-foreground/90 leading-relaxed">{body}</p> : null
+    return body ? (
+      <p className="text-[15px] text-foreground/90 leading-relaxed line-clamp-5">{body}</p>
+    ) : null
   }
 
   if (type === "Episode" || type === "Video" || type === "Podcast") {
