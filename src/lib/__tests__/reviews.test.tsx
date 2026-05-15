@@ -477,6 +477,8 @@ describe("AppRail non-admin", () => {
         onToggleSources={() => {}}
         myContentOpen={false}
         onToggleMyContent={() => {}}
+        followingOpen={false}
+        onToggleFollowing={() => {}}
       />
     )
     expect(queryByLabelText("Reviews")).toBeNull()

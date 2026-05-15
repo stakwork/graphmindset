@@ -23,8 +23,10 @@ export function AppLayout() {
   useSidebarNeighborFetch()
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
+  const followingOpen = useAppStore((s) => s.followingOpen)
   const toggleSources = useAppStore((s) => s.toggleSources)
   const toggleMyContent = useAppStore((s) => s.toggleMyContent)
+  const toggleFollowing = useAppStore((s) => s.toggleFollowing)
   const schemas = useSchemaStore((s) => s.schemas)
   const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
@@ -52,6 +54,8 @@ export function AppLayout() {
           onToggleSources={() => openPanel(toggleSources)}
           myContentOpen={myContentOpen}
           onToggleMyContent={() => openPanel(toggleMyContent)}
+          followingOpen={followingOpen}
+          onToggleFollowing={() => openPanel(toggleFollowing)}
         />
 
         <main className="h-full flex-1 min-w-0">

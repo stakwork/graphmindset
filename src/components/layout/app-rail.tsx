@@ -13,6 +13,7 @@ import {
   BookMarked,
   Tag,
   ClipboardList,
+  Heart,
 } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -70,11 +71,15 @@ export function AppRail({
   onToggleSources,
   myContentOpen,
   onToggleMyContent,
+  followingOpen,
+  onToggleFollowing,
 }: {
   sourcesOpen: boolean
   onToggleSources: () => void
   myContentOpen: boolean
   onToggleMyContent: () => void
+  followingOpen: boolean
+  onToggleFollowing: () => void
 }) {
   const router = useRouter()
   const { isAdmin, budget } = useUserStore()
@@ -172,6 +177,12 @@ export function AppRail({
           label="My Content"
           onClick={onToggleMyContent}
           active={myContentOpen}
+        />
+        <RailIcon
+          icon={Heart}
+          label="Following"
+          onClick={onToggleFollowing}
+          active={followingOpen}
         />
         <RailIcon
           icon={Layers}
