@@ -26,6 +26,10 @@ interface NodeRowProps {
   hideBoost?: boolean
   /** When true, status badges with a project_id link to Stakwork admin */
   isAdmin?: boolean
+  /** Number of times this node has been unlocked in the current period */
+  unlockCount?: number
+  /** Growth direction compared to previous period */
+  growthBadge?: "up" | "flat" | "down"
 }
 
 export function NodeRow({
@@ -38,6 +42,8 @@ export function NodeRow({
   matchExcerpt,
   hideBoost = false,
   isAdmin = false,
+  unlockCount,
+  growthBadge,
 }: NodeRowProps) {
   const [imgError, setImgError] = useState(false)
 
@@ -159,6 +165,13 @@ export function NodeRow({
               <ExternalLink className="h-2.5 w-2.5" />
             </a>
           ) : null}
+          {unlockCount !== undefined && unlockCount > 0 && (
+            <span className="shrink-0 flex items-center gap-0.5 font-mono text-[10px] text-muted-foreground">
+              🔓 {unlockCount}
+              {growthBadge === "up" && <span className="text-green-400 ml-0.5">▲</span>}
+              {growthBadge === "down" && <span className="text-red-400 ml-0.5">▼</span>}
+            </span>
+          )}
         </div>
         {matchExcerpt ?? (
           (snippet || rowDate) && (
