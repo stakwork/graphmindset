@@ -1,12 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search as SearchIcon } from "lucide-react"
+import { Search as SearchIcon, Bookmark } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
+import { useUserStore } from "@/stores/user-store"
 import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 import { getLatestNodes } from "@/lib/graph-api"
+import { getWatches, subscribeType, unsubscribeType } from "@/lib/watch-api"
+import { cookieStorage } from "@/lib/cookie-storage"
 import { FeedCard } from "./feed-card"
 import { HotTakes } from "./hot-takes"
 import { cn } from "@/lib/utils"
@@ -25,11 +28,22 @@ export function FeedView() {
   const schemas = useSchemaStore((s) => s.schemas)
 
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set())
+  const [subscribedTypes, setSubscribedTypes] = useState<Set<string>>(new Set())
+  const pubKey = useUserStore((s) => s.pubKey)
+  const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
 
   useEffect(() => {
     clearSelection()
     setActiveTypes(new Set())
   }, [searchTerm, clearSelection])
+
+  useEffect(() => {
+    if (!hasIdentity) return
+    getWatches()
+      .then((data) => setSubscribedTypes(new Set(data.types)))
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasIdentity])
 
   // Mocks mode seeds from fixtures so the Latest feed has content before any search.
   useEffect(() => {
@@ -83,6 +97,32 @@ export function FeedView() {
     })
   }
 
+  async function handleSubscribeToggle(type: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    const isSubscribed = subscribedTypes.has(type)
+    setSubscribedTypes((prev) => {
+      const next = new Set(prev)
+      if (isSubscribed) next.delete(type)
+      else next.add(type)
+      return next
+    })
+    try {
+      if (isSubscribed) {
+        await unsubscribeType(type)
+      } else {
+        await subscribeType(type)
+      }
+    } catch {
+      // revert on error
+      setSubscribedTypes((prev) => {
+        const next = new Set(prev)
+        if (isSubscribed) next.add(type)
+        else next.delete(type)
+        return next
+      })
+    }
+  }
+
   const hasResults = nodes.length > 0
   const filtering = activeTypes.size > 0
 
@@ -97,8 +137,11 @@ export function FeedView() {
         <FilterChips
           typeCounts={typeCounts}
           activeTypes={activeTypes}
+          subscribedTypes={subscribedTypes}
+          hasIdentity={hasIdentity}
           onClear={() => setActiveTypes(new Set())}
           onToggle={toggleType}
+          onSubscribeToggle={handleSubscribeToggle}
         />
       )}
 
@@ -149,13 +192,19 @@ export function FeedView() {
 function FilterChips({
   typeCounts,
   activeTypes,
+  subscribedTypes,
+  hasIdentity,
   onClear,
   onToggle,
+  onSubscribeToggle,
 }: {
   typeCounts: [string, number][]
   activeTypes: Set<string>
+  subscribedTypes: Set<string>
+  hasIdentity: boolean
   onClear: () => void
   onToggle: (type: string) => void
+  onSubscribeToggle: (type: string, e: React.MouseEvent) => void
 }) {
   const filtering = activeTypes.size > 0
   return (
@@ -174,12 +223,13 @@ function FilterChips({
         </button>
         {typeCounts.map(([type, count]) => {
           const active = activeTypes.has(type)
+          const subscribed = subscribedTypes.has(type)
           return (
             <button
               key={type}
               onClick={() => onToggle(type)}
               className={cn(
-                "px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 border",
+                "group px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1.5 border",
                 active
                   ? "bg-primary/15 text-foreground border-primary/40"
                   : "text-muted-foreground hover:bg-card/70 hover:text-foreground border-transparent"
@@ -187,6 +237,28 @@ function FilterChips({
             >
               <span>{type}</span>
               <span className="font-mono text-[10px] opacity-60">{count}</span>
+              {hasIdentity && (
+                <span
+                  role="button"
+                  onClick={(e) => onSubscribeToggle(type, e)}
+                  title={subscribed ? `Unsubscribe from ${type}` : `Subscribe to ${type}`}
+                  className={cn(
+                    "transition-colors",
+                    subscribed
+                      ? "opacity-100"
+                      : "opacity-0 group-hover:opacity-100"
+                  )}
+                >
+                  <Bookmark
+                    className={cn(
+                      "h-3 w-3",
+                      subscribed
+                        ? "fill-primary text-primary"
+                        : "text-muted-foreground"
+                    )}
+                  />
+                </span>
+              )}
             </button>
           )
         })}
