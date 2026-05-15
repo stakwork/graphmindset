@@ -426,9 +426,9 @@ describe("listReviews mock mode", () => {
   })
 })
 
-// ── Non-admin: rail hides Reviews nav item ───────────────────────────────────
+// ── Non-admin: toolkit hides Reviews nav item ────────────────────────────────
 
-describe("AppRail non-admin", () => {
+describe("Toolkit non-admin", () => {
   beforeEach(() => {
     vi.resetModules()
   })
@@ -436,12 +436,6 @@ describe("AppRail non-admin", () => {
   it("does not render the Reviews nav item for non-admin users", async () => {
     vi.doMock("@/stores/user-store", () => ({
       useUserStore: () => ({ isAdmin: false, budget: 0 }),
-    }))
-    vi.doMock("@/stores/app-store", () => ({
-      useAppStore: (sel?: (s: unknown) => unknown) => {
-        const state = { graphName: "Test" }
-        return sel ? sel(state) : state
-      },
     }))
     vi.doMock("@/stores/modal-store", () => ({
       useModalStore: (sel: (s: { open: () => void }) => unknown) =>
@@ -455,9 +449,6 @@ describe("AppRail non-admin", () => {
     }))
     vi.doMock("@/lib/sphinx/detect", () => ({ isSphinx: () => false }))
     vi.doMock("@/lib/sphinx/bridge", () => ({ hasWebLN: () => false }))
-    vi.doMock("@/components/ui/separator", () => ({
-      Separator: () => <hr />,
-    }))
     vi.doMock("@/components/ui/tooltip", () => ({
       Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
       TooltipContent: () => null,
@@ -470,9 +461,9 @@ describe("AppRail non-admin", () => {
       }) => render ?? <>{children}</>,
     }))
 
-    const { AppRail } = await import("@/components/layout/app-rail")
+    const { Toolkit } = await import("@/components/layout/toolkit")
     const { queryByLabelText } = render(
-      <AppRail
+      <Toolkit
         sourcesOpen={false}
         onToggleSources={() => {}}
         myContentOpen={false}

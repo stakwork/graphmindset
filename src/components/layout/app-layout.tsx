@@ -1,33 +1,24 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { AppRail } from "./app-rail"
-import { MobileNavDrawer } from "./mobile-nav-drawer"
-import { MainArea } from "./main-area"
-import { GraphFloater } from "@/components/universe/graph-floater"
+import { useEffect } from "react"
+import { LeftPane } from "./left-pane"
+import { GraphPane } from "@/components/universe/graph-pane"
 import { SettingsModal } from "@/components/modals/settings-modal"
 import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
 import { AddNodeModal } from "@/components/modals/add-node-modal"
 import { MediaPlayer } from "@/components/player/media-player"
-import { useAppStore } from "@/stores/app-store"
-import { useGraphStore } from "@/stores/graph-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
 import { useDeepLink } from "@/hooks/use-deep-link"
+import { usePanelGraphSync } from "@/hooks/use-panel-graph-sync"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
   useDeepLink()
   useSidebarNeighborFetch()
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const sourcesOpen = useAppStore((s) => s.sourcesOpen)
-  const myContentOpen = useAppStore((s) => s.myContentOpen)
-  const followingOpen = useAppStore((s) => s.followingOpen)
-  const toggleSources = useAppStore((s) => s.toggleSources)
-  const toggleMyContent = useAppStore((s) => s.toggleMyContent)
-  const toggleFollowing = useAppStore((s) => s.toggleFollowing)
+  usePanelGraphSync()
   const schemas = useSchemaStore((s) => s.schemas)
   const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
@@ -40,42 +31,13 @@ export function AppLayout() {
     }
   }, [schemas.length, fetchSchemas])
 
-  // Opening a panel via the rail dismisses any open node preview — overlays
-  // are mutually exclusive, even with the preview that lives in the graph store.
-  function openPanel(toggle: () => void) {
-    useGraphStore.getState().clearSelection()
-    toggle()
-  }
-
   return (
     <>
-      <div className="flex h-screen w-screen overflow-hidden">
-        <AppRail
-          sourcesOpen={sourcesOpen}
-          onToggleSources={() => openPanel(toggleSources)}
-          myContentOpen={myContentOpen}
-          onToggleMyContent={() => openPanel(toggleMyContent)}
-          followingOpen={followingOpen}
-          onToggleFollowing={() => openPanel(toggleFollowing)}
-        />
-
-        <main className="h-full flex-1 min-w-0">
-          <MainArea onOpenMobileNav={() => setMobileNavOpen(true)} />
-        </main>
+      <div className="grid h-screen w-screen overflow-hidden grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <LeftPane />
+        <GraphPane />
       </div>
 
-      <MobileNavDrawer
-        open={mobileNavOpen}
-        onClose={() => setMobileNavOpen(false)}
-        sourcesOpen={sourcesOpen}
-        onToggleSources={() => openPanel(toggleSources)}
-        myContentOpen={myContentOpen}
-        onToggleMyContent={() => openPanel(toggleMyContent)}
-      />
-
-      <GraphFloater />
-
-      {/* Modals — outside flex layout so they overlay properly */}
       <SettingsModal />
       <AddContentModal />
       <AddNodeModal />
