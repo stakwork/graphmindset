@@ -179,6 +179,37 @@ export type BuyLsatChallenge = {
   id: string
 }
 
+// Lets a user close the page after the QR is shown and pay the invoice later.
+// The base macaroon is bound to that specific Lightning invoice — without it
+// the client cannot rejoin a paid challenge, so persist the challenge tuple
+// the moment we receive it, and clear it once promoted to an active LSAT.
+const PENDING_LSAT_KEY = "l402_pending"
+
+export type PendingLsatChallenge = BuyLsatChallenge & {
+  amount: number
+  createdAt: number
+}
+
+export function savePendingLsat(challenge: BuyLsatChallenge, amount: number): PendingLsatChallenge {
+  const pending: PendingLsatChallenge = { ...challenge, amount, createdAt: Date.now() }
+  cookieStorage.setItem(PENDING_LSAT_KEY, JSON.stringify(pending))
+  return pending
+}
+
+export function getPendingLsat(): PendingLsatChallenge | null {
+  const stored = cookieStorage.getItem(PENDING_LSAT_KEY)
+  if (!stored) return null
+  try {
+    return JSON.parse(stored) as PendingLsatChallenge
+  } catch {
+    return null
+  }
+}
+
+export function clearPendingLsat(): void {
+  cookieStorage.removeItem(PENDING_LSAT_KEY)
+}
+
 /**
  * Request a fresh L402 challenge from /buy_lsat. The endpoint returns 402 with
  * an LSAT challenge (macaroon + invoice) per the L402 protocol; we parse and
