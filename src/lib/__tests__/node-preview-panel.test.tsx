@@ -95,6 +95,26 @@ vi.mock("@/components/boost/boost-button", () => ({
   BoostButton: () => <div data-testid="boost-button" />,
 }))
 
+// --- mock watch-api ---
+const mockGetWatches = vi.fn().mockResolvedValue({ nodes: [], types: [] })
+const mockWatchNode = vi.fn().mockResolvedValue(undefined)
+const mockUnwatchNode = vi.fn().mockResolvedValue(undefined)
+vi.mock("@/lib/watch-api", () => ({
+  getWatches: (...args: unknown[]) => mockGetWatches(...args),
+  watchNode: (...args: unknown[]) => mockWatchNode(...args),
+  unwatchNode: (...args: unknown[]) => mockUnwatchNode(...args),
+}))
+
+// --- mock cookie-storage ---
+let mockL402Cookie = ""
+vi.mock("@/lib/cookie-storage", () => ({
+  cookieStorage: {
+    getItem: (key: string) => (key === "l402" ? mockL402Cookie : ""),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  },
+}))
+
 import { NodePreviewPanel } from "@/components/layout/node-preview-panel"
 import type { GraphNode } from "@/lib/graph-api"
 
@@ -974,6 +994,92 @@ describe("NodePreviewPanel – description truncation cap", () => {
       const el = document.querySelector("p.text-xs.text-muted-foreground")
       expect(el).toBeTruthy()
       expect(el!.textContent).toBe("B".repeat(500) + "\u2026")
+    })
+  })
+})
+
+describe("NodePreviewPanel – WatchButton", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockL402Cookie = ""
+    mockGetWatches.mockResolvedValue({ nodes: [], types: [] })
+    mockWatchNode.mockResolvedValue(undefined)
+    mockUnwatchNode.mockResolvedValue(undefined)
+    // Default: probe resolves with a full node
+    mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
+  })
+
+  it("does NOT render watch button when user has no identity", async () => {
+    userStoreOverrides = { pubKey: "", isAdmin: false }
+    mockL402Cookie = ""
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => screen.getByText("Connections"))
+    expect(screen.queryByTitle("Watch node")).toBeNull()
+    expect(screen.queryByTitle("Unwatch node")).toBeNull()
+  })
+
+  it("renders watch button (outline) when user has pubKey and node is not watched", async () => {
+    userStoreOverrides = { pubKey: "03testkey", isAdmin: false }
+    mockGetWatches.mockResolvedValue({ nodes: [], types: [] })
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => screen.getByTitle("Watch node"))
+
+    const btn = screen.getByTitle("Watch node")
+    expect(btn).toBeTruthy()
+  })
+
+  it("renders watch button as filled (Unwatch) when node is in watches list", async () => {
+    userStoreOverrides = { pubKey: "03testkey", isAdmin: false }
+    mockGetWatches.mockResolvedValue({
+      nodes: [{ ref_id: BASE_NODE.ref_id, node_type: "Topic", title: "Test Node" }],
+      types: [],
+    })
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => screen.getByTitle("Unwatch node"))
+    expect(screen.getByTitle("Unwatch node")).toBeTruthy()
+  })
+
+  it("renders watch button when user has L402 token (no pubKey)", async () => {
+    userStoreOverrides = { pubKey: "", isAdmin: false }
+    mockL402Cookie = "some-l402-token"
+    mockGetWatches.mockResolvedValue({ nodes: [], types: [] })
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => screen.getByTitle("Watch node"))
+    expect(screen.getByTitle("Watch node")).toBeTruthy()
+  })
+
+  it("calls watchNode on click when not watched", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    userStoreOverrides = { pubKey: "03testkey", isAdmin: false }
+    mockGetWatches.mockResolvedValue({ nodes: [], types: [] })
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    const btn = await waitFor(() => screen.getByTitle("Watch node"))
+    fe.click(btn)
+
+    await waitFor(() => {
+      expect(mockWatchNode).toHaveBeenCalledWith(BASE_NODE.ref_id)
+    })
+  })
+
+  it("calls unwatchNode on click when already watched", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    userStoreOverrides = { pubKey: "03testkey", isAdmin: false }
+    mockGetWatches.mockResolvedValue({
+      nodes: [{ ref_id: BASE_NODE.ref_id, node_type: "Topic", title: "Test Node" }],
+      types: [],
+    })
+
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+    const btn = await waitFor(() => screen.getByTitle("Unwatch node"))
+    fe.click(btn)
+
+    await waitFor(() => {
+      expect(mockUnwatchNode).toHaveBeenCalledWith(BASE_NODE.ref_id)
     })
   })
 })
