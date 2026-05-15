@@ -145,7 +145,7 @@ export function FeedView() {
         />
       )}
 
-      <div className="max-w-3xl mx-auto px-6 py-6 space-y-3 pb-[200px]">
+      <div className="max-w-3xl mx-auto px-3 sm:px-6 py-6 space-y-3 pb-[200px]">
         {loading && !hasResults && (
           <div className="flex items-center justify-center py-24">
             <div className="h-6 w-6 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
@@ -209,7 +209,7 @@ function FilterChips({
   const filtering = activeTypes.size > 0
   return (
     <div className="sticky top-0 z-10 bg-background/85 backdrop-blur-sm border-b border-border/40">
-      <div className="max-w-3xl mx-auto px-6 py-2.5 flex flex-wrap items-center gap-1.5">
+      <div className="max-w-3xl mx-auto px-3 sm:px-6 py-2.5 flex flex-wrap items-center gap-1.5">
         <button
           onClick={onClear}
           className={cn(

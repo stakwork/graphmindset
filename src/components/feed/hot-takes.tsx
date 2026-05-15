@@ -67,7 +67,7 @@ export function HotTakes() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 pt-4">
+    <div className="max-w-3xl mx-auto px-3 sm:px-6 pt-4">
       <div className="rounded-xl border border-border/40 bg-card/30 overflow-hidden">
         <div className="flex items-center justify-between px-5 pt-4 pb-3">
           <div className="flex items-center gap-2">
