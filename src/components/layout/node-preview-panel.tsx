@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
-import { payL402, getPrice } from "@/lib/sphinx"
+import { payL402 } from "@/lib/sphinx"
 import { unlockNode } from "@/lib/unlock-node"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
@@ -595,9 +595,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       } catch (err) {
         if (controller.signal.aborted) return
         if (err instanceof Response && err.status === 402) {
-          const p = await getPrice(`v2/nodes/${node.ref_id}`, "get", controller.signal)
-          if (controller.signal.aborted) return
-          setPrice(p || null)
+          try {
+            const body = await err.json()
+            setPrice(body?.price ?? null)
+          } catch {
+            setPrice(null)
+          }
           setUnlockState("preview")
         } else {
           setUnlockState("error")
@@ -780,7 +783,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               ) : (
                 <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
                   <Zap className="h-3.5 w-3.5 mr-1.5" />
-                  {price != null ? `Unlock for ${price} sats` : "Unlock Full Content"}
+                  {price ? `Unlock for ${price} sats` : "Unlock Full Content"}
                 </Button>
               )}
             </div>
