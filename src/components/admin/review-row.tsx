@@ -6,7 +6,7 @@ import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, Trash2, type Lucide
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
-import { cn } from "@/lib/utils"
+import { cn, displayNodeType } from "@/lib/utils"
 import {
   Tooltip,
   TooltipContent,
@@ -156,13 +156,76 @@ function SourceChips({
   )
 }
 
-// ── Confirm action popover (used for both Approve and Dismiss) ────────────────
+// ── Action labels (per action_name) ───────────────────────────────────────────
+// soft_delete uses "Hide" (not "delete") because the node stays in the system.
 
-const APPROVE_PROMPTS: Record<string, string> = {
-  merge_nodes: "Approve this merge?",
-  soft_delete: "Approve deleting this topic?",
-  supersede:   "Approve this supersede?",
+interface SubjectSummary {
+  count: number
+  /** Title from the node's schema title_key when count === 1, else null. */
+  displayName: string | null
+  /** Type-based fallback: "Tweet", "3 Tweets", "3 items". */
+  typeLabel: string
 }
+
+function summarizeSubjects(subjects: SubjectNode[], schemas: SchemaNode[]): SubjectSummary {
+  const count = subjects.length
+  const types = new Set<string>()
+  for (const s of subjects) {
+    if (s.node_type) types.add(s.node_type)
+  }
+
+  const displayName = count === 1 ? getDisplayName(subjects[0], schemas) : null
+
+  if (types.size === 1) {
+    const [type] = Array.from(types)
+    const label = displayNodeType(type)
+    return {
+      count,
+      displayName,
+      typeLabel: count === 1 ? label : `${count} ${label}s`,
+    }
+  }
+  return {
+    count,
+    displayName,
+    typeLabel: count === 1 ? "item" : `${count} items`,
+  }
+}
+
+interface ActionLabels {
+  approve: string
+  rowLabel: (subjects: SubjectSummary) => string
+  approvePrompt: (subjects: SubjectSummary) => string
+}
+
+const DEFAULT_ACTION_LABELS: ActionLabels = {
+  approve: "Approve",
+  rowLabel: (s) => `${s.count} subject${s.count === 1 ? "" : "s"}`,
+  approvePrompt: () => "Approve this action?",
+}
+
+const ACTION_LABELS: Record<string, ActionLabels> = {
+  soft_delete: {
+    approve: "Hide",
+    rowLabel: (s) => `Hide ${s.displayName ?? s.typeLabel}`,
+    approvePrompt: (s) =>
+      s.count === 1
+        ? `Hide ${s.displayName ?? `this ${s.typeLabel}`} from the graph?`
+        : `Hide ${s.typeLabel} from the graph?`,
+  },
+  merge_nodes: {
+    approve: "Merge",
+    rowLabel: (s) => `Merge ${s.displayName ?? s.typeLabel}`,
+    approvePrompt: () => "Merge these nodes?",
+  },
+  supersede: {
+    approve: "Replace",
+    rowLabel: (s) => `Replace ${s.displayName ?? s.typeLabel}`,
+    approvePrompt: () => "Replace the old node with the new one?",
+  },
+}
+
+// ── Confirm action popover (used for both Approve and Dismiss) ────────────────
 
 function ConfirmActionPopover({
   tone,
@@ -173,6 +236,7 @@ function ConfirmActionPopover({
   loadingLabel,
   loading,
   onConfirm,
+  minWidthClass,
 }: {
   tone: "approve" | "dismiss"
   triggerLabel: string
@@ -182,6 +246,7 @@ function ConfirmActionPopover({
   loadingLabel: string
   loading: boolean
   onConfirm: (reason: string) => void
+  minWidthClass?: string
 }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState("")
@@ -196,7 +261,8 @@ function ConfirmActionPopover({
           setOpen((v) => !v)
         }}
         className={cn(
-          "rounded border px-2 py-0.5 text-[11px] font-medium transition-all",
+          "rounded border px-2 py-0.5 text-[11px] font-medium transition-all text-center",
+          minWidthClass,
           isApprove
             ? open
               ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-200"
@@ -331,6 +397,12 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
     return map
   }, [review.subject_nodes])
 
+  const subjectSummary = useMemo(
+    () => summarizeSubjects(review.subject_nodes, schemas),
+    [review.subject_nodes, schemas]
+  )
+  const labels = ACTION_LABELS[review.action_name] ?? DEFAULT_ACTION_LABELS
+
   async function handleApprove() {
     if (!isAdmin) return
     setApproving(true)
@@ -402,7 +474,7 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
           </div>
         ) : (
           <span className="text-[12px] text-muted-foreground">
-            {review.subject_nodes.length} subject{review.subject_nodes.length === 1 ? "" : "s"}
+            {labels.rowLabel(subjectSummary)}
           </span>
         )}
 
@@ -417,11 +489,12 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
             <div className="flex gap-1">
               <ConfirmActionPopover
                 tone="approve"
-                triggerLabel="Approve"
-                prompt={APPROVE_PROMPTS[review.action_name] ?? "Approve this action?"}
-                loadingLabel="Approving…"
+                triggerLabel={labels.approve}
+                prompt={labels.approvePrompt(subjectSummary)}
+                loadingLabel={`${labels.approve}…`}
                 loading={approving}
                 onConfirm={() => handleApprove()}
+                minWidthClass="min-w-[68px]"
               />
               <ConfirmActionPopover
                 tone="dismiss"
@@ -432,6 +505,7 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
                 loadingLabel="Dismissing…"
                 loading={dismissing}
                 onConfirm={(reason) => handleDismiss(reason)}
+                minWidthClass="min-w-[68px]"
               />
             </div>
           ) : (

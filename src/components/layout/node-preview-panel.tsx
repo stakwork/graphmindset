@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -19,6 +19,8 @@ import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge, isBlockedStatus } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
+import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
+import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
 import { formatDateAbsolute } from "@/lib/date-format"
@@ -458,6 +460,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [price, setPrice] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [watched, setWatched] = useState(false)
+  const [watchLoading, setWatchLoading] = useState(false)
 
   function handleShare() {
     navigator.clipboard.writeText(`${window.location.origin}/?id=${node.ref_id}`).then(() => {
@@ -471,6 +475,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const isAdmin = useUserStore((s) => s.isAdmin)
+  const pubKey = useUserStore((s) => s.pubKey)
+  const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
   const openModal = useModalStore((s) => s.open)
 
   const nodeType = node.node_type ?? "Unknown"
@@ -538,6 +544,18 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       }
     }
   }
+
+  useEffect(() => {
+    setWatched(false)
+    if (hasIdentity) {
+      getWatches()
+        .then((data) => {
+          setWatched(data.nodes.some((n) => n.ref_id === node.ref_id))
+        })
+        .catch(() => {})
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.ref_id, hasIdentity])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -653,6 +671,37 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               <Link className="h-3.5 w-3.5" />
             )}
           </button>
+          {hasIdentity && (
+            <button
+              onClick={async () => {
+                if (watchLoading) return
+                const next = !watched
+                setWatched(next)
+                setWatchLoading(true)
+                try {
+                  if (next) {
+                    await watchNode(node.ref_id)
+                  } else {
+                    await unwatchNode(node.ref_id)
+                  }
+                } catch {
+                  setWatched(!next)
+                } finally {
+                  setWatchLoading(false)
+                }
+              }}
+              className="transition-colors"
+              title={watched ? "Unwatch node" : "Watch node"}
+              disabled={watchLoading}
+            >
+              <Heart
+                className={cn(
+                  "h-3.5 w-3.5 transition-colors",
+                  watched ? "fill-red-400 text-red-400" : "text-muted-foreground hover:text-foreground"
+                )}
+              />
+            </button>
+          )}
           {ownerReference && !hideBoost && (
             <BoostButton
               refId={node.ref_id}

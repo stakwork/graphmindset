@@ -1,4 +1,5 @@
 import type { GraphNode, GraphEdge, GraphData, Review, StakworkRun } from "./graph-api"
+import type { CreatorInsightsResponse } from "./creator-insights"
 
 export const MOCK_NODES: GraphNode[] = [
   {
@@ -615,6 +616,19 @@ function daysAgo(n: number): string {
   const d = new Date("2026-05-04T09:00:00Z")
   d.setDate(d.getDate() - n)
   return d.toISOString()
+}
+
+export const MOCK_CREATOR_INSIGHTS: CreatorInsightsResponse = {
+  period: "week",
+  total_sats_earned: 130,
+  total_unlocks: 13,
+  nodes: [
+    { ref_id: "c1", unlock_count: 7, sats_earned: 70, previous_unlock_count: 4 }, // ▲ up
+    { ref_id: "c2", unlock_count: 3, sats_earned: 30, previous_unlock_count: 3 }, // — flat
+    { ref_id: "c3", unlock_count: 2, sats_earned: 20, previous_unlock_count: 5 }, // ▼ down
+    { ref_id: "c4", unlock_count: 1, sats_earned: 10, previous_unlock_count: 0 }, // ▲ up
+    { ref_id: "c5", unlock_count: 0, sats_earned: 0, previous_unlock_count: 0 }, // no badge
+  ],
 }
 
 export const MOCK_REVIEWS: Review[] = [
