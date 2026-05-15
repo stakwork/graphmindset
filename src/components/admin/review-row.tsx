@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
 import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, Trash2, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
@@ -13,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { NodeRow } from "@/components/layout/node-row"
+import { Checkbox } from "@/components/ui/checkbox"
 import type { SchemaNode } from "@/app/ontology/page"
 import { DISPLAY_KEY_FALLBACKS, pickString } from "@/lib/node-display"
 import { useUserStore } from "@/stores/user-store"
@@ -198,6 +200,10 @@ interface ActionLabels {
   approvePrompt: (subjects: SubjectSummary) => string
 }
 
+export function getApproveVerb(actionName: string): string {
+  return ACTION_LABELS[actionName]?.approve ?? "Approve"
+}
+
 const DEFAULT_ACTION_LABELS: ActionLabels = {
   approve: "Approve",
   rowLabel: (s) => `${s.count} subject${s.count === 1 ? "" : "s"}`,
@@ -250,11 +256,44 @@ function ConfirmActionPopover({
 }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState("")
+  const [coords, setCoords] = useState<{ top: number; right: number } | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
   const isApprove = tone === "approve"
 
+  // Position popover relative to trigger; portaled to body to escape clipping ancestors
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return
+    function reposition() {
+      const r = triggerRef.current!.getBoundingClientRect()
+      setCoords({ top: r.bottom + 4, right: window.innerWidth - r.right })
+    }
+    reposition()
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open])
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node
+      if (popoverRef.current?.contains(t)) return
+      if (triggerRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [open])
+
   return (
-    <div className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation()
@@ -274,54 +313,58 @@ function ConfirmActionPopover({
       >
         {triggerLabel}
       </button>
-      {open && (
-        <div
-          className="absolute right-0 top-full z-20 mt-1 flex w-[240px] flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-md"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="text-[11px] text-muted-foreground">{prompt}</p>
-          {withReason && (
-            <textarea
-              className="w-full resize-none rounded border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-              placeholder={reasonPlaceholder}
-              rows={2}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          )}
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              disabled={loading}
-              onClick={(e) => {
-                e.stopPropagation()
-                onConfirm(reason)
-                setOpen(false)
-                setReason("")
-              }}
-              className={cn(
-                "rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50",
-                isApprove
-                  ? "bg-emerald-600/80 text-white hover:bg-emerald-600"
-                  : "bg-destructive/80 text-destructive-foreground hover:bg-destructive"
-              )}
-            >
-              {loading ? loadingLabel : "Confirm"}
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setOpen(false)
-              }}
-              className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+      {open && coords && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{ position: "fixed", top: coords.top, right: coords.right }}
+            className="z-50 flex w-[240px] flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[11px] text-muted-foreground">{prompt}</p>
+            {withReason && (
+              <textarea
+                className="w-full resize-none rounded border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder={reasonPlaceholder}
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            )}
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onConfirm(reason)
+                  setOpen(false)
+                  setReason("")
+                }}
+                className={cn(
+                  "rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50",
+                  isApprove
+                    ? "bg-emerald-600/80 text-white hover:bg-emerald-600"
+                    : "bg-destructive/80 text-destructive-foreground hover:bg-destructive"
+                )}
+              >
+                {loading ? loadingLabel : "Confirm"}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOpen(false)
+                }}
+                className="rounded px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   )
 }
 
@@ -374,9 +417,25 @@ export interface ReviewRowProps {
   schemas: SchemaNode[]
   onRefresh: () => void
   onCountRefresh?: () => void
+  selected?: boolean
+  onSelectChange?: (selected: boolean) => void
+  selectable?: boolean
+  /** When true, the checkbox is rendered but disabled (e.g., locked by same-action rule). */
+  selectionLocked?: boolean
+  selectionLockedReason?: string
 }
 
-export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: ReviewRowProps) {
+export function ReviewRow({
+  review,
+  schemas,
+  onRefresh,
+  onCountRefresh,
+  selected = false,
+  onSelectChange,
+  selectable = false,
+  selectionLocked = false,
+  selectionLockedReason,
+}: ReviewRowProps) {
   const router = useRouter()
   const { isAdmin } = useUserStore()
   const [expanded, setExpanded] = useState(false)
@@ -439,7 +498,12 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
   const isPending = review.status === "pending"
 
   return (
-    <div className="border-b border-border/30 last:border-b-0">
+    <div
+      className={cn(
+        "border-b border-border/30 last:border-b-0",
+        selected && "bg-primary/5"
+      )}
+    >
       {/* Compact row */}
       <div
         role="button"
@@ -451,8 +515,21 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
             setExpanded((v) => !v)
           }
         }}
-        className="grid w-full cursor-pointer grid-cols-[20px_16px_1fr_auto_170px] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/20"
+        className="grid w-full cursor-pointer grid-cols-[22px_20px_16px_1fr_auto_170px] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/20"
       >
+        {selectable && onSelectChange ? (
+          <span title={selectionLocked && !selected ? selectionLockedReason : undefined}>
+            <Checkbox
+              checked={selected}
+              onChange={onSelectChange}
+              onClick={(e) => e.stopPropagation()}
+              disabled={selectionLocked && !selected}
+              ariaLabel={`Select review ${review.ref_id}`}
+            />
+          </span>
+        ) : (
+          <span aria-hidden />
+        )}
         <ChevronRight
           className={cn(
             "h-3.5 w-3.5 text-muted-foreground transition-transform",
@@ -516,17 +593,17 @@ export function ReviewRow({ review, schemas, onRefresh, onCountRefresh }: Review
 
       {/* Inline error / dismissal context (visible without expanding) */}
       {review.status === "failed" && review.error_message && (
-        <div className="px-3 pb-2 pl-[60px] text-[11px] font-medium text-red-400">
+        <div className="px-3 pb-2 pl-[82px] text-[11px] font-medium text-red-400">
           ✕ {review.error_message}
         </div>
       )}
       {review.status === "dismissed" && review.dismissal_reason && (
-        <div className="px-3 pb-2 pl-[60px] text-[11px] italic text-muted-foreground">
+        <div className="px-3 pb-2 pl-[82px] text-[11px] italic text-muted-foreground">
           Reason: {review.dismissal_reason}
         </div>
       )}
       {inlineError && (
-        <div className="px-3 pb-2 pl-[60px] text-[11px] font-medium text-red-400">
+        <div className="px-3 pb-2 pl-[82px] text-[11px] font-medium text-red-400">
           ✕ {inlineError}
         </div>
       )}
