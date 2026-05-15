@@ -130,7 +130,7 @@ export function FeedView() {
   const showHotTakes = !searchTerm
 
   return (
-    <div className="h-full w-full overflow-y-auto">
+    <div className="h-full w-full overflow-y-auto overflow-x-hidden">
       {showHotTakes && <HotTakes />}
 
       {typeCounts.length > 1 && (
