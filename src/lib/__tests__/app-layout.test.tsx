@@ -89,6 +89,7 @@ vi.mock("@/components/layout/app-rail", () => ({
   ),
 }))
 vi.mock("@/components/layout/main-area", () => ({ MainArea: () => <div>Main Area</div> }))
+vi.mock("@/components/layout/mobile-nav-drawer", () => ({ MobileNavDrawer: () => null }))
 vi.mock("@/components/universe/graph-floater", () => ({ GraphFloater: () => null }))
 vi.mock("@/components/modals/settings-modal", () => ({ SettingsModal: () => null }))
 vi.mock("@/components/modals/add-content-modal", () => ({ AddContentModal: () => null }))

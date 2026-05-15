@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { AppRail } from "./app-rail"
+import { MobileNavDrawer } from "./mobile-nav-drawer"
 import { MainArea } from "./main-area"
 import { GraphFloater } from "@/components/universe/graph-floater"
 import { SettingsModal } from "@/components/modals/settings-modal"
@@ -21,6 +22,7 @@ import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 export function AppLayout() {
   useDeepLink()
   useSidebarNeighborFetch()
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const followingOpen = useAppStore((s) => s.followingOpen)
@@ -59,9 +61,18 @@ export function AppLayout() {
         />
 
         <main className="h-full flex-1 min-w-0">
-          <MainArea />
+          <MainArea onOpenMobileNav={() => setMobileNavOpen(true)} />
         </main>
       </div>
+
+      <MobileNavDrawer
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        sourcesOpen={sourcesOpen}
+        onToggleSources={() => openPanel(toggleSources)}
+        myContentOpen={myContentOpen}
+        onToggleMyContent={() => openPanel(toggleMyContent)}
+      />
 
       <GraphFloater />
 

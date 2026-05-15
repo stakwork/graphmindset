@@ -45,7 +45,9 @@ export function GraphFloater() {
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
   const schemas = useSchemaStore((s) => s.schemas)
 
-  const [mode, setMode] = useState<Mode>("mini")
+  const [mode, setMode] = useState<Mode>(() =>
+    typeof window !== "undefined" && window.innerWidth < 768 ? "collapsed" : "mini"
+  )
   const [miniPos, setMiniPos] = useState<Position>(() => defaultPos(MINI_W, MINI_H))
 
   useEffect(() => {

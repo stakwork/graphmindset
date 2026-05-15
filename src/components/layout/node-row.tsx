@@ -5,7 +5,7 @@ import { Zap, ExternalLink } from "lucide-react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
-import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
+import { pickString, DISPLAY_KEY_FALLBACKS, capTitle } from "@/lib/node-display"
 import { getStatusBadge } from "@/lib/node-status"
 import { cn, displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
@@ -51,14 +51,15 @@ export function NodeRow({
   const schema = schemas.find((s) => s.type === nodeType)
   const props = node.properties
 
-  let name = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
-  if (!name) {
+  let rawName = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
+  if (!rawName) {
     for (const key of DISPLAY_KEY_FALLBACKS) {
-      name = pickString(props, key)
-      if (name) break
+      rawName = pickString(props, key)
+      if (rawName) break
     }
   }
-  if (!name) name = node.ref_id
+  if (!rawName) rawName = node.ref_id
+  const name = capTitle(rawName)
 
   const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
   // pubkey/routeHint are still read here only for the admin direct-keysend path
@@ -90,7 +91,7 @@ export function NodeRow({
     pickString(props, "description") ??
     pickString(props, "bio")
   const snippet =
-    snippetSource && snippetSource !== name
+    snippetSource && snippetSource !== rawName
       ? snippetSource.length > 90
         ? snippetSource.slice(0, 90).replace(/\s+\S*$/, "") + "…"
         : snippetSource

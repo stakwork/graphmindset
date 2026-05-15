@@ -1,5 +1,6 @@
 "use client"
 
+import { Menu } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -14,7 +15,7 @@ import { cn } from "@/lib/utils"
 
 type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "feed"
 
-export function MainArea() {
+export function MainArea({ onOpenMobileNav }: { onOpenMobileNav?: () => void }) {
   const selectedNode = useGraphStore((s) => s.selectedNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
@@ -45,7 +46,17 @@ export function MainArea() {
       <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
 
       <header className="relative z-20 border-b border-border/40 bg-background/85 backdrop-blur-sm">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center gap-4">
+        <div className="max-w-3xl mx-auto px-3 sm:px-6 py-3 flex items-center gap-4">
+          {onOpenMobileNav && (
+            <button
+              type="button"
+              aria-label="Open navigation"
+              onClick={onOpenMobileNav}
+              className="md:hidden flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          )}
           <div className="flex-1 min-w-0">
             <SearchBar />
           </div>
@@ -105,7 +116,7 @@ function labelFor(mode: Mode, nodeType: string | undefined, searchTerm: string):
 function CenteredPanel({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-full w-full flex justify-center">
-      <div className="w-full max-w-[680px] h-full border-x border-border/40 flex flex-col">
+      <div className="w-full max-w-[680px] h-full sm:border-x border-border/40 flex flex-col">
         {children}
       </div>
     </div>
