@@ -1082,4 +1082,26 @@ describe("NodePreviewPanel – WatchButton", () => {
       expect(mockUnwatchNode).toHaveBeenCalledWith(BASE_NODE.ref_id)
     })
   })
+
+  it("does not render is_ad in the fallback key/value list for Chapter nodes", async () => {
+    const chapterNode: GraphNode = {
+      ref_id: "chap1",
+      node_type: "Chapter",
+      properties: {
+        name: "Intro Chapter",
+        timestamp: 120,
+        description: "A chapter description",
+        is_ad: true,
+      },
+    }
+    mockApiGet.mockResolvedValue(makeGraphData(chapterNode))
+
+    render(<NodePreviewPanel node={chapterNode} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText("is_ad")).toBeNull()
+    })
+    // Other properties should still render
+    expect(screen.queryByText("is_ad")).toBeNull()
+  })
 })
