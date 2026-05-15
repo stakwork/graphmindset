@@ -1,6 +1,13 @@
 import type { GraphNode } from "./graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
 
+export const TITLE_MAX_LEN = 120
+
+export function capTitle(str: string, max = TITLE_MAX_LEN): string {
+  if (str.length <= max) return str
+  return str.slice(0, max).replace(/\s+\S*$/, "") + "…"
+}
+
 export const DISPLAY_KEY_FALLBACKS = [
   "name",
   "title",
@@ -26,10 +33,10 @@ export function resolveNodeTitle(node: GraphNode, schemas: SchemaNode[]): string
   const schema = schemas.find((s) => s.type === (node.node_type ?? "Unknown"))
   const titleKey = schema?.title_key ?? schema?.index
   const fromSchema = pickString(node.properties, titleKey)
-  if (fromSchema) return fromSchema
+  if (fromSchema) return capTitle(fromSchema)
   for (const key of DISPLAY_KEY_FALLBACKS) {
     const v = pickString(node.properties, key)
-    if (v) return v
+    if (v) return capTitle(v)
   }
   return node.ref_id
 }

@@ -40,6 +40,39 @@ const nodeSnippetEqualsTitle: GraphNode = {
   weight: 1,
 }
 
+const longText =
+  "This is a very long section of text that goes on and on and contains many words describing the content of a document section in great detail beyond one hundred and twenty characters total"
+
+const sectionSchema: SchemaNode = {
+  type: "Section",
+  label: "Section",
+  title_key: "text",
+  description_key: "text",
+  index: "text",
+  icon: "file-text",
+  properties: [],
+}
+
+// Section node: title_key and description_key both point to "text" (same field)
+const sectionNode: GraphNode = {
+  ref_id: "section-1",
+  node_type: "Section",
+  properties: { text: longText },
+  score: 1,
+  match_type: "exact",
+  weight: 1,
+}
+
+// Section node with a distinct snippet so the card would render
+const sectionNodeWithDistinctSnippet: GraphNode = {
+  ref_id: "section-2",
+  node_type: "Section",
+  properties: { text: longText, description: "A concise summary of the section." },
+  score: 1,
+  match_type: "exact",
+  weight: 1,
+}
+
 describe("HoverPreviewCard", () => {
   it("returns null when node is null", () => {
     const { container } = render(
@@ -68,5 +101,26 @@ describe("HoverPreviewCard", () => {
     )
     expect(getByText("My Topic")).toBeTruthy()
     expect(getByText("Some interesting description")).toBeTruthy()
+  })
+
+  it("returns null for a Section node where title_key === description_key === text (no snippet)", () => {
+    const { container } = render(
+      <HoverPreviewCard node={sectionNode} schemas={[sectionSchema]} x={100} y={100} />
+    )
+    expect(container.firstChild).toBeNull()
+  })
+
+  it("renders a truncated title (≤ 120 chars + …) when Section node has a distinct snippet", () => {
+    const { container, getByText } = render(
+      <HoverPreviewCard node={sectionNodeWithDistinctSnippet} schemas={[sectionSchema]} x={100} y={100} />
+    )
+    expect(container.firstChild).not.toBeNull()
+    expect(getByText("A concise summary of the section.")).toBeTruthy()
+    // Title element should be capped
+    const titleEl = container.querySelector("p.text-sm")
+    expect(titleEl).not.toBeNull()
+    const titleText = titleEl!.textContent ?? ""
+    expect(titleText.length).toBeLessThanOrEqual(121) // 120 chars + "…"
+    expect(titleText.endsWith("…")).toBe(true)
   })
 })
