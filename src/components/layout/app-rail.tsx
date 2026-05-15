@@ -111,7 +111,7 @@ export function AppRail({
   const connectionActive = sphinxConnected || weblnAvailable
 
   return (
-    <aside className="flex h-full w-[56px] shrink-0 flex-col items-center border-r border-sidebar-border bg-sidebar noise-bg">
+    <aside className="hidden md:flex h-full w-[56px] shrink-0 flex-col items-center border-r border-sidebar-border bg-sidebar noise-bg">
       {/* Logo */}
       <div className="relative z-10 flex flex-col items-center gap-2 pt-3 pb-2">
         <Tooltip>

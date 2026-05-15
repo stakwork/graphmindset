@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Rajdhani, Plus_Jakarta_Sans, Fira_Code } from "next/font/google"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import "./globals.css"
@@ -20,6 +20,8 @@ const firaCode = Fira_Code({
   subsets: ["latin"],
   weight: ["400", "500"],
 })
+
+export const viewport: Viewport = { width: "device-width", initialScale: 1 }
 
 export const metadata: Metadata = {
   title: "GraphMindset",
