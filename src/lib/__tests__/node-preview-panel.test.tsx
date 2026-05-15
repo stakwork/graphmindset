@@ -18,16 +18,12 @@ vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => mockApiGet(...args) },
 }))
 
-// --- mock getPrice ---
-const { mockGetPrice } = vi.hoisted(() => ({ mockGetPrice: vi.fn() }))
 vi.mock("@/lib/sphinx/payment", () => ({
-  getPrice: (...args: unknown[]) => mockGetPrice(...args),
   payL402: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Also mock the barrel re-export used by the component
 vi.mock("@/lib/sphinx", () => ({
-  getPrice: (...args: unknown[]) => mockGetPrice(...args),
   payL402: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -163,32 +159,13 @@ describe("NodePreviewPanel – price display", () => {
     userStoreOverrides = {}
   })
 
-  it("shows spinner while getPrice is still pending (no unlock button yet)", async () => {
-    // api.get probe throws 402, but getPrice never resolves (pending)
-    let resolvePricePromise!: (v: number) => void
-    const pricePromise = new Promise<number>((res) => { resolvePricePromise = res })
-
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockReturnValue(pricePromise)
-
-    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-
-    // While getPrice is still pending, we're in "loading" state — spinner shown, no unlock button
-    await waitFor(() => {
-      expect(mockGetPrice).toHaveBeenCalled()
-    })
-    expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
-
-    // After getPrice resolves with 0, fallback label appears
-    resolvePricePromise(0)
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock Full Content/i })).toBeInTheDocument()
-    })
-  })
-
-  it("renders 'Unlock for 10 sats' when getPrice resolves to 10", async () => {
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(10)
+  it("renders 'Unlock for 10 sats' when 402 body has price: 10", async () => {
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 10 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
@@ -197,9 +174,13 @@ describe("NodePreviewPanel – price display", () => {
     })
   })
 
-  it("renders 'Unlock Full Content' when getPrice resolves to 0", async () => {
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(0)
+  it("renders 'Unlock Full Content' when 402 body has price: 0", async () => {
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 0 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
@@ -227,8 +208,12 @@ describe("NodePreviewPanel – price display", () => {
 
   it("clears stale price when switching to a different node", async () => {
     // First node: price = 10
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(10)
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 10 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
 
     const { rerender } = render(
       <NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />
@@ -238,36 +223,22 @@ describe("NodePreviewPanel – price display", () => {
       expect(screen.getByRole("button", { name: /Unlock for 10 sats/i })).toBeInTheDocument()
     })
 
-    // Switch to second node — getPrice is now pending so price should be null (loading)
-    let resolveSecondPrice!: (v: number) => void
-    const secondPricePromise = new Promise<number>((res) => { resolveSecondPrice = res })
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockReturnValue(secondPricePromise)
+    // Switch to second node with price = 25
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 25 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
 
     rerender(<NodePreviewPanel node={NODE_B} onBack={vi.fn()} schemas={[]} />)
 
-    // During loading phase: spinner should be present
+    // Stale price from first node should be gone
     expect(screen.queryByRole("button", { name: /Unlock for 10 sats/i })).toBeNull()
 
-    // After price resolves for second node
-    resolveSecondPrice(25)
+    // After second node's 402 resolves, new price appears
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Unlock for 25 sats/i })).toBeInTheDocument()
-    })
-  })
-
-  it("calls getPrice with method=get and the node ref_id", async () => {
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(10)
-
-    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-
-    await waitFor(() => {
-      expect(mockGetPrice).toHaveBeenCalledWith(
-        "v2/nodes/abc",
-        "get",
-        expect.any(AbortSignal),
-      )
     })
   })
 })
@@ -673,8 +644,12 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
   })
 
   it("sets unlockState to 'preview' and shows Unlock button when probe returns 402", async () => {
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(15)
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 15 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
@@ -685,8 +660,12 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
 
   it("handleUnlock calls unlockNode with the correct refId", async () => {
     // First probe returns 402 so Unlock button appears
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(5)
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 5 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
     mockUnlockNode.mockResolvedValue(BASE_NODE)
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
@@ -703,8 +682,12 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
   })
 
   it("handleUnlock sets fullNode from unlockNode return value", async () => {
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(5)
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 5 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
     const unlockedNode: GraphNode = { ref_id: "abc", node_type: "Topic", properties: { name: "Unlocked!" } }
     mockUnlockNode.mockResolvedValue(unlockedNode)
 
@@ -723,8 +706,12 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
 
   it("handleUnlock opens budget modal on 402 after payL402 fails", async () => {
     // probe returns 402
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(10)
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 10 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
     // unlockNode throws 402 (simulates payL402 path failing)
     mockUnlockNode.mockRejectedValue(new Response(null, { status: 402 }))
 
@@ -747,8 +734,12 @@ describe("NodePreviewPanel – paid_properties lock placeholders", () => {
     vi.clearAllMocks()
     userStoreOverrides = {}
     // 402 probe → preview state
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(10)
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 10 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
   })
 
   function makeSchemaNode(type: string, paid_properties?: string[]) {
@@ -891,8 +882,12 @@ describe("NodePreviewPanel – share button", () => {
     vi.clearAllMocks()
     userStoreOverrides = {}
     // 402 probe so panel renders in preview state (not blocking share button)
-    mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
-    mockGetPrice.mockResolvedValue(10)
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 10 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
     // Mock clipboard
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn().mockResolvedValue(undefined) },

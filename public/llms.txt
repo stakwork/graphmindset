@@ -110,7 +110,7 @@ direct LN-node check (see `/agents.txt`). Any non-empty string after
 | POST | `/api/top_up_lsat` | Tops up an existing LSAT. Body `{macaroon: <yours>, amount: <sats>}` (max 10000 sats). Returns `200 {success, payment_request, payment_hash}` — a new BOLT11 invoice + its hash. Pay it, then call `/api/top_up_confirm`. |
 | POST | `/api/top_up_confirm` | Settles a paid top-up. Requires `Authorization: LSAT <macaroon>:paid`. Body `{payment_hash: <from top_up_lsat>}`. Returns `200 {success, new_balance}` once the LN node sees the invoice settled. Idempotency-protected: a payment_hash can only be confirmed once, by the LSAT it was issued for. |
 | GET | `/api/top_up_status/:payment_hash` | Poll whether a top-up's invoice has settled yet. Useful while waiting for the human to pay. |
-| GET | `/api/transactions` | History. Returns `{transactions: [{action, type:"debit"\|"credit", amount, created_at}, ...], scope}`. Amount is always positive; credits are top-ups/refunds, debits are searches/boosts/content adds. Filter out rows where `action="purchase"` and `amount=0` — those are synthetic free-re-access grants and shouldn't be shown to users. |
+| GET | `/api/transactions` | History. Returns `{transactions: [{action, type:"debit"\|"credit", amount, created_at, related_transaction_id?, node_ref_id?}, ...], scope}`. Amount is always positive; sign comes from `type`. Credits = top-ups, refunds, **and earnings**: `payout` (10 sats per unlock of a node you added, `node_ref_id` attributes the payout to that node) and `boost` with `type="credit"` (someone boosted your content — anonymous L402 path only; Sphinx-signed recipients get off-ledger keysend and won't see anything here). Debits = `search`, `purchase` (you unlocked a node), `boost` (you boosted someone), `add_content`, `add_source`. Filter out rows where `action="purchase"` and `amount=0` (synthetic free-re-access grants). See `/agents.txt` "Earnings" for the full earnings model. |
 
 ## Worked examples
 
@@ -252,8 +252,15 @@ Response:
 - `amount` is always positive — sign comes from `type`.
 - Skip rows where `action="purchase"` and `amount=0`; those are
   synthetic free-re-access grants, not real activity.
-- Common `action` values: `top_up`, `search`, `content`, `boost`,
-  `node_unlock`, `purchase`.
+- Common `action` values:
+  - **Debits (you spent)**: `search`, `purchase` (node unlock), `boost`
+    (you boosted someone else's node), `add_content`, `add_source`.
+  - **Credits (you received)**: `top_up`, `refund`, `payout` (someone
+    unlocked content you added — currently 10 sats each; the
+    `node_ref_id` field attributes the payout to a specific node),
+    `boost` with `type="credit"` (someone boosted your content,
+    anonymous L402 recipients only — Sphinx-signed recipients get
+    off-ledger keysend, see `/agents.txt`).
 
 **Top up an existing token** ("add more sats to my balance"):
 
@@ -332,6 +339,43 @@ next confirmation. From then on, use `Authorization: LSAT <NEW_MAC>:paid`.
 - `/api/buy_lsat` — agent has no LSAT at all (or wants a brand-new one).
 - `/api/top_up_lsat` + `/api/top_up_confirm` — agent already has an
   activated LSAT and just wants more sats on it.
+
+### Earnings ("how much have I earned?")
+
+Adding content via `POST /api/v2/content` is free, but every node you
+submit becomes a revenue source for the LSAT macaroon that submitted
+it. There is no separate earnings wallet and no claim step — earnings
+auto-credit the same balance you spend from, and `/api/balance` lifts
+on the next call. Two earn events:
+
+- **Unlock payout** — another user fetches a node you added via
+  `GET /api/v2/nodes/<ref_id>?expand=edges` → you receive 10 sats as
+  `{action:"payout", type:"credit", amount:10, node_ref_id:"<yours>"}`.
+  Self-unlock is blocked.
+- **Boost credit** — another user calls `POST /boost` on your node →
+  full amount credited to you (no platform fee). Anonymous L402
+  recipients see `{action:"boost", type:"credit"}` here; Sphinx-signed
+  recipients get an off-ledger keysend to their Lightning wallet and
+  see nothing in `/api/transactions`.
+
+Aggregate unlock earnings:
+
+```
+curl -sS \
+  -H 'Authorization: LSAT <macaroon>:paid' \
+  https://ai.sphinx.chat/api/transactions \
+| jq '.transactions | map(select(.action=="payout")) | map(.amount) | add'
+```
+
+Earnings are bound to the LSAT macaroon **at the moment of**
+`POST /api/v2/content`. A fresh macaroon does not inherit earnings
+from a previous one. If you authenticated with a Sphinx pubkey
+signature, the response carries `scope="pubkey"` and aggregates
+payouts across every macaroon owned by that pubkey; otherwise
+`scope="token"` and you only see this macaroon's history.
+
+See `/agents.txt` "Earnings" for the full model (including the
+non-atomic debit/payout caveat).
 
 ## Node properties (common fields)
 

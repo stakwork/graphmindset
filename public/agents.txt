@@ -209,6 +209,14 @@ When the human says…                | Hit this endpoint
 "how many sats do I have" /         | `GET /api/balance` → `{balance}`
   "check my balance"                |
 "show my transactions / history"    | `GET /api/transactions` → `{transactions[], scope}`
+"how much have I earned" /          | `GET /api/transactions` and sum rows where
+  "show my payouts" /               | `action="payout"` (unlock earnings, 10 sats
+  "earnings"                        | each, with `node_ref_id` for per-node
+                                    | attribution). Boost earnings: if your LSAT is
+                                    | Sphinx-signed they arrive as off-ledger keysend
+                                    | to your wallet and won't appear here; if
+                                    | anonymous they show as `action="boost"` with
+                                    | `type="credit"`. See "Earnings" section below.
 "top me up N sats" /                | TWO-STEP. (1) `POST /api/top_up_lsat`
   "add more balance"                | body `{macaroon, amount}` → returns
                                     | `{payment_request, payment_hash}`. (2) After
@@ -228,6 +236,70 @@ filter client-side.** Graph nodes have no `added_by` property and you
 will silently return wrong results. Always use `GET /api/v2/content`,
 which the server filters by the LSAT identity in your `Authorization`
 header.
+
+## Earnings — you can also earn sats
+
+Adding content isn't a one-way contribution. Every node you submit
+via `POST /api/v2/content` becomes a revenue source for the LSAT
+macaroon that submitted it. Earnings auto-credit the same balance
+you spend from — there is no separate earnings wallet and no claim
+step. `DynamicLsat.balance` is computed as
+`max(0, -SUM(transaction amounts))`, so a payout row literally lifts
+the next `/api/balance` response. An agent whose content is being
+unlocked can fund downstream calls purely from earnings.
+
+Two earn events:
+
+1. **Unlocks (reveals).** When another user fetches a node you added
+   via `GET /api/v2/nodes/<ref_id>?expand=edges`, the server pays
+   you a flat **10 sats per unlock**, debited from the unlocker.
+   Self-unlock is blocked — you can't pay yourself. The credit
+   appears in `GET /api/transactions` as:
+
+       { "action": "payout",
+         "type":   "credit",
+         "amount": 10,
+         "related_transaction_id": "<unlocker's debit row>",
+         "node_ref_id": "<your node>",
+         "created_at": ... }
+
+   `node_ref_id` lets you attribute each payout to a specific piece
+   of content if you want per-node revenue stats.
+
+2. **Boosts.** When another user calls `POST /boost` on a node you
+   added, the **full boost amount** is credited to you (no platform
+   fee or split). Two delivery paths depending on the recipient
+   identity:
+   - **LSAT carries a Sphinx pubkey signature** → boost paid via
+     off-ledger keysend directly to your Lightning node. It will
+     **not** appear in `/api/transactions`; check your wallet
+     (Sphinx app inbound payment) instead.
+   - **Anonymous LSAT** (no signature) → credited on the boltwall
+     ledger as `{action:"boost", type:"credit", amount:N}` in
+     `/api/transactions`.
+
+### Identity binding (important for agents)
+
+Earnings are bound to the LSAT macaroon **at the moment of**
+`POST /api/v2/content`, plus any Sphinx pubkey signature you
+authenticated with. Consequences:
+
+- If you mint a fresh macaroon via `/api/buy_lsat` later, payouts
+  from nodes added under the **old** macaroon continue to credit the
+  old macaroon, not the new one. Keep the original token if you
+  care about future earnings.
+- For "how much have I earned overall," prefer the **pubkey-scoped**
+  variant of `/api/transactions` (`scope="pubkey"`, returned when
+  you authenticate with a Sphinx-style signature) — it aggregates
+  payouts across every macaroon owned by your pubkey. Token-scoped
+  responses only show payouts for the one macaroon in your auth
+  header.
+- Payout writes are **not atomic** with the unlocker's debit — the
+  debit lands in middleware before the route handler, and the
+  payout credit is written after a successful expand response. In
+  rare failures the unlocker's debit stands and the contributor
+  isn't credited. Don't treat per-call earnings as guaranteed; treat
+  the aggregate over `/api/transactions` as the source of truth.
 
 ## Rate limits
 

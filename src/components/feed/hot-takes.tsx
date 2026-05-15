@@ -73,9 +73,6 @@ export function HotTakes() {
           <div className="flex items-center gap-2">
             <Flame className="h-4 w-4 text-amber" />
             <span className="font-semibold text-sm text-foreground">Hot Takes</span>
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              Latest
-            </span>
           </div>
           <button
             type="button"
