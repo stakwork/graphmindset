@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Zap, Copy, Check, Loader2, ArrowLeft, History, Key, RefreshCw, ArrowUpRight } from "lucide-react"
+import { Zap, Copy, Check, Loader2, ArrowLeft, History, Key, RefreshCw, ArrowUpRight, Clock } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import {
   Dialog,
@@ -18,6 +18,9 @@ import { getActionDisplayLabel, getActionBadgeColor, isViewGrantRow } from "@/li
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 import { cookieStorage } from "@/lib/cookie-storage"
 import { api } from "@/lib/api"
+import { decodeInvoiceExpiry } from "@/lib/invoice-utils"
+import { formatCountdown } from "@/lib/format-countdown"
+import { useInvoiceCountdown } from "@/hooks/use-invoice-countdown"
 
 type Step = "balance" | "first-purchase" | "first-invoice" | "amount" | "invoice" | "success" | "history" | "manage-token" | "restore"
 
@@ -46,6 +49,10 @@ export function BudgetModal() {
   const [paymentHash, setPaymentHash] = useState("")
   const [copied, setCopied] = useState(false)
   const pollAbortRef = useRef<AbortController | null>(null)
+
+  // Invoice expiry state
+  const [invoiceExpiresAt, setInvoiceExpiresAt] = useState<number | null>(null)
+  const { secondsLeft, expired } = useInvoiceCountdown(invoiceExpiresAt)
 
   // First-purchase state (non-Sphinx, non-WebLN, no existing L402)
   const [firstPurchaseAmount, setFirstPurchaseAmount] = useState<number>(1000)
@@ -87,6 +94,7 @@ export function BudgetModal() {
     setFirstPurchaseCopied(false)
     setReachedViaFirstPurchase(false)
     setRestoreInput("")
+    setInvoiceExpiresAt(null)
   }, [])
 
   useEffect(() => {
@@ -211,6 +219,7 @@ export function BudgetModal() {
     try {
       const challenge = await fetchBuyLsatChallenge(firstPurchaseAmount)
       setFirstPurchaseRequest(challenge.invoice)
+      setInvoiceExpiresAt(decodeInvoiceExpiry(challenge.invoice))
       setStep("first-invoice")
 
       const paid = await pollPaymentStatus(challenge.paymentHash, 1800, 2000, controller.signal)
@@ -287,6 +296,7 @@ export function BudgetModal() {
       // Manual: show QR code and poll for payment confirmation
       setPaymentRequest(result.payment_request)
       setPaymentHash(result.payment_hash)
+      setInvoiceExpiresAt(decodeInvoiceExpiry(result.payment_request))
       setStep("invoice")
 
       const manualController = new AbortController()
@@ -538,10 +548,39 @@ export function BudgetModal() {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-amber" />
-                  <span className="text-xs text-muted-foreground">Waiting for payment...</span>
-                </div>
+                {invoiceExpiresAt && (
+                  <div className={`flex items-center justify-center gap-1.5 text-xs font-mono ${
+                    expired ? "text-destructive" : secondsLeft < 60 ? "text-red-400" : "text-amber"
+                  }`}>
+                    <Clock className="h-3 w-3" />
+                    {expired ? "Invoice expired" : `${formatCountdown(secondsLeft)} remaining`}
+                  </div>
+                )}
+
+                {!expired ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber" />
+                    <span className="text-xs text-muted-foreground">Waiting for payment...</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <span className="rounded-full bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive ring-1 ring-destructive/20">
+                      Expired
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                      onClick={() => {
+                        cancelPoll()
+                        handleFirstPurchaseInvoice()
+                      }}
+                    >
+                      <RefreshCw className="mr-1.5 h-3 w-3" />
+                      Get New Invoice
+                    </Button>
+                  </div>
+                )}
 
                 {error && (
                   <p className="text-xs text-muted-foreground text-center">{error}</p>
@@ -644,12 +683,41 @@ export function BudgetModal() {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-amber" />
-                  <span className="text-xs text-muted-foreground">
-                    Waiting for payment...
-                  </span>
-                </div>
+                {invoiceExpiresAt && (
+                  <div className={`flex items-center justify-center gap-1.5 text-xs font-mono ${
+                    expired ? "text-destructive" : secondsLeft < 60 ? "text-red-400" : "text-amber"
+                  }`}>
+                    <Clock className="h-3 w-3" />
+                    {expired ? "Invoice expired" : `${formatCountdown(secondsLeft)} remaining`}
+                  </div>
+                )}
+
+                {!expired ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber" />
+                    <span className="text-xs text-muted-foreground">
+                      Waiting for payment...
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <span className="rounded-full bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive ring-1 ring-destructive/20">
+                      Expired
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                      onClick={() => {
+                        cancelPoll()
+                        handlePay()
+                      }}
+                    >
+                      <RefreshCw className="mr-1.5 h-3 w-3" />
+                      Get New Invoice
+                    </Button>
+                  </div>
+                )}
 
                 {error && (
                   <p className="text-xs text-muted-foreground text-center">{error}</p>

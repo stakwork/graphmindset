@@ -2,6 +2,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import React from "react"
 
+// --- invoice-utils mock ---
+const mockDecodeInvoiceExpiry = vi.fn().mockReturnValue(null)
+vi.mock("@/lib/invoice-utils", () => ({
+  decodeInvoiceExpiry: (...args: unknown[]) => mockDecodeInvoiceExpiry(...args),
+}))
+
+// --- use-invoice-countdown mock (controlled in each test) ---
+const mockUseInvoiceCountdown = vi.fn().mockReturnValue({ secondsLeft: 120, expired: false })
+vi.mock("@/hooks/use-invoice-countdown", () => ({
+  useInvoiceCountdown: (...args: unknown[]) => mockUseInvoiceCountdown(...args),
+}))
+
 // --- Modal store mock ---
 const mockClose = vi.fn()
 
@@ -571,5 +583,139 @@ describe("BudgetModal history view-grant filtering", () => {
 
     // The zero-amount purchase should NOT appear
     expect(screen.queryByText("-0 sats")).not.toBeInTheDocument()
+  })
+})
+
+describe("BudgetModal invoice countdown", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 500
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockApiGet.mockReset()
+    mockTopUpLsat.mockResolvedValue({ payment_request: "lnbctest123", payment_hash: "hash123" })
+    // Never resolve poll so invoice step stays visible
+    mockPollPaymentStatus.mockImplementation(
+      (_hash: string, _max: number, _interval: number, signal?: AbortSignal) =>
+        new Promise<boolean>((resolve) => {
+          if (signal) signal.addEventListener("abort", () => resolve(false))
+        })
+    )
+    mockFetchBuyLsatChallenge.mockResolvedValue({
+      invoice: "lnbcbuy123",
+      baseMacaroon: "macaroon123",
+      paymentHash: "buyhash123",
+      id: "lsatid123",
+    })
+    // Default: countdown active (not expired)
+    mockUseInvoiceCountdown.mockReturnValue({ secondsLeft: 120, expired: false })
+    // Provide existing L402 for the manual top-up flow
+    cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
+  })
+
+  it("shows countdown text in invoice step when decodeInvoiceExpiry returns a future timestamp", async () => {
+    const nowSecs = Math.floor(Date.now() / 1000)
+    mockDecodeInvoiceExpiry.mockReturnValue(nowSecs + 120)
+    // Hook returns 120s remaining
+    mockUseInvoiceCountdown.mockReturnValue({ secondsLeft: 120, expired: false })
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Custom amount")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("100"))
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    // Countdown text should appear (e.g. "02:00 remaining")
+    expect(screen.getByText(/remaining/)).toBeInTheDocument()
+    // Spinner still showing (not expired)
+    expect(screen.getByText("Waiting for payment...")).toBeInTheDocument()
+  })
+
+  it("shows 'Expired' badge and 'Get New Invoice' button when countdown is zero in invoice step", async () => {
+    const nowSecs = Math.floor(Date.now() / 1000)
+    mockDecodeInvoiceExpiry.mockReturnValue(nowSecs + 1)
+    // Hook reports expired
+    mockUseInvoiceCountdown.mockReturnValue({ secondsLeft: 0, expired: true })
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Custom amount")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("100"))
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    expect(screen.getByText("Expired")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Get New Invoice/i })).toBeInTheDocument()
+    // Spinner hidden
+    expect(screen.queryByText("Waiting for payment...")).not.toBeInTheDocument()
+  })
+
+  it("shows countdown in first-invoice step when decodeInvoiceExpiry returns a future timestamp", async () => {
+    cookieStorage.removeItem("l402")
+    const nowSecs = Math.floor(Date.now() / 1000)
+    mockDecodeInvoiceExpiry.mockReturnValue(nowSecs + 120)
+    mockUseInvoiceCountdown.mockReturnValue({ secondsLeft: 120, expired: false })
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByText("Get Started")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    expect(screen.getByText(/remaining/)).toBeInTheDocument()
+    expect(screen.getByText("Waiting for payment...")).toBeInTheDocument()
+  })
+
+  it("shows 'Expired' badge and 'Get New Invoice' button in first-invoice step at zero", async () => {
+    cookieStorage.removeItem("l402")
+    const nowSecs = Math.floor(Date.now() / 1000)
+    mockDecodeInvoiceExpiry.mockReturnValue(nowSecs + 1)
+    mockUseInvoiceCountdown.mockReturnValue({ secondsLeft: 0, expired: true })
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByText("Get Started")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    expect(screen.getByText("Expired")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Get New Invoice/i })).toBeInTheDocument()
+    expect(screen.queryByText("Waiting for payment...")).not.toBeInTheDocument()
+  })
+
+  it("does not show countdown when decodeInvoiceExpiry returns null (graceful fallback)", async () => {
+    mockDecodeInvoiceExpiry.mockReturnValue(null)
+    // invoiceExpiresAt will be null → countdown div not rendered
+    mockUseInvoiceCountdown.mockReturnValue({ secondsLeft: 0, expired: false })
+
+    render(<BudgetModal />)
+
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByPlaceholderText("Custom amount")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText("100"))
+    fireEvent.click(screen.getByText("Generate Invoice"))
+
+    await waitFor(() => expect(screen.getByText("Pay Invoice")).toBeInTheDocument())
+
+    // No countdown UI (invoiceExpiresAt is null so the wrapper div is not rendered)
+    expect(screen.queryByText(/remaining/)).not.toBeInTheDocument()
+    expect(screen.queryByText("Expired")).not.toBeInTheDocument()
+    // Spinner still shown (expired=false)
+    expect(screen.getByText("Waiting for payment...")).toBeInTheDocument()
   })
 })
