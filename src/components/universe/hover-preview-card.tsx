@@ -5,7 +5,7 @@ import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import type { GraphNode } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
-import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
+import { DISPLAY_KEY_FALLBACKS, capTitle } from "@/lib/node-display"
 const SNIPPET_KEYS = ["description", "text", "bio", "content", "body"] as const
 const CARD_WIDTH = 280
 const CARD_HEIGHT_EST = 150
@@ -17,7 +17,7 @@ function pickString(props: Record<string, unknown> | undefined, key: string | un
   return typeof v === "string" && v.length > 0 ? v : undefined
 }
 
-function getTitle(node: GraphNode, schemas: SchemaNode[]): string {
+function getRawTitle(node: GraphNode, schemas: SchemaNode[]): string {
   const schema = schemas.find((s) => s.type === node.node_type)
   const props = node.properties
   let name = pickString(props, schema?.title_key) ?? pickString(props, schema?.index)
@@ -61,8 +61,9 @@ export function HoverPreviewCard({ node, schemas, x, y }: HoverPreviewCardProps)
   const nodeType = node.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
-  const title = getTitle(node, schemas)
-  const snippet = getSnippet(node, title)
+  const rawTitle = getRawTitle(node, schemas)
+  const title = capTitle(rawTitle)
+  const snippet = getSnippet(node, rawTitle)
   if (!snippet) return null // nothing to add beyond the graph label
 
   const rightEdge = x + CURSOR_OFFSET + CARD_WIDTH
