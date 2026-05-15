@@ -440,7 +440,7 @@ function getMockReviewsStore(): Review[] {
 }
 
 export async function listReviews(
-  params?: { status?: ReviewStatus; type?: string; sort?: string; skip?: number; limit?: number },
+  params?: { status?: ReviewStatus; type?: string; action_name?: string; sort?: string; skip?: number; limit?: number },
   signal?: AbortSignal
 ): Promise<ReviewsListResponse> {
   if (isMocksEnabled()) {
@@ -448,6 +448,7 @@ export async function listReviews(
     let filtered = [...store]
     if (params?.status) filtered = filtered.filter((r) => r.status === params.status)
     if (params?.type) filtered = filtered.filter((r) => r.type === params.type)
+    if (params?.action_name) filtered = filtered.filter((r) => r.action_name === params.action_name)
     const sort = params?.sort ?? "created_at"
     if (sort === "priority") {
       filtered.sort((a, b) => b.priority - a.priority)
@@ -467,6 +468,7 @@ export async function listReviews(
   const qs = new URLSearchParams()
   if (params?.status) qs.set("status", params.status)
   if (params?.type) qs.set("type", params.type)
+  if (params?.action_name) qs.set("action_name", params.action_name)
   if (params?.sort) qs.set("sort", params.sort)
   if (params?.skip !== undefined) qs.set("skip", String(params.skip))
   if (params?.limit !== undefined) qs.set("limit", String(params.limit))
