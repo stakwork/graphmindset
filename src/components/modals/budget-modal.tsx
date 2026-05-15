@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, TransactionRow } from "@/lib/sphinx"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, savePendingLsat, getPendingLsat, clearPendingLsat, topUpStatus, TransactionRow, PendingLsatChallenge } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor, isViewGrantRow } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 import { cookieStorage } from "@/lib/cookie-storage"
@@ -52,6 +52,7 @@ export function BudgetModal() {
   const [firstPurchaseRequest, setFirstPurchaseRequest] = useState("")
   const [firstPurchaseCopied, setFirstPurchaseCopied] = useState(false)
   const [reachedViaFirstPurchase, setReachedViaFirstPurchase] = useState(false)
+  const [pendingChallenge, setPendingChallenge] = useState<PendingLsatChallenge | null>(null)
 
   const sphinxConnected = typeof window !== "undefined" && isSphinx()
   const weblnAvailable = typeof window !== "undefined" && hasWebLN()
@@ -86,6 +87,7 @@ export function BudgetModal() {
     setFirstPurchaseRequest("")
     setFirstPurchaseCopied(false)
     setReachedViaFirstPurchase(false)
+    setPendingChallenge(null)
     setRestoreInput("")
   }, [])
 
@@ -98,6 +100,85 @@ export function BudgetModal() {
       pollAbortRef.current?.abort()
     }
   }, [])
+
+  // Surface any pending first-purchase LSAT so the user can choose between
+  // resuming it or generating a new one — instead of silently auto-resuming.
+  const resumeAttemptedRef = useRef(false)
+  useEffect(() => {
+    if (activeModal !== "budget") {
+      resumeAttemptedRef.current = false
+      return
+    }
+    if (resumeAttemptedRef.current) return
+    resumeAttemptedRef.current = true
+
+    if (cookieStorage.getItem("l402")) {
+      clearPendingLsat()
+      return
+    }
+    const pending = getPendingLsat()
+    if (!pending) return
+
+    const MAX_AGE_MS = 24 * 60 * 60 * 1000
+    if (Date.now() - pending.createdAt > MAX_AGE_MS) {
+      clearPendingLsat()
+      return
+    }
+
+    setPendingChallenge(pending)
+    setFirstPurchaseAmount(pending.amount)
+    setStep("first-purchase")
+  }, [activeModal])
+
+  // Resume polling for the stored pending invoice. Does a single quick status
+  // check first — if the invoice was already paid while the user was away,
+  // promote directly to success without flashing the QR.
+  const handleResumePending = useCallback(async () => {
+    if (!pendingChallenge) return
+    setError("")
+    setLoading(true)
+
+    const promote = async () => {
+      cookieStorage.setItem(
+        "l402",
+        JSON.stringify({
+          macaroon: pendingChallenge.baseMacaroon,
+          identifier: pendingChallenge.id,
+          preimage: "",
+        }),
+      )
+      clearPendingLsat()
+      setPendingChallenge(null)
+      await refreshBalance()
+      setReachedViaFirstPurchase(true)
+      setStep("success")
+    }
+
+    try {
+      const alreadyPaid = await topUpStatus(pendingChallenge.paymentHash).catch(() => false)
+      if (alreadyPaid) {
+        await promote()
+        return
+      }
+
+      setFirstPurchaseRequest(pendingChallenge.invoice)
+      setStep("first-invoice")
+
+      const controller = new AbortController()
+      pollAbortRef.current = controller
+      const paid = await pollPaymentStatus(pendingChallenge.paymentHash, 1800, 2000, controller.signal)
+      if (controller.signal.aborted) return
+      if (!paid) {
+        setError("Still waiting for your payment — we'll credit your balance automatically as soon as it lands. You can close this safely.")
+        return
+      }
+      await promote()
+    } catch {
+      setError("Failed to check payment status. Try again.")
+    } finally {
+      setLoading(false)
+    }
+  }, [pendingChallenge, refreshBalance])
 
 
 
@@ -210,6 +291,7 @@ export function BudgetModal() {
     pollAbortRef.current = controller
     try {
       const challenge = await fetchBuyLsatChallenge(firstPurchaseAmount)
+      setPendingChallenge(savePendingLsat(challenge, firstPurchaseAmount))
       setFirstPurchaseRequest(challenge.invoice)
       setStep("first-invoice")
 
@@ -228,6 +310,8 @@ export function BudgetModal() {
           preimage: "",
         }),
       )
+      clearPendingLsat()
+      setPendingChallenge(null)
 
       await refreshBalance()
       setReachedViaFirstPurchase(true)
@@ -457,7 +541,40 @@ export function BudgetModal() {
           {/* Step: First Purchase — amount input */}
           {step === "first-purchase" && (
             <>
-
+              {pendingChallenge && (
+                <>
+                  <div className="rounded-md border border-amber/30 bg-amber/5 p-3 space-y-2.5">
+                    <div className="flex items-start gap-2">
+                      <Zap className="h-4 w-4 text-amber shrink-0 mt-0.5" />
+                      <div className="flex-1 space-y-0.5">
+                        <p className="text-xs font-medium text-foreground">
+                          Pending invoice for {pendingChallenge.amount.toLocaleString()} sats
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          You started a top-up earlier. Pay this invoice or generate a new one below.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleResumePending}
+                      disabled={loading}
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs"
+                    >
+                      {loading ? (
+                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="mr-2 h-3.5 w-3.5" />
+                      )}
+                      {loading ? "Checking..." : "Pay Pending Invoice"}
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
+                    <div className="h-px flex-1 bg-border/40" />
+                    <span>or generate new</span>
+                    <div className="h-px flex-1 bg-border/40" />
+                  </div>
+                </>
+              )}
 
               <div className="grid grid-cols-4 gap-2">
                 {PRESET_AMOUNTS.map((preset) => (
