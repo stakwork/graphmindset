@@ -33,7 +33,7 @@ export function AppLayout() {
 
   return (
     <>
-      <div className="grid h-screen w-screen overflow-hidden grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+      <div className="grid h-screen w-screen overflow-hidden grid-cols-[480px_minmax(0,1fr)]">
         <LeftPane />
         <GraphPane />
       </div>
