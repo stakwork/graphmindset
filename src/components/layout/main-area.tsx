@@ -8,10 +8,11 @@ import { FeedView } from "@/components/feed/feed-view"
 import { SourcesPanel } from "./sources-panel"
 import { MyContentPanel } from "./my-content-panel"
 import { ClipsPanel } from "./clips-panel"
+import { FollowingPanel } from "./following-panel"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { cn } from "@/lib/utils"
 
-type Mode = "preview" | "sources" | "mycontent" | "clips" | "feed"
+type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "feed"
 
 export function MainArea() {
   const selectedNode = useGraphStore((s) => s.selectedNode)
@@ -19,9 +20,11 @@ export function MainArea() {
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const clipsOpen = useAppStore((s) => s.clipsOpen)
+  const followingOpen = useAppStore((s) => s.followingOpen)
   const setSourcesOpen = useAppStore((s) => s.setSourcesOpen)
   const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
   const setClipsOpen = useAppStore((s) => s.setClipsOpen)
+  const setFollowingOpen = useAppStore((s) => s.setFollowingOpen)
   const schemas = useSchemaStore((s) => s.schemas)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
@@ -29,6 +32,7 @@ export function MainArea() {
     if (sourcesOpen) return "sources"
     if (myContentOpen) return "mycontent"
     if (clipsOpen) return "clips"
+    if (followingOpen) return "following"
     if (selectedNode) return "preview"
     return "feed"
   }
@@ -78,6 +82,11 @@ export function MainArea() {
             <ClipsPanel onClose={() => setClipsOpen(false)} />
           </CenteredPanel>
         )}
+        {mode === "following" && (
+          <CenteredPanel>
+            <FollowingPanel onClose={() => setFollowingOpen(false)} />
+          </CenteredPanel>
+        )}
         {mode === "feed" && <FeedView />}
       </div>
     </div>
@@ -88,6 +97,7 @@ function labelFor(mode: Mode, nodeType: string | undefined, searchTerm: string):
   if (mode === "sources") return "Sources"
   if (mode === "mycontent") return "My Content"
   if (mode === "clips") return "Latest Clips"
+  if (mode === "following") return "following"
   if (mode === "preview") return nodeType ?? "Node"
   return searchTerm ? `Search · ${searchTerm}` : "Latest"
 }
