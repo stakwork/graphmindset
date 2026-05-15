@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search as SearchIcon, Bookmark } from "lucide-react"
+import { Search as SearchIcon, Bookmark, Clock } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -132,6 +132,15 @@ export function FeedView() {
   return (
     <div className="h-full w-full overflow-y-auto overflow-x-hidden">
       {showHotTakes && <HotTakes />}
+
+      {showHotTakes && (
+        <div className="max-w-3xl mx-auto px-3 sm:px-6 pt-6 pb-2">
+          <div className="border-t border-border/40 pt-4 flex items-center gap-2">
+            <Clock className="h-4 w-4 text-primary" />
+            <span className="font-semibold text-sm text-foreground">Latest</span>
+          </div>
+        </div>
+      )}
 
       {typeCounts.length > 1 && (
         <FilterChips
