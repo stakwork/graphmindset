@@ -39,6 +39,8 @@ const INTERNAL_FIELDS = new Set([
   "impression_count", "bookmark_count", "followers",
   // TwitterAccount
   "image_url", "author_id", "verified_type", "is_identity_verified",
+  // Chapter system-set fields
+  "is_ad",
 ])
 
 function isUrl(value: string): boolean {
