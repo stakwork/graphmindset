@@ -7,7 +7,7 @@ import { useSchemaStore } from "@/stores/schema-store"
 import { GraphCanvas } from "./graph-canvas"
 import { SearchBar } from "@/components/search/search-bar"
 import { UniverseHeader } from "@/components/layout/universe-header"
-import { Toolkit } from "@/components/layout/toolkit"
+import { Toolkit, ToolkitFAB } from "@/components/layout/toolkit"
 import { displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 
@@ -121,6 +121,14 @@ export function GraphPane() {
             onToggleFollowing={() => openPanel(toggleFollowing)}
           />
         </div>
+        <ToolkitFAB
+          sourcesOpen={sourcesOpen}
+          onToggleSources={() => openPanel(toggleSources)}
+          myContentOpen={myContentOpen}
+          onToggleMyContent={() => openPanel(toggleMyContent)}
+          followingOpen={followingOpen}
+          onToggleFollowing={() => openPanel(toggleFollowing)}
+        />
       </div>
 
       <div className="relative z-20 px-5 pb-5 pt-3 bg-gradient-to-t from-background/95 via-background/70 to-transparent">

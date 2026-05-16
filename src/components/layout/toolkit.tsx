@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   Layers,
@@ -13,6 +13,8 @@ import {
   Tag,
   ClipboardList,
   Heart,
+  Menu,
+  X,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUserStore } from "@/stores/user-store"
@@ -128,7 +130,7 @@ export function Toolkit({
   const connectionActive = sphinxConnected || weblnAvailable
 
   return (
-    <div className="flex flex-col items-stretch gap-0.5 rounded-md border border-border/50 bg-background/70 backdrop-blur-sm px-0.5 py-1 shadow-[0_8px_30px_oklch(0_0_0/0.45)]">
+    <div className="hidden sm:flex flex-col items-stretch gap-0.5 rounded-md border border-border/50 bg-background/70 backdrop-blur-sm px-0.5 py-1 shadow-[0_8px_30px_oklch(0_0_0/0.45)]">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -215,5 +217,133 @@ export function Toolkit({
         </>
       )}
     </div>
+  )
+}
+
+export function ToolkitFAB({
+  sourcesOpen,
+  onToggleSources,
+  myContentOpen,
+  onToggleMyContent,
+  followingOpen,
+  onToggleFollowing,
+}: {
+  sourcesOpen: boolean
+  onToggleSources: () => void
+  myContentOpen: boolean
+  onToggleMyContent: () => void
+  followingOpen: boolean
+  onToggleFollowing: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const router = useRouter()
+  const { isAdmin, budget } = useUserStore()
+  const openModal = useModalStore((s) => s.open)
+  const { pendingCount } = useReviewStore()
+
+  const formattedBudget =
+    budget !== null && budget !== undefined ? formatSatsCompact(budget) : "--"
+
+  const sphinxConnected = typeof window !== "undefined" && isSphinx()
+  const weblnAvailable = typeof window !== "undefined" && hasWebLN()
+  const connectionLabel = sphinxConnected
+    ? "Sphinx Connected"
+    : weblnAvailable
+      ? "WebLN Available"
+      : "Browser Mode"
+  const connectionActive = sphinxConnected || weblnAvailable
+
+  return (
+    <>
+      {/* Backdrop */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 sm:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* FAB + popup wrapper */}
+      <div className="fixed bottom-20 right-4 z-50 sm:hidden flex flex-col items-end gap-2">
+        {/* Popup — opens upward */}
+        {open && (
+          <div className="flex flex-col gap-0.5 rounded-md border border-border/50 bg-background/90 backdrop-blur-sm px-1 py-1 shadow-xl mb-2">
+            {/* Budget row */}
+            <button
+              onClick={() => { openModal("budget"); setOpen(false) }}
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-muted-foreground hover:bg-muted/40"
+            >
+              <Zap className="h-4 w-4 text-amber-400" />
+              <span className="text-xs">{formattedBudget} sats</span>
+            </button>
+            {/* Connection indicator */}
+            <div className="flex items-center gap-2 px-3 py-2">
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  connectionActive ? "bg-emerald-400" : "bg-muted-foreground/40"
+                )}
+              />
+              <span className="text-xs text-muted-foreground">{connectionLabel}</span>
+            </div>
+            <div className="my-1 mx-2 h-px bg-border/60" />
+            {/* Action buttons — icon + label */}
+            {[
+              { icon: Plus, label: "Add Content", action: () => openModal("addContent"), active: false },
+              { icon: Tag, label: "Add Topic", action: () => openModal("addNode"), active: false },
+              { icon: BookMarked, label: "My Content", action: onToggleMyContent, active: myContentOpen },
+              { icon: Heart, label: "Following", action: onToggleFollowing, active: followingOpen },
+              { icon: Layers, label: "Sources", action: onToggleSources, active: sourcesOpen },
+            ].map(({ icon: Icon, label, action, active }) => (
+              <button
+                key={label}
+                onClick={() => { action(); setOpen(false) }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 rounded-md transition-colors",
+                  "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                  active && "text-primary bg-primary/10"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="text-xs">{label}</span>
+              </button>
+            ))}
+            {isAdmin && (
+              <>
+                <div className="my-1 mx-2 h-px bg-border/60" />
+                {[
+                  { icon: Network, label: "Ontology", action: () => router.push("/ontology") },
+                  {
+                    icon: ClipboardList,
+                    label: `Reviews${pendingCount > 0 ? ` (${pendingCount})` : ""}`,
+                    action: () => router.push("/admin/reviews"),
+                  },
+                  { icon: Settings, label: "Settings", action: () => openModal("settings") },
+                ].map(({ icon: Icon, label, action }) => (
+                  <button
+                    key={label}
+                    onClick={() => { action(); setOpen(false) }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="text-xs">{label}</span>
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* FAB button */}
+        <button
+          type="button"
+          aria-label={open ? "Close menu" : "Open menu"}
+          onClick={() => setOpen((o) => !o)}
+          className="h-12 w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center transition-transform active:scale-95"
+        >
+          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </div>
+    </>
   )
 }
