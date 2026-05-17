@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor, fireEvent } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react"
 import React from "react"
 
 // --- mock api ---
@@ -59,6 +59,7 @@ vi.mock("@/components/layout/node-preview-panel", () => ({
 }))
 
 import { MyContentPanel } from "@/components/layout/my-content-panel"
+import { useAppStore } from "@/stores/app-store"
 
 const TWO_NODES = {
   nodes: [
@@ -504,5 +505,42 @@ describe("MyContentPanel – L402 identity paths", () => {
     expect(
       screen.getByRole("button", { name: /add content/i })
     ).toBeInTheDocument()
+  })
+})
+
+describe("MyContentPanel — myContentRefreshKey re-fetch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = {}
+    mockGetL402Value = ""
+    useAppStore.setState({ myContentRefreshKey: 0 })
+  })
+
+  it("re-fetches when myContentRefreshKey increments", async () => {
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    mockApiGet.mockResolvedValue(TWO_NODES)
+
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
+    })
+
+    const contentCallsBefore = mockApiGet.mock.calls.filter(([url]: [string]) =>
+      url.startsWith("/v2/content")
+    ).length
+    expect(contentCallsBefore).toBe(1)
+
+    // Simulate bumpMyContentRefresh
+    act(() => {
+      useAppStore.getState().bumpMyContentRefresh()
+    })
+
+    await waitFor(() => {
+      const contentCallsAfter = mockApiGet.mock.calls.filter(([url]: [string]) =>
+        url.startsWith("/v2/content")
+      ).length
+      expect(contentCallsAfter).toBe(2)
+    })
   })
 })
