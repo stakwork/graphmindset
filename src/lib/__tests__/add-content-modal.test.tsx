@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import React from "react"
@@ -35,9 +35,13 @@ vi.mock("@/stores/user-store", () => ({
 
 // --- App store mock ---
 const mockSetMyContentOpen = vi.fn()
+const mockBumpMyContentRefresh = vi.fn()
 
 vi.mock("@/stores/app-store", () => {
-  const getState = () => ({ setMyContentOpen: mockSetMyContentOpen })
+  const getState = () => ({
+    setMyContentOpen: mockSetMyContentOpen,
+    bumpMyContentRefresh: mockBumpMyContentRefresh,
+  })
   return {
     useAppStore: {
       getState,
@@ -330,5 +334,61 @@ describe("AddContentModal — subscription source callout", () => {
     expect(
       screen.queryByText(/This source will be ingested continuously on a schedule/i)
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("AddContentModal — bumpMyContentRefresh on submission", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockActiveModal = "addContent"
+    mockGetL402.mockResolvedValue(null)
+    mockPayL402.mockResolvedValue(undefined)
+    mockGetPrice.mockResolvedValue(0)
+    mockApiPost.mockResolvedValue({})
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSubscriptionSource.mockReturnValue(false)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+  })
+
+  it("calls bumpMyContentRefresh after successful non-subscription submission", async () => {
+    mockDetectSourceType.mockResolvedValue("youtube_video")
+
+    render(<AddContentModal />)
+
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/watch?v=newvideo")
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /add source/i })).not.toBeDisabled()
+    })
+
+    await userEvent.click(screen.getByRole("button", { name: /add source/i }))
+
+    // Wait for API post and then the 1200ms timeout to fire
+    await waitFor(() => {
+      expect(mockBumpMyContentRefresh).toHaveBeenCalled()
+    }, { timeout: 3000 })
+    expect(mockSetMyContentOpen).toHaveBeenCalledWith(true)
+  }, 10000)
+
+  it("does NOT call bumpMyContentRefresh for subscription sources", async () => {
+    // For non-admins, subscription sources produce a disabled button (isSubscriptionBlocked).
+    mockDetectSourceType.mockResolvedValue("twitter_handle")
+    mockIsSubscriptionSource.mockReturnValue(true)
+
+    render(<AddContentModal />)
+
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://twitter.com/satoshi")
+
+    await waitFor(() => {
+      expect(mockDetectSourceType).toHaveBeenCalled()
+    })
+
+    // Button must be disabled — isSubscriptionBlocked prevents submission
+    const btn = screen.queryByRole("button", { name: /add source/i })
+    expect(btn).toBeDisabled()
+
+    expect(mockBumpMyContentRefresh).not.toHaveBeenCalled()
   })
 })

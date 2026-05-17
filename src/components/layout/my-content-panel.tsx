@@ -16,6 +16,7 @@ import { cookieStorage } from "@/lib/cookie-storage"
 import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useModalStore } from "@/stores/modal-store"
+import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { isInProgress } from "@/lib/node-status"
 import { cn } from "@/lib/utils"
@@ -43,6 +44,7 @@ interface ContentResponse {
 
 export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const { pubKey, isAdmin } = useUserStore()
+  const myContentRefreshKey = useAppStore((s) => s.myContentRefreshKey)
   const schemas = useSchemaStore((s) => s.schemas)
   const openModal = useModalStore((s) => s.open)
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
@@ -118,7 +120,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true
     }
-  }, [mocksEnabled, fetchFromApi, applyResponse])
+  }, [mocksEnabled, fetchFromApi, applyResponse, myContentRefreshKey])
 
   // Fetch purchased nodes when tab switches to 'purchased'
   useEffect(() => {

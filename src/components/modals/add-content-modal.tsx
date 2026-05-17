@@ -236,6 +236,9 @@ export function AddContentModal() {
         // only open My Content for normal (non-cached) submissions.
         if (cacheStatus !== "hit-completed") {
           openMyContent()
+          if (!isSubscriptionSource(detectedType)) {
+            useAppStore.getState().bumpMyContentRefresh()
+          }
         }
       }, 1200)
     } catch (err: unknown) {
@@ -260,6 +263,9 @@ export function AddContentModal() {
             close()
             if (cacheStatus !== "hit-completed") {
               openMyContent()
+              if (!isSubscriptionSource(detectedType)) {
+                useAppStore.getState().bumpMyContentRefresh()
+              }
             }
           }, 1200)
         } catch {
