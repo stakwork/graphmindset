@@ -11,6 +11,7 @@ interface AppState {
   followingOpen: boolean
   graphName: string
   graphDescription: string
+  myContentRefreshKey: number
 }
 
 interface AppActions {
@@ -25,6 +26,7 @@ interface AppActions {
   toggleFollowing: () => void
   closeAllPanels: () => void
   setGraphMeta: (name: string, description: string) => void
+  bumpMyContentRefresh: () => void
 }
 
 export type AppStore = AppState & AppActions
@@ -38,6 +40,7 @@ export const useAppStore = create<AppStore>((set) => ({
   followingOpen: false,
   graphName: "",
   graphDescription: "",
+  myContentRefreshKey: 0,
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setMyContentOpen: (myContentOpen) => set({ myContentOpen, sourcesOpen: false, clipsOpen: false, followingOpen: false }),
@@ -53,4 +56,5 @@ export const useAppStore = create<AppStore>((set) => ({
   closeAllPanels: () => set({ sourcesOpen: false, myContentOpen: false, clipsOpen: false, followingOpen: false }),
   setGraphMeta: (graphName, graphDescription) =>
     set({ graphName, graphDescription }),
+  bumpMyContentRefresh: () => set((s) => ({ myContentRefreshKey: s.myContentRefreshKey + 1 })),
 }))

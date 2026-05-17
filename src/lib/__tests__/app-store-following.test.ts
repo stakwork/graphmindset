@@ -80,3 +80,25 @@ describe("app-store — followingOpen", () => {
     expect(useAppStore.getState().clipsOpen).toBe(true)
   })
 })
+
+describe("app-store — bumpMyContentRefresh", () => {
+  beforeEach(() => {
+    useAppStore.setState({ myContentRefreshKey: 0 })
+  })
+
+  it("myContentRefreshKey defaults to 0", () => {
+    expect(useAppStore.getState().myContentRefreshKey).toBe(0)
+  })
+
+  it("bumpMyContentRefresh increments myContentRefreshKey by 1", () => {
+    useAppStore.getState().bumpMyContentRefresh()
+    expect(useAppStore.getState().myContentRefreshKey).toBe(1)
+  })
+
+  it("bumpMyContentRefresh increments cumulatively on multiple calls", () => {
+    useAppStore.getState().bumpMyContentRefresh()
+    useAppStore.getState().bumpMyContentRefresh()
+    useAppStore.getState().bumpMyContentRefresh()
+    expect(useAppStore.getState().myContentRefreshKey).toBe(3)
+  })
+})
