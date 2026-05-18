@@ -22,12 +22,14 @@ export function GraphPane() {
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const followingOpen = useAppStore((s) => s.followingOpen)
+  const agentOpen = useAppStore((s) => s.agentOpen)
   const clipsOpen = useAppStore((s) => s.clipsOpen)
   const searchTerm = useAppStore((s) => s.searchTerm)
   const graphName = useAppStore((s) => s.graphName)
   const toggleSources = useAppStore((s) => s.toggleSources)
   const toggleMyContent = useAppStore((s) => s.toggleMyContent)
   const toggleFollowing = useAppStore((s) => s.toggleFollowing)
+  const toggleAgent = useAppStore((s) => s.toggleAgent)
 
   function onSelect(node: GraphNode) {
     setSelectedNode(node)
@@ -44,6 +46,7 @@ export function GraphPane() {
     !sourcesOpen &&
     !myContentOpen &&
     !followingOpen &&
+    !agentOpen &&
     !clipsOpen &&
     !selectedNode &&
     !searchTerm
@@ -103,6 +106,8 @@ export function GraphPane() {
             onToggleMyContent={() => openPanel(toggleMyContent)}
             followingOpen={followingOpen}
             onToggleFollowing={() => openPanel(toggleFollowing)}
+            agentOpen={agentOpen}
+            onToggleAgent={() => openPanel(toggleAgent)}
           />
         </div>
         <ToolkitFAB
@@ -112,6 +117,8 @@ export function GraphPane() {
           onToggleMyContent={() => openPanel(toggleMyContent)}
           followingOpen={followingOpen}
           onToggleFollowing={() => openPanel(toggleFollowing)}
+          agentOpen={agentOpen}
+          onToggleAgent={() => openPanel(toggleAgent)}
         />
       </div>
 
