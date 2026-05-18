@@ -83,9 +83,12 @@ vi.mock("@/stores/graph-store", () => ({
   ),
 }))
 
+type PlayerStoreState = { isPlaying: boolean; playingNode: { ref_id: string } | null; setPlayingNode: () => void; setIsPlaying: () => void }
+let playerStoreOverrides: Partial<PlayerStoreState> = {}
+
 vi.mock("@/stores/player-store", () => ({
-  usePlayerStore: (sel: (s: { isPlaying: boolean; playingNode: null; setPlayingNode: () => void; setIsPlaying: () => void }) => unknown) =>
-    sel({ isPlaying: false, playingNode: null, setPlayingNode: vi.fn(), setIsPlaying: vi.fn() }),
+  usePlayerStore: (sel: (s: PlayerStoreState) => unknown) =>
+    sel({ isPlaying: false, playingNode: null, setPlayingNode: vi.fn(), setIsPlaying: vi.fn(), ...playerStoreOverrides }),
 }))
 
 // --- schema icons ---
@@ -1150,5 +1153,41 @@ describe("NodePreviewPanel – WatchButton", () => {
     })
     // Other properties should still render
     expect(screen.queryByText("is_ad")).toBeNull()
+  })
+})
+
+describe("NodePreviewPanel – MediaCard host div marginBottom", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    playerStoreOverrides = {}
+  })
+
+  afterEach(() => {
+    playerStoreOverrides = {}
+  })
+
+  it("reserves at least 52px marginBottom on the host div when the node is actively playing", async () => {
+    const node: GraphNode = {
+      ref_id: "media-playing-1",
+      node_type: "Episode",
+      properties: { name: "Playing Episode", media_url: "https://example.com/episode.mp3" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+    // Simulate the node being the currently playing node
+    playerStoreOverrides = { playingNode: { ref_id: node.ref_id } }
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      // When playing, the host div replaces the Play button — Play Audio should be absent
+      expect(screen.queryByText("Play Audio")).toBeNull()
+    })
+
+    // Find the host div: it has the marginBottom style set
+    const hostDiv = document.querySelector<HTMLElement>("[style*='margin-bottom']")
+    expect(hostDiv).not.toBeNull()
+    const marginBottom = parseInt(hostDiv!.style.marginBottom, 10)
+    expect(marginBottom).toBeGreaterThanOrEqual(52)
   })
 })
