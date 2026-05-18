@@ -8,6 +8,9 @@ import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 import { getLatestNodes } from "@/lib/graph-api"
+import { isMetroTheme } from "@/lib/theme"
+import { metroSeries } from "@/data/metro"
+import type { GraphNode, GraphEdge } from "@/lib/graph-api"
 import { FeedCard } from "./feed-card"
 import { HotTakes } from "./hot-takes"
 import { cn } from "@/lib/utils"
@@ -32,10 +35,18 @@ export function FeedView() {
   }, [searchTerm, clearSelection])
 
   // Mocks mode seeds from fixtures so the Latest feed has content before any search.
+  // Metro theme bypasses the API: the metro dataset lives only in the local
+  // fixture (the platform search/list endpoints return a thin projection
+  // that strips mapX/mapZ, so the overlay can't position bullets from API
+  // payloads alone).
   useEffect(() => {
     if (useGraphStore.getState().nodes.length > 0) return
     if (isMocksEnabled()) {
       setGraphData(MOCK_NODES, MOCK_EDGES)
+      return
+    }
+    if (isMetroTheme()) {
+      setGraphData(metroSeries.nodes as GraphNode[], metroSeries.edges as GraphEdge[])
       return
     }
     let cancelled = false

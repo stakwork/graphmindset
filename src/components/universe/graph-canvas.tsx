@@ -23,6 +23,17 @@ import { useAppStore } from "@/stores/app-store"
 import type { SchemaNode } from "@/app/ontology/page"
 import { HoverPreviewCard } from "./hover-preview-card"
 import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
+import { isMetroTheme } from "@/lib/theme"
+import { metroSeries } from "@/data/metro"
+import {
+  MetroLinesLayer,
+  MetroStationBullets,
+  MetroLegend,
+  METRO_FORCE_GROUPED_TYPES,
+  LORE_Y_LIFT,
+  statusToState,
+  type StationState,
+} from "./metro-overlay"
 
 function nodeLabel(node: ApiNode, schemas: SchemaNode[]): string {
   const props = node.properties
@@ -67,7 +78,12 @@ function apiToGraph(
   nodes: ApiNode[],
   edges: ApiEdge[],
   schemas: SchemaNode[]
-): { graph: Graph; indexMap: Map<number, string>; refIdToIndex: Map<string, number> } {
+): {
+  graph: Graph
+  indexMap: Map<number, string>
+  refIdToIndex: Map<string, number>
+  fixedPositions: Map<number, { x: number; y: number; z: number }>
+} {
   const rawNodes: RawNode[] = nodes.map((n) => ({
     id: n.ref_id,
     label: truncateLabel(nodeLabel(n, schemas)),
@@ -126,6 +142,21 @@ function apiToGraph(
   }
   const orphans = nodes.filter((n) => !reached.has(n.ref_id))
 
+  // Nodes carrying explicit `mapX`/`mapZ` properties opt out of layout —
+  // their position is data-driven (e.g. metro stations on a schematic map),
+  // so they should not be folded into __group_<type> hubs or stray-ring
+  // fallbacks, and their root count shouldn't trigger crowd grouping.
+  const fixedRefIds = new Set<string>()
+  for (const n of nodes) {
+    const p = n.properties as Record<string, unknown> | undefined
+    if (p && typeof p.mapX === "number" && typeof p.mapZ === "number") {
+      fixedRefIds.add(n.ref_id)
+    }
+  }
+  // Metro view is only activated when actual fixed-position data is present.
+  // This keeps the standard graph behavior unchanged for non-metro datasets.
+  const isMetroView = fixedRefIds.size > 0
+
   // ─── 2. Decide which types get a __group_<type> ────────────────────────
   // A type gets its own synthetic group node when it either has orphans or
   // — under the existing crowd-control rule — when there are >10 roots and
@@ -133,7 +164,9 @@ function apiToGraph(
   // have outgoing edges to known nodes. This keeps hierarchy parents (e.g.
   // Episode, which has outgoing HAS → Chapter) surfacing as individuals
   // instead of being collapsed into __group_Episode.
-  const orphanTypes = new Set(orphans.map((o) => o.node_type || "Unknown"))
+  const orphanTypes = new Set(
+    orphans.filter((o) => !fixedRefIds.has(o.ref_id)).map((o) => o.node_type || "Unknown")
+  )
   const hasKnownOut = new Set<string>()
   for (const e of edges) {
     if (incomingCount.has(e.source) && incomingCount.has(e.target)) {
@@ -144,6 +177,7 @@ function apiToGraph(
   if (roots.length > 10) {
     const leafRootCountByType = new Map<string, number>()
     for (const r of roots) {
+      if (fixedRefIds.has(r.ref_id)) continue
       if (hasKnownOut.has(r.ref_id)) continue
       const type = r.node_type || "Unknown"
       leafRootCountByType.set(type, (leafRootCountByType.get(type) ?? 0) + 1)
@@ -152,7 +186,11 @@ function apiToGraph(
       if (count >= 2) crowdGroupedTypes.add(type)
     }
   }
-  const groupedTypes = new Set([...orphanTypes, ...crowdGroupedTypes])
+  // In the metro view, force-group lore types under labeled hubs regardless
+  // of root status — Artyom etc. would otherwise stay as individual nodes and
+  // pull the hop-1 ring into a single arc instead of distributing evenly.
+  const forceGroupedTypes = isMetroView ? METRO_FORCE_GROUPED_TYPES : new Set<string>()
+  const groupedTypes = new Set([...orphanTypes, ...crowdGroupedTypes, ...forceGroupedTypes])
 
   // ─── 3. Bundle by (source, edge_type, target_type) ─────────────────────
   const bundles = new Map<string, ApiEdge[]>()
@@ -211,13 +249,27 @@ function apiToGraph(
     for (const t of groupedTypes) memberByType.set(t, new Set())
     for (const r of roots) {
       if (clusteredTargets.has(r.ref_id)) continue
+      if (fixedRefIds.has(r.ref_id)) continue
       const t = r.node_type || "Unknown"
       if (groupedTypes.has(t)) memberByType.get(t)!.add(r.ref_id)
     }
     for (const o of orphans) {
       if (clusteredTargets.has(o.ref_id)) continue
+      if (fixedRefIds.has(o.ref_id)) continue
       const t = o.node_type || "Unknown"
       if (groupedTypes.has(t)) memberByType.get(t)!.add(o.ref_id)
+    }
+    // Force-grouped types: pull in every node of that type, not just
+    // roots/orphans, so well-connected members still cluster under the hub.
+    if (forceGroupedTypes.size > 0) {
+      for (const n of nodes) {
+        if (clusteredTargets.has(n.ref_id)) continue
+        if (fixedRefIds.has(n.ref_id)) continue
+        const t = n.node_type || "Unknown"
+        if (forceGroupedTypes.has(t) && memberByType.has(t)) {
+          memberByType.get(t)!.add(n.ref_id)
+        }
+      }
     }
     for (const [t, members] of memberByType) {
       if (members.size === 0) continue
@@ -263,13 +315,46 @@ function apiToGraph(
     graph.extraEdges.push({ src, dst, label: e.edge_type })
   }
 
-  return { graph, indexMap, refIdToIndex }
+  // Map graph-node-index → fixed (x, y, z) for nodes that opted out of layout.
+  // `mapY` is optional — defaults to 0 if absent. Consumed by applyLayout to
+  // override the radial-computed position.
+  const fixedPositions = new Map<number, { x: number; y: number; z: number }>()
+  for (let i = 0; i < nodes.length; i++) {
+    if (!fixedRefIds.has(nodes[i].ref_id)) continue
+    const p = nodes[i].properties as Record<string, unknown>
+    const y = typeof p.mapY === "number" ? (p.mapY as number) : 0
+    fixedPositions.set(i, { x: p.mapX as number, y, z: p.mapZ as number })
+  }
+
+  return { graph, indexMap, refIdToIndex, fixedPositions }
 }
 
-function applyLayout(graph: Graph) {
+function applyLayout(
+  graph: Graph,
+  fixedPositions?: Map<number, { x: number; y: number; z: number }>,
+  forceLift = false
+) {
+  // Metro view lifts the lore graph onto a higher Y plane so it floats above
+  // the schematic. Lift when either: stations are present in the dataset
+  // (fixedPositions has entries) OR the caller forces it (metro theme,
+  // dataset replaced by a search result that doesn't include stations).
+  const hasFixed = !!fixedPositions && fixedPositions.size > 0
+  const loreLift = hasFixed || forceLift ? LORE_Y_LIFT : 0
+
   // Bumped from the 30 default — transcript/conversation graphs have chains
   // 40+ deep; truncating leaves the tail at buildGraph's (0,0,0) default.
   const sub = extractInitialSubgraph(graph, 1000)
+
+  // Strip fixed-position nodes out of the radial layout's input layers so
+  // they don't claim slots in the hop-1 angular budget. depthMap is left
+  // intact — GraphView reads it to size/dim each node.
+  if (hasFixed) {
+    const fixed = fixedPositions!
+    sub.neighborsByDepth = sub.neighborsByDepth.map((layer) =>
+      layer.filter((id) => !fixed.has(id))
+    )
+  }
+
   const { positions, treeEdgeSet, childrenOf } = computeRadialLayout(
     sub.centerId,
     sub.neighborsByDepth,
@@ -279,7 +364,18 @@ function applyLayout(graph: Graph) {
 
   for (const [id, pos] of positions) {
     if (id !== VIRTUAL_CENTER && id < graph.nodes.length) {
-      graph.nodes[id].position = pos
+      const fixed = fixedPositions?.get(id)
+      graph.nodes[id].position = fixed ?? { x: pos.x, y: pos.y + loreLift, z: pos.z }
+    }
+  }
+
+  // Fixed-position nodes the BFS never reached (e.g. stations connected only
+  // to other stations in their own subgraph) still need their coords applied.
+  if (hasFixed) {
+    for (const [id, pos] of fixedPositions!) {
+      if (!positions.has(id) && id < graph.nodes.length) {
+        graph.nodes[id].position = pos
+      }
     }
   }
 
@@ -288,7 +384,9 @@ function applyLayout(graph: Graph) {
   // origin. Park them on an outer ring so they stay visible and selectable.
   const stray: number[] = []
   for (let i = 0; i < graph.nodes.length; i++) {
-    if (!positions.has(i)) stray.push(i)
+    if (positions.has(i)) continue
+    if (fixedPositions?.has(i)) continue
+    stray.push(i)
   }
   if (stray.length > 0) {
     let maxR = 0
@@ -303,7 +401,7 @@ function applyLayout(graph: Graph) {
       const angle = i * angleStep
       graph.nodes[stray[i]].position = {
         x: Math.cos(angle) * ringR,
-        y: 0,
+        y: loreLift,
         z: Math.sin(angle) * ringR,
       }
     }
@@ -314,9 +412,12 @@ function applyLayout(graph: Graph) {
   graph.childrenOf = childrenOf
 
   // Snapshot every node's laid-out position. Click handler scales these by
-  // an inflation factor so deeper nodes get R1-sized rings without relaying out.
+  // an inflation factor so deeper nodes get R1-sized rings without relaying
+  // out. Fixed-position nodes are omitted — they have data-driven coords
+  // that must not stretch with the rest of the graph.
   const snapshot = new Map<number, { x: number; y: number; z: number }>()
   for (let i = 0; i < graph.nodes.length; i++) {
+    if (fixedPositions?.has(i)) continue
     const p = graph.nodes[i].position
     snapshot.set(i, { x: p.x, y: p.y, z: p.z })
   }
@@ -455,11 +556,62 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const dataVersion = useGraphStore((s) => s.dataVersion)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
+  // The metro overlay is theme-driven, not data-driven. We want the
+  // schematic to stay visible even when search replaces the graph store
+  // with results that don't include Station nodes — so the lines, bullets
+  // and legend always render from the local metro fixture in metro theme,
+  // independent of whatever the current dataset is.
+  const isMetroView = isMetroTheme()
+  const overlayNodes = isMetroView ? (metroSeries.nodes as ApiNode[]) : []
+  const overlayEdges = isMetroView ? (metroSeries.edges as ApiEdge[]) : []
+
+  // In metro theme, the *interactive* station layer (3D spheres + labels +
+  // hover behavior provided by GraphView) also has to persist through
+  // search, not just the schematic bullets. So we splice fixture stations
+  // and TUNNEL_TO edges into whatever the graph store currently has before
+  // running the radial layout. De-dupe by ref_id / edge identity so a
+  // future search that does return a station won't double-render it.
+  const effectiveNodes = useMemo(() => {
+    if (!isMetroView) return nodes
+    const seen = new Set(nodes.map((n) => n.ref_id))
+    const fixtureStations = (metroSeries.nodes as ApiNode[]).filter(
+      (n) => n.node_type === "Station" && !seen.has(n.ref_id)
+    )
+    return fixtureStations.length > 0 ? [...nodes, ...fixtureStations] : nodes
+  }, [isMetroView, nodes])
+
+  const effectiveEdges = useMemo(() => {
+    if (!isMetroView) return edges
+    const refIds = new Set(effectiveNodes.map((n) => n.ref_id))
+    const seen = new Set(
+      edges.map((e) => `${e.source}|${e.target}|${e.edge_type}`)
+    )
+    // Pull in every fixture edge whose endpoints both exist in the effective
+    // node set. That covers two cases at once:
+    //   1. Station↔Station TUNNEL_TO edges (both stations are in fixture).
+    //   2. Cross-edges from search results to stations — e.g. when the user
+    //      searches "Librarian", the result has the Librarian node but no
+    //      INHABITS edge to Biblioteka, because the backend only returns
+    //      edges between nodes in the result set. The fixture has the edge.
+    // Edges whose other endpoint isn't in the dataset would just dangle,
+    // so we skip them.
+    const extras = (metroSeries.edges as ApiEdge[]).filter(
+      (e) =>
+        !seen.has(`${e.source}|${e.target}|${e.edge_type}`) &&
+        refIds.has(e.source) &&
+        refIds.has(e.target)
+    )
+    return extras.length > 0 ? [...edges, ...extras] : edges
+  }, [isMetroView, edges, effectiveNodes])
+
   const { graph, indexMap, refIdToIndex } = useMemo(() => {
-    const result = apiToGraph(nodes, edges, schemas)
-    applyLayout(result.graph)
+    const result = apiToGraph(effectiveNodes, effectiveEdges, schemas)
+    // Force the Y-lift on the lore graph in metro theme even when the
+    // dataset doesn't carry fixed-position nodes (e.g. after a search).
+    // Otherwise search results would drop to y=0 where the schematic sits.
+    applyLayout(result.graph, result.fixedPositions, isMetroView)
     return result
-  }, [nodes, edges, schemas])
+  }, [effectiveNodes, effectiveEdges, schemas, isMetroView])
 
   // Lowercase type → schema icon name (e.g. "EpisodeIcon"). The pill in
   // GraphView resolves this through schema-icons to a Lucide component.
@@ -474,6 +626,11 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  // Metro overlay focus state — driven by hovering the lines (3D) or the
+  // legend (DOM). null when nothing is hovered, which leaves every line and
+  // bullet at full opacity.
+  const [hoveredLine, setHoveredLine] = useState<string | null>(null)
+  const [hoveredState, setHoveredState] = useState<StationState | null>(null)
 
   // CameraSync drives this each frame using the same lerp curve as GraphView,
   // so geometry inflation and camera dolly stay in lockstep.
@@ -525,6 +682,107 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     }
     return set.size > 0 ? set : null
   }, [nodes])
+
+  // Hovering a legend row spotlights every station in that state — reuses
+  // the search-match plumbing in GraphView (highlights members, dims the
+  // rest). Returns null outside the metro view.
+  const stateHoverMatches = useMemo(() => {
+    if (!isMetroView || !hoveredState) return null
+    const set = new Set<number>()
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].node_type !== "Station") continue
+      const p = nodes[i].properties as Record<string, unknown> | undefined
+      if (!p) continue
+      const status = p.station_status ?? p.status
+      if (statusToState(status, p.faction) === hoveredState) set.add(i)
+    }
+    return set.size > 0 ? set : null
+  }, [nodes, hoveredState, isMetroView])
+
+  // Hovering a metro line spotlights every node tagged with that line.
+  const lineHoverMatches = useMemo(() => {
+    if (!isMetroView || !hoveredLine) return null
+    const set = new Set<number>()
+    for (let i = 0; i < nodes.length; i++) {
+      const p = nodes[i].properties as Record<string, unknown> | undefined
+      const lineStr =
+        (p && typeof p.metro_line === "string" ? p.metro_line : null) ??
+        (p && typeof p.line === "string" ? p.line : null) ??
+        ""
+      const lines = lineStr.split(",").map((s: string) => s.trim().toLowerCase())
+      if (lines.includes(hoveredLine)) set.add(i)
+    }
+    return set.size > 0 ? set : null
+  }, [nodes, hoveredLine, isMetroView])
+
+  // ref_id → set of metro line colors the node is associated with. Stations
+  // contribute their own line property; non-station nodes inherit lines from
+  // any station they share an edge with (1-hop). Used to dim unrelated
+  // lines/bullets when a node is hovered or selected.
+  const nodeToLines = useMemo(() => {
+    if (!isMetroView) return new Map<string, Set<string>>()
+    const stationLines = new Map<string, Set<string>>()
+    for (const n of nodes) {
+      if (n.node_type !== "Station") continue
+      const p = n.properties as Record<string, unknown> | undefined
+      const raw =
+        (p && typeof p.metro_line === "string" ? p.metro_line : null) ??
+        (p && typeof p.line === "string" ? p.line : null) ??
+        ""
+      const lines = new Set(
+        raw.split(",").map((s: string) => s.trim().toLowerCase()).filter(Boolean)
+      )
+      if (lines.size > 0) stationLines.set(n.ref_id, lines)
+    }
+    const map = new Map<string, Set<string>>()
+    for (const [refId, lines] of stationLines) map.set(refId, new Set(lines))
+    for (const e of edges) {
+      const srcLines = stationLines.get(e.source)
+      const dstLines = stationLines.get(e.target)
+      if (srcLines && !stationLines.has(e.target)) {
+        let arr = map.get(e.target)
+        if (!arr) {
+          arr = new Set()
+          map.set(e.target, arr)
+        }
+        for (const l of srcLines) arr.add(l)
+      }
+      if (dstLines && !stationLines.has(e.source)) {
+        let arr = map.get(e.source)
+        if (!arr) {
+          arr = new Set()
+          map.set(e.source, arr)
+        }
+        for (const l of dstLines) arr.add(l)
+      }
+    }
+    return map
+  }, [nodes, edges, isMetroView])
+
+  // Lines currently in focus. Hovering a line directly wins; otherwise the
+  // active node (hover beats select; canvas beats sidebar) contributes its
+  // associated lines. `null` means no dimming — every line at full opacity.
+  const activeLines = useMemo<Set<string> | null>(() => {
+    if (!isMetroView) return null
+    if (hoveredLine) return new Set([hoveredLine])
+    let activeRefId: string | null = null
+    if (hoveredCardNode) activeRefId = hoveredCardNode.ref_id
+    else if (sidebarHoveredNode) activeRefId = sidebarHoveredNode.ref_id
+    else if (viewState.mode === "subgraph") {
+      activeRefId = indexMap.get(viewState.selectedNodeId) ?? null
+    } else if (sidebarSelectedNode) activeRefId = sidebarSelectedNode.ref_id
+    if (!activeRefId) return null
+    return nodeToLines.get(activeRefId) ?? new Set()
+  }, [
+    isMetroView,
+    hoveredLine,
+    hoveredCardNode,
+    sidebarHoveredNode,
+    sidebarSelectedNode,
+    viewState,
+    indexMap,
+    nodeToLines,
+  ])
 
   const handleHoverChange = useCallback(
     (nodeId: number | null) => {
@@ -669,6 +927,21 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         style={{ background: "oklch(0.06 0.02 260)" }}
       >
         <ambientLight intensity={0.3} />
+        {isMetroView && (
+          <>
+            <MetroLinesLayer
+              nodes={overlayNodes}
+              edges={overlayEdges}
+              onLineHover={setHoveredLine}
+              activeLines={activeLines}
+            />
+            <MetroStationBullets
+              nodes={overlayNodes}
+              activeLines={activeLines}
+              activeState={hoveredState}
+            />
+          </>
+        )}
         <GraphView
           graph={graph}
           viewState={viewState}
@@ -676,7 +949,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           onHoverChange={handleHoverChange}
           externalHoveredId={externalHoveredId}
           externalSelectedId={externalSelectedId}
-          searchMatches={searchMatches}
+          searchMatches={lineHoverMatches ?? stateHoverMatches ?? searchMatches}
           searchTerm={searchTerm}
           nodeTypeIcons={nodeTypeIcons}
           onGraphClick={() => {
@@ -721,6 +994,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       )}
 
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
+
+      {isMetroView && (
+        <MetroLegend hoveredState={hoveredState} onHoverState={setHoveredState} />
+      )}
     </div>
   )
 }
