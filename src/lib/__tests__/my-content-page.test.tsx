@@ -1,6 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react"
 import React from "react"
+import EventEmitter from "events"
+
+// --- mock @/lib/socket ---
+// Provides a fake Socket (EventEmitter) so tests can simulate socket events
+// without a real network connection.
+class FakeSocket extends EventEmitter {
+  connected = false
+  on(event: string, listener: (...args: unknown[]) => void) { return super.on(event, listener) }
+  off(event: string, listener: (...args: unknown[]) => void) { return super.off(event, listener) }
+  disconnect() { this.connected = false; return this }
+}
+
+let fakeSocket: FakeSocket
+const mockGetSocket = vi.fn(() => fakeSocket)
+
+vi.mock("@/lib/socket", () => ({
+  getSocket: (...args: unknown[]) => mockGetSocket(...args),
+  disconnectSocket: vi.fn(),
+}))
 
 // --- mock api ---
 const mockApiGet = vi.fn()
@@ -60,6 +79,13 @@ vi.mock("@/components/layout/node-preview-panel", () => ({
 
 import { MyContentPanel } from "@/components/layout/my-content-panel"
 import { useAppStore } from "@/stores/app-store"
+
+// initialise a fresh FakeSocket before every test so the module-level
+// singleton reference inside the mock is always up-to-date
+beforeEach(() => {
+  fakeSocket = new FakeSocket()
+  mockGetSocket.mockReturnValue(fakeSocket)
+})
 
 const TWO_NODES = {
   nodes: [
@@ -542,5 +568,101 @@ describe("MyContentPanel — myContentRefreshKey re-fetch", () => {
       ).length
       expect(contentCallsAfter).toBe(2)
     })
+  })
+})
+
+describe("MyContentPanel — Socket.IO integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    fakeSocket = new FakeSocket()
+    mockGetSocket.mockReturnValue(fakeSocket)
+  })
+
+  const IN_PROGRESS_RESPONSE = {
+    nodes: [
+      { node_type: "Tweet", ref_id: "ref-ws-1", properties: { name: "WS Node", status: "processing" } },
+    ],
+    totalCount: 1,
+    totalProcessing: 1,
+  }
+
+  it("node_updated event updates node status in-place without additional fetch", async () => {
+    mockApiGet.mockResolvedValue(IN_PROGRESS_RESPONSE)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText("WS Node")).toBeInTheDocument())
+
+    const callsBefore = mockApiGet.mock.calls.filter(([url]: [string]) =>
+      url.startsWith("/v2/content")
+    ).length
+
+    // Simulate socket connect + node settled via push event
+    act(() => {
+      fakeSocket.connected = true
+      fakeSocket.emit("connect")
+      fakeSocket.emit("node_updated", { ref_id: "ref-ws-1", status: "done" })
+    })
+
+    // No extra /v2/content fetch — update came from socket
+    expect(
+      mockApiGet.mock.calls.filter(([url]: [string]) => url.startsWith("/v2/content")).length
+    ).toBe(callsBefore)
+
+    // Banner must clear because all in-progress nodes settled via socket
+    await waitFor(() =>
+      expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+    )
+  })
+
+  it("does NOT poll while socket is connected — only initial load fetch fires", async () => {
+    // Socket starts already-connected so the polling gate is blocked from the start
+    fakeSocket.connected = true
+    mockApiGet.mockResolvedValue(IN_PROGRESS_RESPONSE)
+
+    render(<MyContentPanel onClose={() => {}} />)
+
+    // Emit connect synchronously so isSocketConnected flips true before the
+    // polling effect evaluates hasInProgress
+    act(() => { fakeSocket.emit("connect") })
+
+    await waitFor(() => expect(screen.getByText("WS Node")).toBeInTheDocument())
+
+    // Wait a polling cycle to confirm no extra fetches occurred
+    await new Promise((r) => setTimeout(r, 100))
+
+    // Only the initial load fetch should have fired, no poll calls
+    const contentCalls = mockApiGet.mock.calls.filter(([url]: [string]) =>
+      url.startsWith("/v2/content")
+    ).length
+    expect(contentCalls).toBe(1)
+  })
+
+  it("registers polling interval after socket disconnects", async () => {
+    // Start with socket connected so the polling gate is initially blocked
+    fakeSocket.connected = true
+    mockApiGet.mockResolvedValue(IN_PROGRESS_RESPONSE)
+
+    render(<MyContentPanel onClose={() => {}} />)
+    act(() => { fakeSocket.emit("connect") })
+    await waitFor(() => expect(screen.getByText("WS Node")).toBeInTheDocument())
+
+    // Snapshot setInterval call count — should be zero while connected
+    const setIntervalSpy = vi.spyOn(global, "setInterval")
+    const callsWhileConnected = setIntervalSpy.mock.calls.filter(([, ms]) => ms === 5000).length
+    expect(callsWhileConnected).toBe(0)
+
+    // Socket drops — polling effect re-evaluates and must register a setInterval
+    act(() => {
+      fakeSocket.connected = false
+      fakeSocket.emit("disconnect")
+    })
+
+    await waitFor(() => {
+      const callsAfterDisconnect = setIntervalSpy.mock.calls.filter(([, ms]) => ms === 5000).length
+      expect(callsAfterDisconnect).toBeGreaterThan(0)
+    })
+
+    setIntervalSpy.mockRestore()
   })
 })
