@@ -17,7 +17,6 @@ export const DISPLAY_KEY_FALLBACKS = [
   "text",
   "content",
   "body",
-  "source_link",
 ] as const
 
 export function pickString(
@@ -80,6 +79,14 @@ export function resolveNodeTitle(node: GraphNode, schemas: SchemaNode[]): string
   for (const key of DISPLAY_KEY_FALLBACKS) {
     const v = pickString(node.properties, key)
     if (v) return capTitle(v)
+  }
+  const rawSourceLink = pickString(node.properties, "source_link")
+  if (rawSourceLink) {
+    try {
+      return capTitle(new URL(rawSourceLink).hostname)
+    } catch {
+      // malformed URL — fall through to ref_id
+    }
   }
   return node.ref_id
 }
