@@ -126,7 +126,8 @@ describe("ReviewRow", () => {
     const { getByText } = render(
       <ReviewRow schemas={[]} review={makeReview({ status: "pending" })} onRefresh={noop} />
     )
-    expect(getByText("Approve")).toBeTruthy()
+    // merge_nodes action uses "Merge" as the approve verb (ACTION_LABELS)
+    expect(getByText("Merge")).toBeTruthy()
     expect(getByText("Dismiss")).toBeTruthy()
   })
 
@@ -134,7 +135,7 @@ describe("ReviewRow", () => {
     const { queryByText } = render(
       <ReviewRow schemas={[]} review={makeReview({ status: "approved" })} onRefresh={noop} />
     )
-    expect(queryByText("Approve")).toBeNull()
+    expect(queryByText("Merge")).toBeNull()
     expect(queryByText("Dismiss")).toBeNull()
   })
 
@@ -142,7 +143,7 @@ describe("ReviewRow", () => {
     const { queryByText } = render(
       <ReviewRow schemas={[]} review={makeReview({ status: "dismissed" })} onRefresh={noop} />
     )
-    expect(queryByText("Approve")).toBeNull()
+    expect(queryByText("Merge")).toBeNull()
     expect(queryByText("Dismiss")).toBeNull()
   })
 
@@ -150,7 +151,7 @@ describe("ReviewRow", () => {
     const { queryByText } = render(
       <ReviewRow schemas={[]} review={makeReview({ status: "failed" })} onRefresh={noop} />
     )
-    expect(queryByText("Approve")).toBeNull()
+    expect(queryByText("Merge")).toBeNull()
     expect(queryByText("Dismiss")).toBeNull()
   })
 
@@ -193,8 +194,9 @@ describe("ReviewRow", () => {
     )
 
     // First click opens the confirm popover
-    await user.click(getByText("Approve"))
-    expect(getByText("Approve this merge?")).toBeTruthy()
+    // merge_nodes action uses "Merge" as the approve verb (ACTION_LABELS)
+    await user.click(getByText("Merge"))
+    expect(getByText("Merge these nodes?")).toBeTruthy()
 
     // Confirm in the popover triggers the API
     await user.click(getByText("Confirm"))
@@ -213,7 +215,8 @@ describe("ReviewRow", () => {
       <ReviewRow schemas={[]} review={makeReview()} onRefresh={noop} />
     )
 
-    await user.click(getByText("Approve"))
+    // merge_nodes action uses "Merge" as the approve verb (ACTION_LABELS)
+    await user.click(getByText("Merge"))
     await user.click(getByText("Confirm"))
 
     const errEl = await findByText(/no handler registered for action: supersede/)
@@ -377,9 +380,10 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // Row renders with an svg icon and subject count
+    // soft_delete action uses rowLabel: "Hide [displayName]" — the subject node
+    // has name "Mock Episode", so the row label becomes "Hide Mock Episode".
     expect(container.querySelector("svg")).toBeTruthy()
-    expect(getByText(/1 subject/)).toBeTruthy()
+    expect(getByText(/Hide Mock Episode/)).toBeTruthy()
   })
 
   it("renders topic_review_candidate row without errors", () => {
@@ -402,9 +406,10 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // Row renders with an svg icon and subject count
+    // soft_delete action uses rowLabel: "Hide [displayName]" — the subject node
+    // has name "Orphaned Topic", so the row label becomes "Hide Orphaned Topic".
     expect(container.querySelector("svg")).toBeTruthy()
-    expect(getByText(/1 subject/)).toBeTruthy()
+    expect(getByText(/Hide Orphaned Topic/)).toBeTruthy()
   })
 })
 

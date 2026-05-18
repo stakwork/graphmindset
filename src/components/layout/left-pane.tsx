@@ -9,6 +9,7 @@ import { MyContentPanel } from "./my-content-panel"
 import { ClipsPanel } from "./clips-panel"
 import { FollowingPanel } from "./following-panel"
 import { NodePreviewPanel } from "./node-preview-panel"
+import { cn } from "@/lib/utils"
 import { AgentPanel } from "@/components/agent/agent-panel"
 
 type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "agent" | "feed"
@@ -53,7 +54,9 @@ export function LeftPane() {
         {mode === "clips" && <ClipsPanel onClose={() => setClipsOpen(false)} />}
         {mode === "following" && <FollowingPanel onClose={() => setFollowingOpen(false)} />}
         {mode === "agent" && <AgentPanel onClose={() => setAgentOpen(false)} />}
-        {mode === "feed" && <FeedView />}
+        <div className={cn("h-full w-full", mode !== "feed" && "hidden")}>
+          <FeedView />
+        </div>
       </div>
     </aside>
   )
