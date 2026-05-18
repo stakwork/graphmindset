@@ -2,7 +2,7 @@
 
 import { Heart, MessageCircle, Repeat2, Eye, Play, BadgeCheck } from "lucide-react"
 import { parseTimestamp } from "@/lib/date-format"
-import { pickString, resolveNodeTitle, resolveNodeThumbnail } from "@/lib/node-display"
+import { pickString, resolveNodeBody, resolveNodeTitle, resolveNodeThumbnail, unescapeText } from "@/lib/node-display"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { cn, formatCompactNumber } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
@@ -19,17 +19,6 @@ function timeAgo(value: unknown): string | null {
   return `${Math.floor(diff / (86400 * 30))}mo`
 }
 
-function resolveBody(node: GraphNode): string | undefined {
-  const p = node.properties
-  return (
-    pickString(p, "description") ||
-    pickString(p, "summary") ||
-    pickString(p, "bio") ||
-    pickString(p, "claim_text") ||
-    pickString(p, "text")
-  )
-}
-
 interface FeedCardProps {
   node: GraphNode
   schemas: SchemaNode[]
@@ -42,8 +31,9 @@ export function FeedCard({ node, schemas, selected, onSelect, onHover }: FeedCar
   const schema = schemas.find((s) => s.type === (node.node_type ?? "Unknown"))
   const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
   const p = node.properties || {}
-  const title = resolveNodeTitle(node, schemas)
-  const body = resolveBody(node)
+  const title = unescapeText(resolveNodeTitle(node, schemas))
+  const rawBody = resolveNodeBody(node, schemas)
+  const body = rawBody ? unescapeText(rawBody) : undefined
   const thumb = resolveNodeThumbnail(node)
   const avatar = pickString(p, "image_url") || thumb
   const handle = pickString(p, "twitter_handle")
