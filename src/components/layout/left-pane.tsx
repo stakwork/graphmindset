@@ -9,8 +9,9 @@ import { MyContentPanel } from "./my-content-panel"
 import { ClipsPanel } from "./clips-panel"
 import { FollowingPanel } from "./following-panel"
 import { NodePreviewPanel } from "./node-preview-panel"
+import { AgentPanel } from "@/components/agent/agent-panel"
 
-type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "feed"
+type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "agent" | "feed"
 
 export function LeftPane() {
   const selectedNode = useGraphStore((s) => s.selectedNode)
@@ -19,13 +20,16 @@ export function LeftPane() {
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const clipsOpen = useAppStore((s) => s.clipsOpen)
   const followingOpen = useAppStore((s) => s.followingOpen)
+  const agentOpen = useAppStore((s) => s.agentOpen)
   const setSourcesOpen = useAppStore((s) => s.setSourcesOpen)
   const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
   const setClipsOpen = useAppStore((s) => s.setClipsOpen)
   const setFollowingOpen = useAppStore((s) => s.setFollowingOpen)
+  const setAgentOpen = useAppStore((s) => s.setAgentOpen)
   const schemas = useSchemaStore((s) => s.schemas)
 
   function pickMode(): Mode {
+    if (agentOpen) return "agent"
     if (sourcesOpen) return "sources"
     if (myContentOpen) return "mycontent"
     if (followingOpen) return "following"
@@ -48,6 +52,7 @@ export function LeftPane() {
         {mode === "mycontent" && <MyContentPanel onClose={() => setMyContentOpen(false)} />}
         {mode === "clips" && <ClipsPanel onClose={() => setClipsOpen(false)} />}
         {mode === "following" && <FollowingPanel onClose={() => setFollowingOpen(false)} />}
+        {mode === "agent" && <AgentPanel onClose={() => setAgentOpen(false)} />}
         {mode === "feed" && <FeedView />}
       </div>
     </aside>
