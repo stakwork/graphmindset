@@ -8,20 +8,11 @@ import { GraphCanvas } from "./graph-canvas"
 import { SearchBar } from "@/components/search/search-bar"
 import { UniverseHeader } from "@/components/layout/universe-header"
 import { Toolkit, ToolkitFAB } from "@/components/layout/toolkit"
-import { displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
-
-function nodeReadout(node: GraphNode | null): string {
-  if (!node) return "— · —"
-  const type = displayNodeType(node.node_type)
-  const id = node.ref_id.length > 12 ? `${node.ref_id.slice(0, 12)}…` : node.ref_id
-  return `${type.toUpperCase()} · ${id}`
-}
 
 export function GraphPane() {
   const nodes = useGraphStore((s) => s.nodes)
   const edges = useGraphStore((s) => s.edges)
-  const hoveredNode = useGraphStore((s) => s.hoveredNode)
   const selectedNode = useGraphStore((s) => s.selectedNode)
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
@@ -49,7 +40,6 @@ export function GraphPane() {
   }
 
   const hasData = nodes.length > 0
-  const readout = nodeReadout(hoveredNode ?? selectedNode)
   const isDefaultView =
     !sourcesOpen &&
     !myContentOpen &&
@@ -102,12 +92,6 @@ export function GraphPane() {
         <div className="absolute top-4 left-5 z-20 pointer-events-none">
           <div className="font-mono text-[9px] tracking-[0.22em] uppercase text-muted-foreground/70">
             {nodes.length}n · {edges.length}e
-          </div>
-        </div>
-
-        <div className="absolute bottom-20 left-5 z-20 pointer-events-none">
-          <div className="font-mono text-[9px] tracking-[0.22em] uppercase text-muted-foreground/60">
-            {readout}
           </div>
         </div>
 
