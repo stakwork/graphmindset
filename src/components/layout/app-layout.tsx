@@ -9,6 +9,8 @@ import { BudgetModal } from "@/components/modals/budget-modal"
 import { AddNodeModal } from "@/components/modals/add-node-modal"
 import { CreateNodeModal } from "@/components/modals/create-node-modal"
 import { MediaPlayer } from "@/components/player/media-player"
+import { useDefaultLayout } from "react-resizable-panels"
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
 import { useDeepLink } from "@/hooks/use-deep-link"
@@ -20,6 +22,7 @@ export function AppLayout() {
   useDeepLink()
   useSidebarNeighborFetch()
   usePanelGraphSync()
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "graphmindset-main-layout" })
   const schemas = useSchemaStore((s) => s.schemas)
   const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
@@ -34,10 +37,21 @@ export function AppLayout() {
 
   return (
     <>
-      <div className="grid h-screen w-screen overflow-hidden grid-cols-[480px_minmax(0,1fr)]">
-        <LeftPane />
-        <GraphPane />
-      </div>
+      <ResizablePanelGroup
+        id="main-layout"
+        orientation="horizontal"
+        defaultLayout={defaultLayout ?? { "left-pane": 33, "right-pane": 67 }}
+        onLayoutChanged={onLayoutChanged}
+        className="h-screen w-screen overflow-hidden"
+      >
+        <ResizablePanel id="left-pane" defaultSize="33%" minSize="20%" maxSize="60%">
+          <LeftPane />
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel id="right-pane" defaultSize="67%" minSize="40%">
+          <GraphPane />
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <SettingsModal />
       <AddContentModal />
