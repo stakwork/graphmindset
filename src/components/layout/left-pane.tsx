@@ -28,9 +28,9 @@ export function LeftPane() {
   function pickMode(): Mode {
     if (sourcesOpen) return "sources"
     if (myContentOpen) return "mycontent"
-    if (clipsOpen) return "clips"
     if (followingOpen) return "following"
     if (selectedNode) return "preview"
+    if (clipsOpen) return "clips"
     return "feed"
   }
 
