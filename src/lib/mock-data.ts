@@ -87,6 +87,30 @@ export const MOCK_NODES: GraphNode[] = [
     },
   },
   {
+    ref_id: "n10a",
+    node_type: "Section",
+    properties: {
+      text: "Section 1 — Introduction",
+      summary: "Commerce on the Internet has come to rely almost exclusively on financial institutions serving as trusted third parties to process electronic payments. While the system works well enough for most transactions, it still suffers from the inherent weaknesses of the trust based model.",
+    },
+  },
+  {
+    ref_id: "n10b",
+    node_type: "Section",
+    properties: {
+      text: "Section 2 — Transactions",
+      summary: "We define an electronic coin as a chain of digital signatures. Each owner transfers the coin to the next by digitally signing a hash of the previous transaction and the public key of the next owner and adding these to the end of the coin.",
+    },
+  },
+  {
+    ref_id: "n10c",
+    node_type: "Section",
+    properties: {
+      text: "Section 3 — Timestamp Server",
+      summary: "The solution we propose begins with a timestamp server. A timestamp server works by taking a hash of a block of items to be timestamped and widely publishing the hash, such as in a newspaper or Usenet post.",
+    },
+  },
+  {
     ref_id: "n11",
     node_type: "Claim",
     properties: {
@@ -298,8 +322,36 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
           summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network.",
         },
       },
+      {
+        ref_id: "n10a",
+        node_type: "Section",
+        properties: {
+          text: "Section 1 — Introduction",
+          summary: "Commerce on the Internet has come to rely almost exclusively on financial institutions serving as trusted third parties to process electronic payments. While the system works well enough for most transactions, it still suffers from the inherent weaknesses of the trust based model.",
+        },
+      },
+      {
+        ref_id: "n10b",
+        node_type: "Section",
+        properties: {
+          text: "Section 2 — Transactions",
+          summary: "We define an electronic coin as a chain of digital signatures. Each owner transfers the coin to the next by digitally signing a hash of the previous transaction and the public key of the next owner and adding these to the end of the coin.",
+        },
+      },
+      {
+        ref_id: "n10c",
+        node_type: "Section",
+        properties: {
+          text: "Section 3 — Timestamp Server",
+          summary: "The solution we propose begins with a timestamp server. A timestamp server works by taking a hash of a block of items to be timestamped and widely publishing the hash, such as in a newspaper or Usenet post.",
+        },
+      },
     ],
-    edges: [],
+    edges: [
+      { source: "n6", target: "n10a", edge_type: "HAS", properties: { index: 0 } },
+      { source: "n6", target: "n10b", edge_type: "HAS", properties: { index: 1 } },
+      { source: "n6", target: "n10c", edge_type: "HAS", properties: { index: 2 } },
+    ],
   },
   n9: {
     nodes: [
@@ -366,6 +418,84 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
       },
     ],
     edges: [],
+  },
+  n10a: {
+    nodes: [
+      {
+        ref_id: "n10a",
+        node_type: "Section",
+        properties: {
+          text: "Section 1 — Introduction",
+          summary: "Commerce on the Internet has come to rely almost exclusively on financial institutions serving as trusted third parties to process electronic payments. While the system works well enough for most transactions, it still suffers from the inherent weaknesses of the trust based model.",
+        },
+      },
+      {
+        ref_id: "n6",
+        node_type: "Document",
+        properties: {
+          title: "Bitcoin Whitepaper",
+          source_link: "https://bitcoin.org/bitcoin.pdf",
+          author: "Satoshi Nakamoto",
+          content_type: "paper",
+          summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution.",
+        },
+      },
+    ],
+    edges: [
+      { source: "n6", target: "n10a", edge_type: "HAS", properties: { index: 0 } },
+    ],
+  },
+  n10b: {
+    nodes: [
+      {
+        ref_id: "n10b",
+        node_type: "Section",
+        properties: {
+          text: "Section 2 — Transactions",
+          summary: "We define an electronic coin as a chain of digital signatures. Each owner transfers the coin to the next by digitally signing a hash of the previous transaction and the public key of the next owner and adding these to the end of the coin.",
+        },
+      },
+      {
+        ref_id: "n6",
+        node_type: "Document",
+        properties: {
+          title: "Bitcoin Whitepaper",
+          source_link: "https://bitcoin.org/bitcoin.pdf",
+          author: "Satoshi Nakamoto",
+          content_type: "paper",
+          summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution.",
+        },
+      },
+    ],
+    edges: [
+      { source: "n6", target: "n10b", edge_type: "HAS", properties: { index: 1 } },
+    ],
+  },
+  n10c: {
+    nodes: [
+      {
+        ref_id: "n10c",
+        node_type: "Section",
+        properties: {
+          text: "Section 3 — Timestamp Server",
+          summary: "The solution we propose begins with a timestamp server. A timestamp server works by taking a hash of a block of items to be timestamped and widely publishing the hash, such as in a newspaper or Usenet post.",
+        },
+      },
+      {
+        ref_id: "n6",
+        node_type: "Document",
+        properties: {
+          title: "Bitcoin Whitepaper",
+          source_link: "https://bitcoin.org/bitcoin.pdf",
+          author: "Satoshi Nakamoto",
+          content_type: "paper",
+          summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution.",
+        },
+      },
+    ],
+    edges: [
+      { source: "n6", target: "n10c", edge_type: "HAS", properties: { index: 2 } },
+    ],
   },
   n11: {
     nodes: [
