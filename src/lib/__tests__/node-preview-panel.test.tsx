@@ -1,6 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import React from "react"
+
+// --- mock isSphinx ---
+const { mockIsSphinx } = vi.hoisted(() => ({ mockIsSphinx: vi.fn(() => false) }))
+vi.mock("@/lib/sphinx/detect", () => ({
+  isSphinx: () => mockIsSphinx(),
+  isAndroid: vi.fn(() => false),
+}))
 
 // --- mock getL402 ---
 const { mockGetL402 } = vi.hoisted(() => ({ mockGetL402: vi.fn(() => "") }))
@@ -940,6 +947,51 @@ describe("NodePreviewPanel – share button", () => {
     act(() => { vi.advanceTimersByTime(2000) })
     expect(screen.queryByText("Copied!")).toBeNull()
     vi.useRealTimers()
+  })
+
+  describe("inside Sphinx (isSphinx() === true)", () => {
+    beforeEach(() => {
+      mockIsSphinx.mockReturnValue(true)
+    })
+    afterEach(() => {
+      mockIsSphinx.mockReturnValue(false)
+    })
+
+    it("renders a dropdown trigger instead of a plain share button", async () => {
+      const { fireEvent } = await import("@testing-library/react")
+      const node: GraphNode = { ref_id: "sphinx-node-1", node_type: "Topic", properties: { name: "Sphinx Test" } }
+      render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+      // The trigger button still has the title
+      const trigger = document.querySelector("button[title='Copy share link']")
+      expect(trigger).toBeTruthy()
+      // Open the dropdown
+      fireEvent.click(trigger as HTMLElement)
+      expect(screen.getByText("Copy link")).toBeInTheDocument()
+      expect(screen.getByText("Copy Sphinx link")).toBeInTheDocument()
+    })
+
+    it("'Copy link' writes the web URL to clipboard", async () => {
+      const { fireEvent } = await import("@testing-library/react")
+      const node: GraphNode = { ref_id: "sphinx-node-2", node_type: "Topic", properties: { name: "Sphinx Test" } }
+      render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+      const trigger = document.querySelector("button[title='Copy share link']") as HTMLElement
+      fireEvent.click(trigger)
+      fireEvent.click(screen.getByText("Copy link"))
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://example.com/?id=sphinx-node-2")
+    })
+
+    it("'Copy Sphinx link' writes the sphinx.chat deep link to clipboard", async () => {
+      const { fireEvent } = await import("@testing-library/react")
+      const node: GraphNode = { ref_id: "sphinx-node-3", node_type: "Topic", properties: { name: "Sphinx Test" } }
+      render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+      const trigger = document.querySelector("button[title='Copy share link']") as HTMLElement
+      fireEvent.click(trigger)
+      fireEvent.click(screen.getByText("Copy Sphinx link"))
+      const expectedWebUrl = "https://example.com/?id=sphinx-node-3"
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        `sphinx.chat://?action=webapp&url=${encodeURIComponent(expectedWebUrl)}`
+      )
+    })
   })
 })
 

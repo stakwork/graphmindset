@@ -10,6 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import { payL402 } from "@/lib/sphinx"
+import { isSphinx } from "@/lib/sphinx/detect"
+import { buildSphinxDeepLink } from "@/lib/sphinx/deep-link"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { unlockNode } from "@/lib/unlock-node"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
@@ -488,8 +491,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     }
   }
 
-  function handleShare() {
+  function handleCopyLink() {
     navigator.clipboard.writeText(`${window.location.origin}/?id=${currentNode.ref_id}`).then(() => {
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
+    }).catch(() => { })
+  }
+
+  function handleCopySphinxLink() {
+    navigator.clipboard.writeText(buildSphinxDeepLink(currentNode.ref_id)).then(() => {
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
@@ -547,7 +558,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   // the inline MediaPlayer card (rendered by MediaCard below) already shows
   // the video frame, so both together would be a duplicate.
   const isThisNodePlayingHere = usePlayerStore(
-    (s) => s.playingNode?.ref_id === node.ref_id
+    (s) => s.playingNode?.ref_id === currentNode.ref_id
   )
   const showThumbnail = !!thumbnail && !isThisNodePlayingHere
 
@@ -694,17 +705,36 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           {displayNodeType(nodeType)}
         </Badge>
         <div className="ml-auto flex items-center gap-1.5">
-          <button
-            onClick={handleShare}
-            className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
-            title="Copy share link"
-          >
-            {copied ? (
-              <span className="text-[10px] text-green-500">Copied!</span>
-            ) : (
-              <Link className="h-3.5 w-3.5" />
-            )}
-          </button>
+          {isSphinx() ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                  className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
+                  title="Copy share link"
+                >
+                  {copied ? (
+                    <span className="text-[10px] text-green-500">Copied!</span>
+                  ) : (
+                    <Link className="h-3.5 w-3.5" />
+                  )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleCopyLink}>Copy link</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleCopySphinxLink}>Copy Sphinx link</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <button
+              onClick={handleCopyLink}
+              className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
+              title="Copy share link"
+            >
+              {copied ? (
+                <span className="text-[10px] text-green-500">Copied!</span>
+              ) : (
+                <Link className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
           {hasIdentity && (
             <button
               onClick={async () => {
