@@ -86,12 +86,12 @@ export default function ReviewsPage() {
   }, [isAdmin, router])
 
   const fetchReviews = useCallback(
-    async (currentSkip = 0) => {
+    async (currentSkip = 0, options?: { silent?: boolean }) => {
       if (abortRef.current) abortRef.current.abort()
       const ctrl = new AbortController()
       abortRef.current = ctrl
 
-      setLoading(true)
+      if (!options?.silent) setLoading(true)
       setError(null)
       try {
         const res = await listReviews(
@@ -107,13 +107,13 @@ export default function ReviewsPage() {
         setReviews(res.reviews)
         setTotal(res.total)
         setSkip(currentSkip)
-        setSelectedIds(new Set())
+        if (!options?.silent) setSelectedIds(new Set())
       } catch (err: unknown) {
         if ((err as { name?: string })?.name !== "AbortError") {
           setError("Failed to load reviews")
         }
       } finally {
-        setLoading(false)
+        if (!options?.silent) setLoading(false)
       }
     },
     [statusFilter, actionFilter, sort]
@@ -205,7 +205,7 @@ export default function ReviewsPage() {
         `${failures} of ${selectedReviews.length} ${kind === "approve" ? "approvals" : "dismissals"} failed`
       )
     }
-    await fetchReviews(skip)
+    await fetchReviews(skip, { silent: true })
     refreshPendingCount()
   }
 
@@ -400,7 +400,7 @@ export default function ReviewsPage() {
                     key={review.ref_id}
                     review={review}
                     schemas={schemas}
-                    onRefresh={() => fetchReviews(skip)}
+                    onRefresh={() => fetchReviews(skip, { silent: true })}
                     onCountRefresh={refreshPendingCount}
                     selectable={review.status === "pending"}
                     selected={selectedIds.has(review.ref_id)}
