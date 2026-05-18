@@ -16,7 +16,7 @@ import { usePlayerStore } from "@/stores/player-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
 import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
-import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
+import { pickString, unescapeText, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge, isBlockedStatus } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
@@ -529,12 +529,18 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     }
   }
   if (!title) title = currentNode.ref_id
+  title = unescapeText(title)
 
-  const rawDesc = pickString(props, schema?.description_key)
-    ?? pickString(props, "description")
-  const description = rawDesc && rawDesc.length > 500
-    ? rawDesc.slice(0, 500) + "\u2026"
-    : rawDesc
+  // When the schema points title and description at the same field, the
+  // description is just a longer copy of the title \u2014 skip it.
+  const titleDescSame =
+    !!schema?.title_key && schema.title_key === schema.description_key
+  const rawDesc = titleDescSame
+    ? undefined
+    : pickString(props, schema?.description_key) ?? pickString(props, "description")
+  const description = rawDesc
+    ? unescapeText(rawDesc.length > 500 ? rawDesc.slice(0, 500) + "\u2026" : rawDesc)
+    : undefined
 
   const thumbnail = (props?.image_url ?? props?.thumbnail) as string | undefined
   // Hide the static thumbnail when this node is the one currently playing —
