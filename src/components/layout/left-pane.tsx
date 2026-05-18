@@ -40,7 +40,7 @@ export function LeftPane() {
     <aside className="relative h-full w-full flex flex-col border-r border-border/60 bg-background/60 noise-bg overflow-hidden">
       <div className="absolute inset-y-0 -right-px w-px bg-gradient-to-b from-transparent via-primary/25 to-transparent pointer-events-none" />
 
-      <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
+      <div className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col">
         {mode === "preview" && selectedNode && (
           <NodePreviewPanel node={selectedNode} onBack={clearSelection} schemas={schemas} />
         )}
