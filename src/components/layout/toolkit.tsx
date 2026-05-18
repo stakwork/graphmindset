@@ -178,7 +178,7 @@ export function Toolkit({
       <Divider />
 
       <ToolkitButton icon={Plus} ariaLabel="Add Content" onClick={() => openModal("addContent")} />
-      <ToolkitButton icon={Tag} ariaLabel="Add Topic" onClick={() => openModal("addNode")} />
+      <ToolkitButton icon={Tag} ariaLabel="Add Node" onClick={() => openModal("addNode")} />
       <ToolkitButton
         icon={MessageSquare}
         ariaLabel="Ask the Graph"
@@ -303,7 +303,7 @@ export function ToolkitFAB({
             {/* Action buttons — icon + label */}
             {[
               { icon: Plus, label: "Add Content", action: () => openModal("addContent"), active: false },
-              { icon: Tag, label: "Add Topic", action: () => openModal("addNode"), active: false },
+              { icon: Tag, label: "Add Node", action: () => openModal("addNode"), active: false },
               { icon: MessageSquare, label: "Ask the Graph", action: onToggleAgent ?? (() => {}), active: agentOpen ?? false },
               { icon: BookMarked, label: "My Content", action: onToggleMyContent, active: myContentOpen },
               { icon: Heart, label: "Following", action: onToggleFollowing, active: followingOpen },

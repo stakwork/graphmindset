@@ -97,7 +97,7 @@ describe("ToolkitFAB", () => {
     expect(screen.getByText("My Content")).toBeInTheDocument()
     expect(screen.getByText("Sources")).toBeInTheDocument()
     expect(screen.getByText("Following")).toBeInTheDocument()
-    expect(screen.getByText("Add Topic")).toBeInTheDocument()
+    expect(screen.getByText("Add Node")).toBeInTheDocument()
   })
 
   it("clicking FAB again (Close menu) closes the popup", async () => {
