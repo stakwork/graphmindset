@@ -75,10 +75,15 @@ vi.mock("@/stores/modal-store", () => ({
     sel({ open: mockOpen }),
 }))
 
+import type { GraphNode as GN, GraphEdge as GE } from "@/lib/graph-api"
+
+let mockGraphNodes: GN[] = []
+let mockGraphEdges: GE[] = []
+
 vi.mock("@/stores/graph-store", () => ({
   useGraphStore: Object.assign(
-    (sel: (s: { nodes: never[]; edges: never[]; addNodes: () => void }) => unknown) =>
-      sel({ nodes: [], edges: [], addNodes: vi.fn() }),
+    (sel: (s: { nodes: GN[]; edges: GE[]; addNodes: () => void }) => unknown) =>
+      sel({ nodes: mockGraphNodes, edges: mockGraphEdges, addNodes: vi.fn() }),
     { getState: () => ({ addNodes: vi.fn() }) },
   ),
 }))
@@ -136,6 +141,12 @@ const NODE_B: GraphNode = {
 function makeGraphData(node: GraphNode) {
   return { nodes: [node], edges: [] }
 }
+
+// Reset graph store mocks before each test so history navigation tests don't bleed
+beforeEach(() => {
+  mockGraphNodes = []
+  mockGraphEdges = []
+})
 
 describe("NodePreviewPanel – Connections section smoke test", () => {
   beforeEach(() => {
@@ -1150,5 +1161,98 @@ describe("NodePreviewPanel – WatchButton", () => {
     })
     // Other properties should still render
     expect(screen.queryByText("is_ad")).toBeNull()
+  })
+})
+
+describe("NodePreviewPanel – history navigation", () => {
+  const PEER_NODE: GraphNode = {
+    ref_id: "peer1",
+    node_type: "Topic",
+    properties: { name: "Peer Node" },
+  }
+
+  const EDGE_TO_PEER = { source: BASE_NODE.ref_id, target: PEER_NODE.ref_id, edge_type: "MENTIONS" }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockGraphNodes = [BASE_NODE, PEER_NODE]
+    mockGraphEdges = [EDGE_TO_PEER]
+    // Probe always resolves with full node
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.includes(PEER_NODE.ref_id)) return Promise.resolve(makeGraphData(PEER_NODE))
+      return Promise.resolve(makeGraphData(BASE_NODE))
+    })
+  })
+
+  it("clicking a connection row updates the panel to display the peer node title", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    // Wait for unlocked state to render
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Click the connection row for Peer Node
+    const row = await waitFor(() => screen.getByText("Peer Node").closest("button"))
+    fe.click(row!)
+
+    // Panel should now show the peer node title
+    await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
+  })
+
+  it("Back button with non-empty history returns to the previous node title", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Navigate to peer
+    const row = await waitFor(() => screen.getByText("Peer Node").closest("button"))
+    fe.click(row!)
+    await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
+
+    // Press back — should go back to base node
+    fe.click(screen.getByRole("button", { name: (_, el) => el?.querySelector("svg") !== null && el?.title !== "Copy share link" && el?.title !== "Close panel" && el?.title !== "Watch node" }))
+    // Use ArrowLeft button (first button in header)
+    const backBtn = document.querySelector('[class*="flex h-full"] button:first-child') as HTMLElement
+    fe.click(backBtn!)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+  })
+
+  it("Back button (←) with empty history calls onBack", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    const onBack = vi.fn()
+    render(<NodePreviewPanel node={BASE_NODE} onBack={onBack} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Find and click the ArrowLeft button (first button in header)
+    const buttons = document.querySelectorAll("button")
+    const backBtn = Array.from(buttons).find(
+      (b) => b.querySelector("svg") && b.className.includes("text-muted-foreground") && !b.title
+    )
+    fe.click(backBtn!)
+
+    expect(onBack).toHaveBeenCalled()
+  })
+
+  it("✕ close button always calls onBack regardless of history depth", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    const onBack = vi.fn()
+    render(<NodePreviewPanel node={BASE_NODE} onBack={onBack} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Navigate to peer to build history
+    const row = await waitFor(() => screen.getByText("Peer Node").closest("button"))
+    fe.click(row!)
+    await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
+
+    // Click the ✕ close button
+    const closeBtn = screen.getByTitle("Close panel")
+    fe.click(closeBtn)
+
+    expect(onBack).toHaveBeenCalled()
   })
 })

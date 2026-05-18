@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -597,6 +597,8 @@ export function ParentBreadcrumbs({ nodeRefId, schemas }: ParentBreadcrumbsProps
 // --- Main component ---
 
 export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProps) {
+  const [currentNode, setCurrentNode] = useState<GraphNode>(node)
+  const [history, setHistory] = useState<GraphNode[]>([])
   const [unlockState, setUnlockState] = useState<UnlockState>("loading")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const [price, setPrice] = useState<number | null>(null)
@@ -605,8 +607,29 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [watched, setWatched] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
 
+  // Reset local state when an external node selection replaces the prop
+  useEffect(() => {
+    setCurrentNode(node)
+    setHistory([])
+  }, [node.ref_id])
+
+  function handleNavigate(peer: GraphNode) {
+    setHistory((prev) => [...prev, currentNode])
+    setCurrentNode(peer)
+  }
+
+  function handleBack() {
+    if (history.length > 0) {
+      const prev = history[history.length - 1]
+      setHistory((h) => h.slice(0, -1))
+      setCurrentNode(prev)
+    } else {
+      onBack()
+    }
+  }
+
   function handleCopyLink() {
-    navigator.clipboard.writeText(`${window.location.origin}/?id=${node.ref_id}`).then(() => {
+    navigator.clipboard.writeText(`${window.location.origin}/?id=${currentNode.ref_id}`).then(() => {
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
@@ -631,11 +654,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
   const edges = useGraphStore((s) => s.edges)
 
-  const nodeType = node.node_type ?? "Unknown"
+  const nodeType = currentNode.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const paidProperties = schema?.paid_properties ?? []
 
-  const props = node.properties
+  const props = currentNode.properties
   const nodeIsBlocked = isBlockedStatus(props?.status)
   const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
   // Legacy pubkey/route_hint for the admin direct-keysend path; phase-4d removes them.
@@ -655,7 +678,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       if (title) break
     }
   }
-  if (!title) title = node.ref_id
+  if (!title) title = currentNode.ref_id
   title = unescapeText(title)
 
   // When the schema points title and description at the same field, the
@@ -681,7 +704,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   async function handleUnlock() {
     setUnlockState("loading")
     try {
-      const unlocked = await unlockNode(node.ref_id)
+      const unlocked = await unlockNode(currentNode.ref_id)
       setFullNode(unlocked)
       setUnlockState("unlocked")
       refreshBalance()
@@ -689,7 +712,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       if (err instanceof Response && err.status === 402) {
         try {
           await payL402(() => { })
-          const unlocked = await unlockNode(node.ref_id)
+          const unlocked = await unlockNode(currentNode.ref_id)
           setFullNode(unlocked)
           setUnlockState("unlocked")
           refreshBalance()
@@ -708,12 +731,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     if (hasIdentity) {
       getWatches()
         .then((data) => {
-          setWatched(data.nodes.some((n) => n.ref_id === node.ref_id))
+          setWatched(data.nodes.some((n) => n.ref_id === currentNode.ref_id))
         })
         .catch(() => {})
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node.ref_id, hasIdentity])
+  }, [currentNode.ref_id, hasIdentity])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -726,7 +749,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       if (isMocksEnabled()) {
         await new Promise((r) => setTimeout(r, 300))
         if (controller.signal.aborted) return
-        const mock = MOCK_FULL_NODES[node.ref_id]
+        const mock = MOCK_FULL_NODES[currentNode.ref_id]
         if (mock) {
           setFullNode(mock.nodes?.[0] ?? null)
           setUnlockState("unlocked")
@@ -740,7 +763,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         // contributor checks without ever debiting the user. Admin/contributor still
         // bypass via signed query params; first-time users get 402 + price as before.
         const result = await api.get<GraphData>(
-          `/v2/nodes/${node.ref_id}?preview=1`,
+          `/v2/nodes/${currentNode.ref_id}?preview=1`,
           undefined,
           controller.signal,
         )
@@ -766,7 +789,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
     probe()
     return () => controller.abort()
-  }, [node.ref_id, refreshBalance])
+  }, [currentNode.ref_id, refreshBalance])
 
   const fp = fullNode?.properties
 
@@ -809,7 +832,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-sidebar-border">
         <button
-          onClick={onBack}
+          onClick={handleBack}
           className="text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -860,9 +883,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 setWatchLoading(true)
                 try {
                   if (next) {
-                    await watchNode(node.ref_id)
+                    await watchNode(currentNode.ref_id)
                   } else {
-                    await unwatchNode(node.ref_id)
+                    await unwatchNode(currentNode.ref_id)
                   }
                 } catch {
                   setWatched(!next)
@@ -884,13 +907,20 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           )}
           {ownerReference && !hideBoost && (
             <BoostButton
-              refId={node.ref_id}
+              refId={currentNode.ref_id}
               ownerReference={ownerReference}
               pubkey={pubkey}
               routeHint={routeHint}
               boostCount={boostAmt}
             />
           )}
+          <button
+            onClick={onBack}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="Close panel"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
@@ -1071,7 +1101,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           )}
           {/* Connections — always visible regardless of unlock state */}
           <div className="pt-2 border-t border-border/30">
-            <ConnectionsSection nodeRefId={node.ref_id} schemas={schemas} />
+            <ConnectionsSection nodeRefId={currentNode.ref_id} schemas={schemas} onNavigate={handleNavigate} />
           </div>
         </div>
       </ScrollArea>
