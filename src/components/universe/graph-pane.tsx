@@ -78,7 +78,7 @@ export function GraphPane() {
           <EmptyState />
         )}
 
-        {isDefaultView && (
+        {isDefaultView && hasData && (
           <div className="absolute inset-0 z-[5] flex items-center justify-center pointer-events-none px-6">
             <div className="flex flex-col items-center gap-2 select-none">
               <span className="relative h-6 w-6 rounded-full bg-primary shadow-[0_0_24px_oklch(0.72_0.14_200/0.9),inset_0_0_8px_oklch(0.72_0.14_200/0.6)]">
