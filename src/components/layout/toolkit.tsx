@@ -15,6 +15,7 @@ import {
   Heart,
   Menu,
   X,
+  MessageSquare,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUserStore } from "@/stores/user-store"
@@ -93,6 +94,8 @@ export function Toolkit({
   onToggleMyContent,
   followingOpen,
   onToggleFollowing,
+  agentOpen,
+  onToggleAgent,
 }: {
   sourcesOpen: boolean
   onToggleSources: () => void
@@ -100,6 +103,8 @@ export function Toolkit({
   onToggleMyContent: () => void
   followingOpen: boolean
   onToggleFollowing: () => void
+  agentOpen?: boolean
+  onToggleAgent?: () => void
 }) {
   const router = useRouter()
   const { isAdmin, budget } = useUserStore()
@@ -177,6 +182,12 @@ export function Toolkit({
       <ToolkitButton icon={Tag} ariaLabel="Add Topic" onClick={() => openModal("addNode")} />
       <ToolkitButton icon={PlusSquare} ariaLabel="Create Node" onClick={() => openModal("createNode")} />
       <ToolkitButton
+        icon={MessageSquare}
+        ariaLabel="Ask the Graph"
+        onClick={onToggleAgent}
+        active={agentOpen}
+      />
+      <ToolkitButton
         icon={BookMarked}
         ariaLabel="My Content"
         onClick={onToggleMyContent}
@@ -227,6 +238,8 @@ export function ToolkitFAB({
   onToggleMyContent,
   followingOpen,
   onToggleFollowing,
+  agentOpen,
+  onToggleAgent,
 }: {
   sourcesOpen: boolean
   onToggleSources: () => void
@@ -234,6 +247,8 @@ export function ToolkitFAB({
   onToggleMyContent: () => void
   followingOpen: boolean
   onToggleFollowing: () => void
+  agentOpen?: boolean
+  onToggleAgent?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
@@ -291,6 +306,7 @@ export function ToolkitFAB({
             {[
               { icon: Plus, label: "Add Content", action: () => openModal("addContent"), active: false },
               { icon: Tag, label: "Add Topic", action: () => openModal("addNode"), active: false },
+              { icon: MessageSquare, label: "Ask the Graph", action: onToggleAgent ?? (() => {}), active: agentOpen ?? false },
               { icon: BookMarked, label: "My Content", action: onToggleMyContent, active: myContentOpen },
               { icon: Heart, label: "Following", action: onToggleFollowing, active: followingOpen },
               { icon: Layers, label: "Sources", action: onToggleSources, active: sourcesOpen },
