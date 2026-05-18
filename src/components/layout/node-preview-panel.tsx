@@ -637,7 +637,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   }
 
   function handleCopySphinxLink() {
-    navigator.clipboard.writeText(buildSphinxDeepLink(node.ref_id)).then(() => {
+    navigator.clipboard.writeText(buildSphinxDeepLink(currentNode.ref_id)).then(() => {
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
@@ -697,7 +697,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   // the inline MediaPlayer card (rendered by MediaCard below) already shows
   // the video frame, so both together would be a duplicate.
   const isThisNodePlayingHere = usePlayerStore(
-    (s) => s.playingNode?.ref_id === node.ref_id
+    (s) => s.playingNode?.ref_id === currentNode.ref_id
   )
   const showThumbnail = !!thumbnail && !isThisNodePlayingHere
 
@@ -936,8 +936,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           )}
 
           {/* Parent breadcrumbs — shown when any incoming edge carries properties.index */}
-          {edges.some((e) => e.target === node.ref_id && e.properties?.index !== undefined) && (
-            <ParentBreadcrumbs nodeRefId={node.ref_id} schemas={schemas} />
+          {edges.some((e) => e.target === currentNode.ref_id && e.properties?.index !== undefined) && (
+            <ParentBreadcrumbs nodeRefId={currentNode.ref_id} schemas={schemas} />
           )}
 
           {/* Title */}
@@ -1069,8 +1069,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               {hasTranscript && <TranscriptBlock text={fp.transcript as string} />}
 
               {/* Ordered child content — shown when outgoing edges carry properties.index */}
-              {edges.some((e) => e.source === node.ref_id && e.properties?.index !== undefined) && (
-                <OrderedChildrenView nodeRefId={node.ref_id} schemas={schemas} />
+              {edges.some((e) => e.source === currentNode.ref_id && e.properties?.index !== undefined) && (
+                <OrderedChildrenView nodeRefId={currentNode.ref_id} schemas={schemas} />
               )}
 
               {/* Fallback: remaining properties not covered by widgets */}
