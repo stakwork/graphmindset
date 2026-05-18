@@ -85,9 +85,9 @@ export function HotTakes() {
             See all <ChevronRight className="h-3 w-3" />
           </button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-5 pb-5">
+        <div className="flex flex-col gap-4 px-5 pb-5">
           <FeaturedCard node={featured} onOpen={() => openClip(featured)} schemas={schemas} />
-          <div className="grid grid-cols-1 gap-3">
+          <div className="flex flex-col gap-2">
             {side.map((n) => (
               <SideCard key={n.ref_id} node={n} onOpen={() => openClip(n)} schemas={schemas} />
             ))}
@@ -189,7 +189,7 @@ export function SideCard({
       onClick={onOpen}
       className="group flex gap-3 items-stretch p-2 rounded-lg hover:bg-card/50 transition-colors cursor-pointer border border-transparent hover:border-border/40"
     >
-      <div className="relative shrink-0 w-32 aspect-[4/3] rounded-md overflow-hidden bg-cover bg-center ring-1 ring-border/40"
+      <div className="relative shrink-0 w-24 aspect-[4/3] rounded-md overflow-hidden bg-cover bg-center ring-1 ring-border/40"
         style={thumb ? { backgroundImage: `url(${thumb})` } : undefined}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
