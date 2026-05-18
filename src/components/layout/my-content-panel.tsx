@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { Socket } from "socket.io-client"
+import { getSocket } from "@/lib/socket"
 import { X, Loader2, BookMarked, Trash2, ShoppingBag } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -65,6 +67,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const [insights, setInsights] = useState<CreatorInsightsResponse | null>(null)
   const [insightsLoading, setInsightsLoading] = useState(false)
 
+  const [isSocketConnected, setIsSocketConnected] = useState(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchFromApi = useCallback(async (): Promise<ContentResponse | null> => {
@@ -185,12 +188,43 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
     return () => { cancelled = true }
   }, [period, activeTab, hasIdentity, mocksEnabled])
 
+  // Socket.IO lifecycle — runs once on mount; keeps poll as fallback when disconnected
+  useEffect(() => {
+    if (mocksEnabled) return
+    let sock: Socket
+    try { sock = getSocket() } catch { return }
+
+    const onConnect = () => setIsSocketConnected(true)
+    const onDisconnect = () => setIsSocketConnected(false)
+    const onNodeUpdated = ({ ref_id, status }: { ref_id: string; status: string }) => {
+      setNodes((prev) => {
+        const next = prev.map((n) =>
+          n.ref_id === ref_id ? { ...n, properties: { ...n.properties, status } } : n
+        )
+        // Keep totalProcessing in sync so the banner clears when all nodes settle
+        setTotalProcessing(next.filter((n) => isInProgress(n.properties?.status)).length)
+        return next
+      })
+    }
+
+    if (sock.connected) setIsSocketConnected(true)
+    sock.on('connect', onConnect)
+    sock.on('disconnect', onDisconnect)
+    sock.on('node_updated', onNodeUpdated)
+
+    return () => {
+      sock.off('connect', onConnect)
+      sock.off('disconnect', onDisconnect)
+      sock.off('node_updated', onNodeUpdated)
+    }
+  }, [mocksEnabled])
+
   useEffect(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current)
       pollTimerRef.current = null
     }
-    if (!hasInProgress || mocksEnabled || !hasIdentity) return
+    if (!hasInProgress || mocksEnabled || !hasIdentity || isSocketConnected) return
 
     pollTimerRef.current = setInterval(async () => {
       try {
@@ -206,7 +240,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
         pollTimerRef.current = null
       }
     }
-  }, [hasInProgress, mocksEnabled, hasIdentity, fetchFromApi, applyResponse])
+  }, [hasInProgress, mocksEnabled, hasIdentity, isSocketConnected, fetchFromApi, applyResponse])
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
