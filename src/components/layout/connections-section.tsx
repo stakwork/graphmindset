@@ -6,15 +6,17 @@ import { useGraphStore } from "@/stores/graph-store"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { displayNodeType } from "@/lib/utils"
 import type { SchemaNode } from "@/app/ontology/page"
+import type { GraphNode } from "@/lib/graph-api"
 
 interface ConnectionsSectionProps {
   nodeRefId: string
   schemas: SchemaNode[]
+  onNavigate?: (node: GraphNode) => void
 }
 
 type GroupBy = "edge_type" | "node_type"
 
-export function ConnectionsSection({ nodeRefId, schemas }: ConnectionsSectionProps) {
+export function ConnectionsSection({ nodeRefId, schemas, onNavigate }: ConnectionsSectionProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>("edge_type")
   const nodes = useGraphStore((s) => s.nodes)
   const edges = useGraphStore((s) => s.edges)
@@ -100,9 +102,10 @@ export function ConnectionsSection({ nodeRefId, schemas }: ConnectionsSectionPro
                 <span className="text-muted-foreground/60">({conns.length})</span>
               </p>
               {conns.map((conn, i) => (
-                <div
+                <button
                   key={`${conn.peer.ref_id}-${i}`}
-                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 bg-muted/20 border border-border/20"
+                  className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 bg-muted/20 border border-border/20 cursor-pointer hover:bg-muted/40 transition-colors text-left"
+                  onClick={() => onNavigate?.(conn.peer)}
                 >
                   <span className="text-xs truncate min-w-0">{resolveTitle(conn.peer)}</span>
                   <Badge
@@ -111,7 +114,7 @@ export function ConnectionsSection({ nodeRefId, schemas }: ConnectionsSectionPro
                   >
                     {displayNodeType(conn.peer.node_type)}
                   </Badge>
-                </div>
+                </button>
               ))}
             </div>
           ))}
