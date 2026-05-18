@@ -1,4 +1,5 @@
-import { api } from "./api"
+import { api, API_URL } from "./api"
+import { getSignedMessage, getL402 } from "./sphinx"
 import { isMocksEnabled, MOCK_REVIEWS } from "./mock-data"
 
 export interface GraphNode {
@@ -147,6 +148,50 @@ export async function createNode(
   signal?: AbortSignal
 ): Promise<Record<string, unknown>> {
   return api.post("/v2/nodes", { node_type: nodeType, node_data: nodeData }, undefined, signal)
+}
+
+// Upload an image file and attach it to an existing Image node.
+//
+// The Image node must have been created first via createNode("Image", ...).
+// Backend resolves the caller's identity (admin or owner via L402/Sphinx-sig)
+// and writes the resulting S3 URL onto the node's `url` property.
+//
+// Built as a one-off rather than going through `api.post` because that helper
+// always JSON-encodes the body — multipart needs FormData and the browser
+// setting its own boundary'd Content-Type header.
+export async function uploadImageToNode(
+  refId: string,
+  file: File,
+  signal?: AbortSignal
+): Promise<{ url: string; ref_id: string }> {
+  const url = new URL(`${API_URL}/v2/images/${refId}/upload`)
+
+  // Sphinx-signed admin path piggybacks on query params (matches api.ts).
+  const signed = await getSignedMessage()
+  if (signed.signature) {
+    url.searchParams.append("sig", signed.signature)
+    url.searchParams.append("msg", signed.message)
+  }
+
+  const headers: Record<string, string> = {}
+  const l402 = await getL402()
+  if (l402) headers.Authorization = l402
+
+  const form = new FormData()
+  form.append("file", file)
+
+  // Do NOT set Content-Type — the browser fills in the multipart boundary.
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form,
+    signal: signal ?? new AbortController().signal,
+  })
+
+  if (!response.ok) {
+    throw response
+  }
+  return response.json()
 }
 
 // Update a node
