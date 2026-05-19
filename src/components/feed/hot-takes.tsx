@@ -7,10 +7,13 @@ import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { pickString, resolveNodeTitle, resolveNodeThumbnail } from "@/lib/node-display"
 import { listLatestByType } from "@/lib/graph-api"
-import { isMocksEnabled, MOCK_NODES } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
+import { diversifyClipsByParent } from "@/lib/clip-diversify"
 import type { GraphNode } from "@/lib/graph-api"
 
-const LIMIT = 10
+const CANDIDATE_POOL_SIZE = 30
+const MAX_PER_SOURCE = 1
+const FINAL_LIMIT = 4 // 1 featured + 3 side cards
 
 export function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -36,18 +39,25 @@ export function HotTakes() {
 
   useEffect(() => {
     if (isMocksEnabled()) {
-      const seeded = MOCK_NODES
-        .filter((n) => n.node_type === "Clip")
+      const candidates = MOCK_NODES
+        .filter((n) => n.node_type === "Clip" && clipQuote(n))
         .sort((a, b) => (b.date_added_to_graph ?? 0) - (a.date_added_to_graph ?? 0))
-        .slice(0, LIMIT)
-      setClips(seeded)
+      setClips(diversifyClipsByParent(candidates, MOCK_EDGES, {
+        maxPerSource: MAX_PER_SOURCE,
+        finalLimit: FINAL_LIMIT,
+      }))
       return
     }
     const controller = new AbortController()
     ;(async () => {
       try {
-        const res = await listLatestByType("Clip", LIMIT, 0, controller.signal)
-        setClips((res.nodes ?? []).filter((n) => clipQuote(n)))
+        const res = await listLatestByType("Clip", CANDIDATE_POOL_SIZE, 0, controller.signal)
+        const candidates = (res.nodes ?? []).filter((n) => clipQuote(n))
+        const diversified = diversifyClipsByParent(candidates, res.edges ?? [], {
+          maxPerSource: MAX_PER_SOURCE,
+          finalLimit: FINAL_LIMIT,
+        })
+        setClips(diversified)
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return
         console.error("[hot-takes] fetch failed:", err)
