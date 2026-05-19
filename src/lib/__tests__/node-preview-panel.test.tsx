@@ -70,9 +70,10 @@ vi.mock("@/stores/user-store", () => ({
 }))
 
 const mockOpen = vi.fn()
+const mockOpenEdit = vi.fn()
 vi.mock("@/stores/modal-store", () => ({
-  useModalStore: (sel: (s: { open: typeof mockOpen }) => unknown) =>
-    sel({ open: mockOpen }),
+  useModalStore: (sel: (s: { open: typeof mockOpen; openEdit: typeof mockOpenEdit }) => unknown) =>
+    sel({ open: mockOpen, openEdit: mockOpenEdit }),
 }))
 
 import type { GraphNode as GN, GraphEdge as GE } from "@/lib/graph-api"
@@ -1254,5 +1255,48 @@ describe("NodePreviewPanel – history navigation", () => {
     fe.click(closeBtn)
 
     expect(onBack).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Pencil edit button — admin visibility
+// ---------------------------------------------------------------------------
+describe("NodePreviewPanel – pencil edit button", () => {
+  beforeEach(() => {
+    mockOpenEdit.mockReset()
+    mockApiGet.mockResolvedValue({})
+  })
+
+  it("renders pencil 'Edit node' button for admin users", async () => {
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    expect(screen.getByTitle("Edit node")).toBeInTheDocument()
+  })
+
+  it("does not render pencil button for non-admin users", async () => {
+    userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    expect(screen.queryByTitle("Edit node")).toBeNull()
+  })
+
+  it("calls openEdit with the current node when pencil is clicked", async () => {
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    const pencilBtn = screen.getByTitle("Edit node")
+    pencilBtn.click()
+
+    expect(mockOpenEdit).toHaveBeenCalledOnce()
+    expect(mockOpenEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ ref_id: BASE_NODE.ref_id })
+    )
   })
 })
