@@ -167,14 +167,13 @@ export default function ReviewsPage() {
   const lockedActionName: string | null =
     selectedReviews.length > 0 ? selectedReviews[0].action_name : null
 
-  // Rows eligible for select-all: pending + (matches locked action OR no lock yet)
-  const eligibleForSelectAll = useMemo(
-    () =>
-      selectableReviews.filter(
-        (r) => lockedActionName === null || r.action_name === lockedActionName
-      ),
-    [selectableReviews, lockedActionName]
-  )
+  // Rows eligible for select-all: pending + matches locked action (or first pending action when no lock)
+  const eligibleForSelectAll = useMemo(() => {
+    const targetAction = lockedActionName ?? selectableReviews[0]?.action_name
+    return targetAction
+      ? selectableReviews.filter((r) => r.action_name === targetAction)
+      : selectableReviews
+  }, [selectableReviews, lockedActionName])
 
   const allEligibleSelected =
     eligibleForSelectAll.length > 0 &&

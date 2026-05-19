@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -651,6 +651,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const pubKey = useUserStore((s) => s.pubKey)
   const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
   const openModal = useModalStore((s) => s.open)
+  const openEdit = useModalStore((s) => s.openEdit)
 
   const edges = useGraphStore((s) => s.edges)
 
@@ -913,6 +914,15 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               routeHint={routeHint}
               boostCount={boostAmt}
             />
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => openEdit(currentNode)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Edit node"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
           )}
           <button
             onClick={onBack}
