@@ -510,6 +510,8 @@ export function ReviewRow({
         tabIndex={0}
         onClick={() => setExpanded((e) => !e)}
         onKeyDown={(e) => {
+          const tag = (e.target as HTMLElement).tagName
+          if (tag === "TEXTAREA" || tag === "INPUT") return
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault()
             setExpanded((v) => !v)
