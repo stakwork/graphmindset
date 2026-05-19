@@ -228,7 +228,9 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
           <div
             ref={setHost}
             className={cn("w-full", isVideo ? "aspect-video" : "h-[48px]")}
-            style={{ marginBottom: 44 }}
+            // 52px = 4px (h-1 progress bar) + 48px (py-2 controls row with h-8 button).
+            // Must stay in sync with the MediaPlayer controls layout in media-player.tsx.
+            style={{ marginBottom: 52 }}
           />
         ) : (
           <Button
