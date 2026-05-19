@@ -36,6 +36,9 @@ interface GraphViewProps {
   onExitWhiteboard?: () => void;
   onDetailNavigate?: (id: number) => void;
   searchMatches?: Set<number> | null;
+  /** Top-3 ranked search hits, by descending score. Value 0 = best hit (gold),
+   *  1-2 = cool-blue runners-up. Amplifies size, color, and label prominence. */
+  topMatchRanks?: Map<number, number> | null;
   /** Active search query — when set, only the matching substring of a search-hit's
    *  label is highlighted; the rest of the label uses the base match color. */
   searchTerm?: string;
@@ -54,6 +57,9 @@ interface GraphViewProps {
    *  schema icon string like "EpisodeIcon"). Resolved through schema-icons
    *  to a Lucide component for the type pill. */
   nodeTypeIcons?: Record<string, string>;
+  /** Called when the user clicks the ✕ close button anchored to the selected
+   *  node — typically wired to the same handler as the "Reset view" pill. */
+  onResetView?: () => void;
 }
 
 const tmpObj = new THREE.Object3D();
@@ -70,16 +76,19 @@ function smoothstep(t: number): number {
 const glowVertexShader = /* glsl */ `
   attribute float instanceProgress;
   attribute float instanceAlpha;
+  attribute float instanceShape;
   varying vec2 vUv;
   varying vec3 vColor;
   varying float vScale;
   varying float vProgress;
   varying float vAlpha;
+  varying float vShape;
 
   void main() {
     vUv = uv;
     vProgress = instanceProgress;
     vAlpha = instanceAlpha;
+    vShape = instanceShape;
 
     #ifdef USE_INSTANCING_COLOR
       vColor = instanceColor;
@@ -103,24 +112,84 @@ const glowVertexShader = /* glsl */ `
 `;
 
 const glowFragmentShader = /* glsl */ `
+  // Cluster proxies (_cluster / _group nodes, flagged via instanceShape) render
+  // as the "Orbit" glyph from Cluster Node Explorations.html: 5 small dots
+  // scattered on a faint dashed orbit, with a small outlined core. Reads as
+  // "satellites bound to a center" — a cluster of related items.
   varying vec2 vUv;
   varying vec3 vColor;
   varying float vScale;
   varying float vProgress;
   varying float vAlpha;
+  varying float vShape;
+
+  // Distance from point p to the line segment a→b.
+  float sdSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a;
+    vec2 ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h);
+  }
 
   void main() {
     vec2 coord = (vUv - 0.5) * 2.0;
     float r = length(coord);
+    bool isCluster = vShape >= 0.5;
 
     float centerDot = 1.0 - smoothstep(0.06, 0.15, r);
-
     float ringDist = abs(r - 0.55);
     float ring = smoothstep(0.035, 0.0, ringDist);
-
     float ringGlow = exp(-ringDist * ringDist * 60.0) * 0.45;
     float outerGlow = exp(-2.5 * max(r - 0.55, 0.0)) * 0.2;
     float innerFill = (1.0 - smoothstep(0.0, 0.55, r)) * 0.04;
+
+    if (isCluster) {
+      // Orbit — 5 dots scattered on a faint dashed ring at r≈0.59, with a
+      // small outlined core. Angles match the design's [10°, 70°, 135°, 210°,
+      // 285°] for the same recognisable silhouette.
+      vec2 d0 = vec2( 0.581,  0.103);   //  10°
+      vec2 d1 = vec2( 0.202,  0.554);   //  70°
+      vec2 d2 = vec2(-0.417,  0.417);   // 135°
+      vec2 d3 = vec2(-0.511, -0.295);   // 210°
+      vec2 d4 = vec2( 0.153, -0.570);   // 285°
+
+      float dotMin = length(coord - d0);
+      dotMin = min(dotMin, length(coord - d1));
+      dotMin = min(dotMin, length(coord - d2));
+      dotMin = min(dotMin, length(coord - d3));
+      dotMin = min(dotMin, length(coord - d4));
+      float dots = 1.0 - smoothstep(0.065, 0.100, dotMin);
+      float dotsGlow = exp(-dotMin * dotMin * 320.0) * 0.55;
+
+      // Dashed orbit ring at r ≈ 0.59. ~22 dashes around at ~22% duty cycle.
+      float orbitDist = abs(r - 0.59);
+      float angle = atan(coord.y, coord.x);
+      float dashes = 22.0;
+      float seg = fract(angle / 6.28318530718 * dashes + 0.5);
+      float dashMask = smoothstep(0.30, 0.18, seg);
+      float orbit = smoothstep(0.014, 0.004, orbitDist) * 0.75 * dashMask;
+      float orbitGlow = exp(-orbitDist * orbitDist * 1400.0) * 0.25 * dashMask;
+
+      // Core: small outlined ring + filled center dot.
+      float coreRingDist = abs(r - 0.145);
+      float coreRing = smoothstep(0.022, 0.006, coreRingDist) * 0.90;
+      float coreFill = 1.0 - smoothstep(0.045, 0.065, r);
+
+      // Strong soft halo — gives the cluster a clear cyan "body" that fades
+      // outward past the orbit. This is what reads as "presence" against
+      // the black canvas in the design reference (Cluster Node Expl. #06).
+      float halo      = (1.0 - smoothstep(0.0, 1.00, r)) * 0.50;
+      float haloCore  = (1.0 - smoothstep(0.0, 0.40, r)) * 0.35;
+
+      centerDot = max(
+        max(max(dots, coreFill), max(orbit, coreRing)),
+        max(halo, haloCore)
+      );
+      ring = 0.0;
+      ringGlow = dotsGlow + orbitGlow;
+      outerGlow = 0.0;
+      innerFill = 0.0;
+    }
 
     // Hide ring + all ring effects for bare nodes (progress == -2.0 sentinel)
     float showRing = vProgress < -1.5 ? 0.0 : 1.0;
@@ -213,6 +282,13 @@ function colorForEdgeType(t?: string): RGB {
   if (!t) return EDGE_DEFAULT_COLOR;
   return EDGE_TYPE_COLORS[t.toUpperCase()] ?? EDGE_DEFAULT_COLOR;
 }
+
+// Ring chord polygon (Feature 5) — muted dark-cyan-grey so the perimeter reads
+// as a group outline rather than a real edge between members.
+const RING_EDGE_TYPE = "__ring__";
+const RING_COLOR: RGB = { r: 0.42, g: 0.55, b: 0.58 };
+const RING_ALPHA = 0.26;
+const RING_MIN_MEMBERS = 5;
 function rgbToCss(c: RGB, alpha = 1): string {
   return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${alpha})`;
 }
@@ -361,7 +437,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -371,6 +447,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const [hovered, setHovered] = useState<number | null>(null);
   const detailPanelOpacity = useRef(0);
   const wbNodeId = whiteboardNodeId ?? null;
+
+  // Reset → overview: clear hovered too so highlight edges / focus styling
+  // from the previously focused node disappear with the rest of the state.
+  useEffect(() => {
+    if (viewState.mode === "overview") {
+      setHovered(null);
+    }
+  }, [viewState.mode]);
 
 
   // Approach indicator state (node id + 0-1 progress for "zoom to inspect" hint)
@@ -393,22 +477,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const externalSelectedRef = useRef<number | null>(null);
   externalSelectedRef.current = externalSelectedId ?? null;
 
-  // Adjacency that includes `extraEdges` endpoints so absorbed edges (hidden
-  // from the base render) still count as neighbors for the focus-dim pass.
-  const highlightAdj = useMemo<number[][]>(() => {
-    if (!graph.extraEdges || graph.extraEdges.length === 0) return graph.adj;
-    const out = graph.adj.map((row) => row.slice());
-    for (const e of graph.extraEdges) {
-      if (out[e.src]) out[e.src].push(e.dst);
-      if (out[e.dst]) out[e.dst].push(e.src);
-    }
-    return out;
-  }, [graph.adj, graph.extraEdges]);
-
+  // Hover/label-rule adjacency uses graph.adj only — the real edges. Folding
+  // in extraEdges (cluster-absorbed) would promote every absorbed member to a
+  // direct hover-neighbor, producing label storms ("Clip × 7" label + every
+  // clip's label visible). The cluster proxy itself is the 1-hop stand-in.
   const hoveredRelated = useMemo<Set<number> | null>(() => {
     if (hovered === null) return null;
-    return new Set(highlightAdj[hovered]);
-  }, [hovered, highlightAdj]);
+    return new Set(graph.adj[hovered]);
+  }, [hovered, graph.adj]);
 
   useEffect(() => {
     onHoverChange?.(hovered);
@@ -425,6 +501,13 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const progressArray = useRef(new Float32Array(nodeCount).fill(-1));
   const progressAttrRef = useRef<THREE.InstancedBufferAttribute | null>(null);
   const alphaAttrRef = useRef<THREE.InstancedBufferAttribute | null>(null);
+
+  // Per-instance shape selector — encodes both "is this a cluster?" and
+  // "which cluster glyph?" in one float so the fragment shader can branch
+  // per-instance without a uniform. Values: 0=regular, 1=Concentric,
+  // 2=Hex Sat, 3=Petal, 4=Constellation, 5=Star.
+  const shapeArray = useRef(new Float32Array(nodeCount));
+  const shapeAttrRef = useRef<THREE.InstancedBufferAttribute | null>(null);
 
   // Labels follow animation (updated at low fps)
   const [labelPos, setLabelPos] = useState(() => new Float32Array(nodeCount * 3));
@@ -449,6 +532,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     currentColor.current = grow(currentColor.current, 3);
     currentAlpha.current = grow(currentAlpha.current, 1, 1);
     progressArray.current = grow(progressArray.current, 1, -1);
+    shapeArray.current = grow(shapeArray.current, 1, 0);
     buffersGrewRef.current = true;
 
     prevNodeCount.current = nodeCount;
@@ -607,11 +691,21 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     }
     const collapsedSet = cloudSet;
 
+    // Drop spokes: edges OUT of a synthetic proxy (`_group`/`_cluster` →
+    // member) re-pollute the render with the same N lines the cluster was
+    // supposed to absorb. Edges INTO a proxy (`Episode → cluster_proxy`) are
+    // the canonical relation and must stay.
+    const isSpoke = (e: GraphEdge) => {
+      const srcType = graph.nodes[e.src]?.nodeType;
+      return srcType === "_group" || srcType === "_cluster";
+    };
+
     let allEdges: GraphEdge[];
     if (viewState.mode === "overview") {
       // In overview, only show structural edges — hide cross-edges to reduce clutter
       allEdges = graph.edges.filter((e) => {
         if (collapsedSet.has(e.src) || collapsedSet.has(e.dst)) return false;
+        if (isSpoke(e)) return false;
         return isStructuralEdge(e);
       });
     } else {
@@ -621,6 +715,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       allEdges = graph.edges.filter((e) => {
         if (collapsedSet.has(e.src) || collapsedSet.has(e.dst)) return false;
         if (!visibleSet.has(e.src) || !visibleSet.has(e.dst)) return false;
+        if (isSpoke(e)) return false;
         if (e.src === sel || e.dst === sel) return true;
         return tes ? tes.has(edgeKey(e.src, e.dst)) : true;
       });
@@ -664,25 +759,72 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     if (hovered === null && selectedId === null) return [];
     // Source from graph.edges (not targetEdges) so cross-edges touching the
     // hovered/selected node surface here even when the subgraph-mode filter
-    // strips them out of the base render. Also include `extraEdges` — edges
-    // intentionally hidden from the base render (e.g. cluster-absorbed) but
-    // worth surfacing on focus. Still respect visibleNodeIds so we don't
-    // highlight edges to collapsed/hidden nodes.
+    // strips them out of the base render. Skip extraEdges (cluster-absorbed
+    // originals) — pulling them in re-pollutes the hover view with the N
+    // spokes the cluster was supposed to replace. Drop spokes too: hovering
+    // a member shouldn't trace the proxy→member spoke.
     const visibleSet = viewState.mode === "subgraph"
       ? new Set(viewState.visibleNodeIds)
       : null;
-    const candidates = graph.extraEdges
-      ? [...graph.edges, ...graph.extraEdges]
-      : graph.edges;
-    return candidates.filter((e) => {
+    const real = graph.edges.filter((e) => {
       const touches =
         e.src === hovered || e.dst === hovered ||
         e.src === selectedId || e.dst === selectedId;
       if (!touches) return false;
+      const srcType = graph.nodes[e.src]?.nodeType;
+      if (srcType === "_group" || srcType === "_cluster") {
+        // Spokes are dropped by default — for large clusters the ring chord
+        // polygon below handles them. For a small cluster (<RING_MIN_MEMBERS)
+        // the ring would degenerate to a triangle/line, so we instead show
+        // the spokes themselves — but only when the proxy itself is the focus.
+        const isFocusedProxy = e.src === hovered || e.src === selectedId;
+        if (!isFocusedProxy) return false;
+        const visibleMembers = (graph.outAdj?.[e.src] ?? []).filter(
+          (m) => !visibleSet || visibleSet.has(m),
+        );
+        if (visibleMembers.length >= RING_MIN_MEMBERS) return false;
+      }
       if (visibleSet && (!visibleSet.has(e.src) || !visibleSet.has(e.dst))) return false;
       return true;
     });
-  }, [hovered, selectedId, graph.edges, graph.extraEdges, viewState]);
+
+    // Ring chord polygon (Feature 5): when the focused node is a proxy with
+    // ≥ RING_MIN_MEMBERS, connect members in angular order around the proxy
+    // so the cluster reads as a perimeter rather than N independent spokes.
+    // outAdj (children only) — using graph.adj would pull the proxy's source
+    // (e.g. the parent Episode) into the perimeter.
+    const ring: GraphEdge[] = [];
+    const seen = new Set<number>();
+    const addRingFor = (proxyId: number | null) => {
+      if (proxyId === null || seen.has(proxyId)) return;
+      seen.add(proxyId);
+      const nodeType = graph.nodes[proxyId]?.nodeType;
+      if (nodeType !== "_group" && nodeType !== "_cluster") return;
+      const members = (graph.outAdj?.[proxyId] ?? []).filter(
+        (m) => !visibleSet || visibleSet.has(m),
+      );
+      if (members.length < RING_MIN_MEMBERS) return;
+      const p = graph.nodes[proxyId].position;
+      const sorted = members
+        .slice()
+        .sort(
+          (a, b) =>
+            Math.atan2(graph.nodes[a].position.z - p.z, graph.nodes[a].position.x - p.x) -
+            Math.atan2(graph.nodes[b].position.z - p.z, graph.nodes[b].position.x - p.x),
+        );
+      for (let i = 0; i < sorted.length; i++) {
+        ring.push({
+          src: sorted[i],
+          dst: sorted[(i + 1) % sorted.length],
+          type: RING_EDGE_TYPE,
+        });
+      }
+    };
+    addRingFor(hovered);
+    addRingFor(selectedId);
+
+    return ring.length > 0 ? [...real, ...ring] : real;
+  }, [hovered, selectedId, graph.edges, graph.nodes, graph.outAdj, viewState]);
 
   // For each neighbor of the focused node, the set of edge types connecting
   // it to the focused node. Lets the label render show "via MENTIONS" etc.
@@ -753,7 +895,21 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     const alphaAttr = new THREE.InstancedBufferAttribute(currentAlpha.current, 1);
     mesh.geometry.setAttribute("instanceAlpha", alphaAttr);
     alphaAttrRef.current = alphaAttr;
+    const shapeAttr = new THREE.InstancedBufferAttribute(shapeArray.current, 1);
+    mesh.geometry.setAttribute("instanceShape", shapeAttr);
+    shapeAttrRef.current = shapeAttr;
   }, [meshCapacity, nodeCount]);
+
+  // Populate per-instance shape from nodeType — cluster/group proxies render
+  // as the Orbit glyph; everything else stays the default sphere + ring.
+  useEffect(() => {
+    const arr = shapeArray.current;
+    for (let i = 0; i < nodeCount; i++) {
+      const t = graph.nodes[i]?.nodeType;
+      arr[i] = t === "_cluster" || t === "_group" ? 1 : 0;
+    }
+    if (shapeAttrRef.current) shapeAttrRef.current.needsUpdate = true;
+  }, [graph, nodeCount]);
 
   // Custom sphere raycast — defined once as a stable function that reads refs.
   // Assigned to mesh in useEffect and re-assigned whenever the mesh changes.
@@ -860,6 +1016,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       const aAttr = new THREE.InstancedBufferAttribute(currentAlpha.current, 1);
       mesh.geometry.setAttribute("instanceAlpha", aAttr);
       alphaAttrRef.current = aAttr;
+      const sAttr = new THREE.InstancedBufferAttribute(shapeArray.current, 1);
+      mesh.geometry.setAttribute("instanceShape", sAttr);
+      shapeAttrRef.current = sAttr;
     }
 
     const now = Date.now();
@@ -953,6 +1112,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         s *= 0.01;
       }
 
+      // Top-3 search hits get amplified size so bloom turns them into halos.
+      const isTopHit = topMatchRanks?.has(i) ?? false;
+      if (isTopHit) {
+        s *= topMatchRanks!.get(i) === 0 ? 1.9 : 1.55;
+      }
+
       tmpObj.position.set(
         currentPos.current[i3],
         currentPos.current[i3 + 1],
@@ -964,7 +1129,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
       const extHov = externalHoveredRef.current;
       const extSelNode = externalSelectedRef.current;
-      const extHovAdj = extHov !== null ? (highlightAdj[extHov] ?? []) : null;
+      const extHovAdj = extHov !== null ? (graph.adj[extHov] ?? []) : null;
       const isPrimaryHighlight =
         i === hovered ||
         (extHov !== null && i === extHov) ||
@@ -1002,6 +1167,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         if (!searchMatches.has(i) && !isPrimaryHighlight && !isNeighborHighlight) {
           tmpColor.multiplyScalar(0.15);
         }
+      }
+
+      // Top-3 hit color brightening — push past 1.0 so the bloom pass turns
+      // each into a halo. Best hit (rank 0) gets a stronger boost.
+      if (isTopHit) {
+        tmpColor.multiplyScalar(topMatchRanks!.get(i) === 0 ? 1.9 : 1.55);
       }
 
       // Recently-added node highlight (streaming): bright green-white flash fading over 3s
@@ -1193,10 +1364,15 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const d3 = e.dst * 3;
           const ax = currentPos.current[s3], ay = currentPos.current[s3 + 1], az = currentPos.current[s3 + 2];
           const bx = currentPos.current[d3], by = currentPos.current[d3 + 1], bz = currentPos.current[d3 + 2];
-          const alpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
-          const ec = colorForEdgeType(e.type ?? e.label);
+          // Ring edges (Feature 5): force straight, muted dark-cyan-grey,
+          // fixed low alpha so the perimeter doesn't compete with real edges.
+          const isRing = e.type === RING_EDGE_TYPE;
+          const alpha = isRing
+            ? RING_ALPHA
+            : Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
+          const ec = isRing ? RING_COLOR : colorForEdgeType(e.type ?? e.label);
 
-          const isCross = crossKeys.has(edgeKey(e.src, e.dst));
+          const isCross = !isRing && crossKeys.has(edgeKey(e.src, e.dst));
 
           if (!isCross) {
             // Straight line — 1 segment
@@ -1596,7 +1772,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             shownHoverNeighbors.add(sorted[k].id);
           }
         }
-        const useFilteredHover = hoveredRelated && hoveredRelated.size > MAX_HOVER_LABELS;
+        // Hovering a proxy directly is the user's request to see every member —
+        // lift the dense-hover cap so all group/cluster children get labeled.
+        const hoveredType = hovered !== null ? graph.nodes[hovered]?.nodeType : null;
+        const isProxyHover = hoveredType === "_group" || hoveredType === "_cluster";
+        const useFilteredHover =
+          !isProxyHover && hoveredRelated && hoveredRelated.size > MAX_HOVER_LABELS;
 
         return graph.nodes.map((node, i) => {
           const isExpandedProxy = i === expandedClusterId;
@@ -1616,6 +1797,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
           // Unstructured nodes: no label unless hovered, selected, or neighbor of selected
           if ((graph.unstructuredNodeIds?.has(i) ?? false) && !isHovered && !isSelected && !isHoverNeighbor) return null;
+
+          // Hover focus: when something is hovered, suppress every label
+          // that isn't hovered / a hover neighbor / explicitly highlighted
+          // (selected, search hit, recent). Lets the user read the local
+          // neighborhood without competing labels elsewhere.
+          if (hovered !== null && !isHovered && !isHoverNeighbor && !isSelected && !isSearchMatch && !isRecentNode && !isExpandedProxy) {
+            return null;
+          }
 
           // Depth-based filter: allow depth 0-1, hide deeper unless prominent
           if (!isProminent) {
@@ -1637,18 +1826,26 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const lz = i3 + 2 < labelPos.length ? labelPos[i3 + 2] : targets.positions[i3 + 2];
           const isExecuting = node.status === "executing";
 
-          // Style tiers: search > hovered > selected > hover-neighbor > recent > default
+          // Style tiers: hovered > top-hit > selected > hover-neighbor > recent > default
           const recentAge = isRecentNode ? (Date.now() - recentNodes!.get(i)!) / 3000 : 1;
           const recentOpacity = Math.max(0, 1 - recentAge);
+          const topRank = topMatchRanks?.get(i);
+          const isTopHit = topRank !== undefined;
+          const topTint = topRank === 0
+            ? "rgba(255, 215, 80, 0.98)"   // gold for the best hit
+            : "rgba(120, 200, 255, 0.95)"; // cool blue for ranks 1-2
           const labelColor = isHovered ? "rgba(255,255,255,0.95)"
-            : isSelected ? "rgba(100,220,255,0.95)"
-              : isHoverNeighbor ? "rgba(200,200,200,0.85)"
-                : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
-                  : "rgba(190,200,210,0.75)";
+            : isTopHit ? topTint
+              : isSelected ? "rgba(100,220,255,0.95)"
+                : isHoverNeighbor ? "rgba(200,200,200,0.85)"
+                  : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
+                    : "rgba(190,200,210,0.75)";
           const labelSize = isHovered || isSelected ? 14
-            : isRecentNode ? 13
-              : isHoverNeighbor ? 12
-                : 11;
+            : isTopHit ? (topRank === 0 ? 16 : 14)
+              : isRecentNode ? 13
+                : isHoverNeighbor ? 12
+                  : 11;
+          const labelWeight = isHovered || isSelected || isExpandedProxy || isTopHit ? 700 : 500;
 
           const iconColor = node.icon
             ? isHovered
@@ -1682,6 +1879,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               )}
               <Html
                 position={[lx, ly, lz]}
+                // Top-3 hits get a zIndexRange above the drei default
+                // ([16777271, 0]) so their labels layer above sibling labels.
+                zIndexRange={isTopHit ? [100000000, 16777272] : undefined}
                 style={{
                   pointerEvents: isExpandedProxy ? "auto" : "none",
                   userSelect: "none",
@@ -1697,7 +1897,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                   color: isExpandedProxy ? "rgba(100,220,255,0.95)" : labelColor,
                   fontSize: isExpandedProxy ? 13 : labelSize,
                   fontFamily: "'Barlow', sans-serif",
-                  fontWeight: isHovered || isSelected || isExpandedProxy ? 600 : 500,
+                  fontWeight: labelWeight,
                   letterSpacing: "0.3px",
                   whiteSpace: "nowrap",
                   textShadow: "0 0 6px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.7)",
@@ -1830,6 +2030,55 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           </Html>
         );
       })}
+
+      {/* Close button — appears over the selected node so the user can pop
+          back to overview without aiming at the bottom-right pill. */}
+      {!minimap && viewState.mode === "subgraph" && onResetView && (() => {
+        const sel = viewState.selectedNodeId;
+        const selNode = graph.nodes[sel];
+        if (!selNode) return null;
+        const i3 = sel * 3;
+        const lx = i3 + 2 < labelPos.length ? labelPos[i3] : selNode.position.x;
+        const ly = i3 + 2 < labelPos.length ? labelPos[i3 + 1] : selNode.position.y;
+        const lz = i3 + 2 < labelPos.length ? labelPos[i3 + 2] : selNode.position.z;
+        return (
+          <Html
+            key={`reset-${sel}`}
+            position={[lx, ly, lz]}
+            center
+            style={{
+              userSelect: "none",
+              transform: "translate(28px, -28px)",
+              zIndex: 10,
+            }}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onResetView();
+              }}
+              title="Reset view"
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: 999,
+                background: "rgba(8, 12, 22, 0.85)",
+                border: "1px solid rgba(120, 200, 255, 0.45)",
+                color: "rgba(180, 220, 240, 0.9)",
+                fontFamily: "ui-monospace, Menlo, monospace",
+                fontSize: 13,
+                lineHeight: "20px",
+                cursor: "pointer",
+                padding: 0,
+                boxShadow: "0 0 8px rgba(120, 200, 255, 0.18)",
+                backdropFilter: "blur(8px)",
+              }}
+            >
+              ×
+            </button>
+          </Html>
+        );
+      })()}
 
       {/* Approach hint — "scroll to inspect" */}
       {approachState.nodeId >= 0 && approachState.progress > 0.05 && wbNodeId === null && (() => {
