@@ -690,6 +690,26 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return m
   }, [nodes])
 
+  // Feature 2 (GRAPH_FEATURES.md): pan to the rank-0 search hit once per new
+  // search query. Tracks the last search term we've already panned for, so a
+  // neighbor-fetch payload that arrives later (same query, fresher graph)
+  // doesn't re-pan and override a user click in between. handleNodeClick
+  // consumes the pending pan by writing the current searchTerm into the ref —
+  // see below.
+  const lastPannedSearchTerm = useRef<string>("")
+  useEffect(() => {
+    if (!searchTerm) return
+    if (searchTerm === lastPannedSearchTerm.current) return
+    if (!topMatchRanks) return
+    let topIdx = -1
+    for (const [idx, rank] of topMatchRanks) {
+      if (rank === 0) { topIdx = idx; break }
+    }
+    if (topIdx < 0 || !graph.nodes[topIdx]) return
+    setCamTarget(computeCamTarget(graph, topIdx))
+    lastPannedSearchTerm.current = searchTerm
+  }, [searchTerm, topMatchRanks, graph, setCamTarget])
+
   const handleHoverChange = useCallback(
     (nodeId: number | null) => {
       if (nodeId === null) {
@@ -791,8 +811,14 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       // through the lerp — no drift like when both the camera and the
       // anchor were moving in opposite directions.
       setCamTarget(computeCamTarget(graph, nodeId))
+
+      // Consume any pending search-pan: if results haven't landed yet, a
+      // later payload would otherwise yank the camera off the node the
+      // user just clicked. Marking this term as "already panned for" stops
+      // the search-pan effect from firing for it.
+      lastPannedSearchTerm.current = searchTerm
     },
-    [graph, indexMap, nodes, onNodeSelect, setCamTarget]
+    [graph, indexMap, nodes, onNodeSelect, setCamTarget, searchTerm]
   )
 
   const handleReset = useCallback(() => {
