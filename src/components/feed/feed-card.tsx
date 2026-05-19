@@ -1,6 +1,6 @@
 "use client"
 
-import { Heart, MessageCircle, Repeat2, Eye, Play, BadgeCheck } from "lucide-react"
+import { Heart, MessageCircle, Repeat2, Eye, Play, BadgeCheck, ExternalLink } from "lucide-react"
 import { parseTimestamp } from "@/lib/date-format"
 import { pickString, resolveNodeBody, resolveNodeTitle, resolveNodeThumbnail, unescapeText } from "@/lib/node-display"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
@@ -174,6 +174,56 @@ function CardBody({
             </>
           )}
         </div>
+        {(() => {
+          const src = pickString(p, "source_link")
+          if (!src) return null
+          try {
+            const hostname = new URL(src).hostname
+            return (
+              <a
+                href={src}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ExternalLink className="h-3 w-3" />
+                {hostname}
+              </a>
+            )
+          } catch {
+            return null
+          }
+        })()}
+      </div>
+    )
+  }
+
+  if (type === "Section") {
+    return (
+      <div className="space-y-2">
+        {body && <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">{body}</p>}
+        {(() => {
+          const src = pickString(p, "source_link")
+          if (!src) return null
+          try {
+            const hostname = new URL(src).hostname
+            return (
+              <a
+                href={src}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ExternalLink className="h-3 w-3" />
+                {hostname}
+              </a>
+            )
+          } catch {
+            return null
+          }
+        })()}
       </div>
     )
   }
