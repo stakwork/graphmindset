@@ -203,6 +203,20 @@ export async function updateNode(
   return api.post(`/v2/nodes/${refId}`, data, undefined, signal)
 }
 
+// Admin update a node via boltwall PUT /node (type changes + property edits)
+export async function adminUpdateNode(
+  payload: {
+    ref_id: string
+    node_type: string
+    node_data: Record<string, unknown>
+    type_to_be_deleted?: string[]
+    properties_to_be_deleted?: string[]
+  },
+  signal?: AbortSignal
+) {
+  return api.put("/node", payload, undefined, signal)
+}
+
 // Delete a node
 export async function deleteNode(refId: string, signal?: AbortSignal) {
   return api.delete(`/v2/nodes/${refId}`, undefined, signal)

@@ -413,6 +413,119 @@ describe("ReviewRow", () => {
   })
 })
 
+// ── ReviewsPage page-fallback guard (pure logic) ─────────────────────────────
+
+describe("ReviewsPage page-fallback guard logic", () => {
+  const PAGE_SIZE = 20
+
+  function correctedSkip(total: number): number {
+    return total > 0
+      ? Math.max(0, Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE)
+      : 0
+  }
+
+  it("calculates corrected skip to page 0 when total fits on one page (total=15, currentSkip=20)", () => {
+    // floor((15-1)/20)*20 = floor(0.7)*20 = 0
+    expect(correctedSkip(15)).toBe(0)
+    expect(correctedSkip(15)).toBeLessThan(20)
+  })
+
+  it("calculates corrected skip to last populated page (total=35, currentSkip=40)", () => {
+    // floor((35-1)/20)*20 = floor(1.7)*20 = 20
+    expect(correctedSkip(35)).toBe(20)
+    expect(correctedSkip(35)).toBeLessThan(40)
+  })
+
+  it("calculates corrected skip to page 40 when total=81, currentSkip=60", () => {
+    // floor((81-1)/20)*20 = floor(4)*20 = 80 — but currentSkip is 60, 80 > 60 so no redirect
+    // This tests the correctedSkip < currentSkip guard prevents moving forward
+    const cs = correctedSkip(81)
+    expect(cs).toBe(80)
+    // 80 is NOT less than 60 → guard correctly doesn't redirect
+    expect(cs < 60).toBe(false)
+  })
+
+  it("returns 0 when total is 0 (empty list)", () => {
+    expect(correctedSkip(0)).toBe(0)
+  })
+
+  it("does NOT loop when total=0 and skip>0 — guard condition (skip>0) becomes false after redirect to 0", () => {
+    // First call: currentSkip=20, total=0 → correctedSkip=0, 0 < 20 → redirect to skip=0
+    const cs = correctedSkip(0)
+    expect(cs).toBe(0)
+    expect(cs).toBeLessThan(20)
+    // Second call at skip=0: guard requires currentSkip > 0 → false → no further redirect
+    expect(0 > 0).toBe(false)
+  })
+
+  it("correctedSkip < currentSkip guard prevents forward redirect", () => {
+    // If somehow correctedSkip >= currentSkip, no redirect (prevents any loop)
+    const cs = correctedSkip(21)
+    // floor((21-1)/20)*20 = floor(1)*20 = 20
+    expect(cs).toBe(20)
+    // 20 is NOT less than 20 → guard correctly doesn't redirect at skip=20
+    expect(cs < 20).toBe(false)
+    // 20 IS less than 40 → guard correctly redirects at skip=40
+    expect(cs < 40).toBe(true)
+  })
+})
+
+// ── eligibleForSelectAll logic ───────────────────────────────────────────────
+
+describe("eligibleForSelectAll logic", () => {
+  function computeEligible(
+    selectableReviews: { ref_id: string; action_name: string }[],
+    lockedActionName: string | null
+  ) {
+    const targetAction = lockedActionName ?? selectableReviews[0]?.action_name
+    return targetAction
+      ? selectableReviews.filter((r) => r.action_name === targetAction)
+      : selectableReviews
+  }
+
+  const mixedReviews = [
+    { ref_id: "r1", action_name: "merge_nodes" },
+    { ref_id: "r2", action_name: "soft_delete" },
+    { ref_id: "r3", action_name: "merge_nodes" },
+    { ref_id: "r4", action_name: "soft_delete" },
+  ]
+
+  it("selects only the action type of the first pending review when no lock and mixed types", () => {
+    const eligible = computeEligible(mixedReviews, null)
+    expect(eligible.map((r) => r.ref_id)).toEqual(["r1", "r3"])
+    expect(eligible.every((r) => r.action_name === "merge_nodes")).toBe(true)
+  })
+
+  it("selects all rows when all pending reviews share a single action type", () => {
+    const homogeneous = [
+      { ref_id: "r1", action_name: "merge_nodes" },
+      { ref_id: "r2", action_name: "merge_nodes" },
+      { ref_id: "r3", action_name: "merge_nodes" },
+    ]
+    const eligible = computeEligible(homogeneous, null)
+    expect(eligible).toHaveLength(3)
+    expect(eligible.every((r) => r.action_name === "merge_nodes")).toBe(true)
+  })
+
+  it("respects lockedActionName when already set, ignoring the first row's type", () => {
+    // First row is merge_nodes but lock is soft_delete (user selected a soft_delete row first)
+    const eligible = computeEligible(mixedReviews, "soft_delete")
+    expect(eligible.map((r) => r.ref_id)).toEqual(["r2", "r4"])
+    expect(eligible.every((r) => r.action_name === "soft_delete")).toBe(true)
+  })
+
+  it("returns empty array when no selectable reviews exist", () => {
+    const eligible = computeEligible([], null)
+    expect(eligible).toHaveLength(0)
+  })
+
+  it("\"Select all N\" label count reflects only eligible same-type rows", () => {
+    // With mixed types and no lock, only 2 of 4 rows are eligible (merge_nodes)
+    const eligible = computeEligible(mixedReviews, null)
+    expect(eligible).toHaveLength(2)
+  })
+})
+
 // ── Mock-mode listReviews ────────────────────────────────────────────────────
 
 describe("listReviews mock mode", () => {
