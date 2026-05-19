@@ -190,7 +190,7 @@ export function FollowingPanel({ onClose }: { onClose: () => void }) {
                   const nodeForRow = {
                     ref_id: entry.ref_id,
                     node_type: entry.node_type ?? "Node",
-                    properties: { name: entry.title ?? entry.ref_id },
+                    properties: entry.properties ?? {},
                   } as GraphNode
 
                   return (
