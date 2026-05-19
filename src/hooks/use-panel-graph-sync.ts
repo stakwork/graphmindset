@@ -2,12 +2,13 @@
 
 import { useEffect, useRef } from "react"
 import { api } from "@/lib/api"
-import { isMocksEnabled, MOCK_CONTENT, MOCK_SOURCES } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_CONTENT, MOCK_SOURCES, MOCK_WORKFLOW_MARKETPLACE } from "@/lib/mock-data"
 import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useUserStore } from "@/stores/user-store"
 import type { Source } from "@/stores/sources-store"
-import type { GraphNode, GraphEdge } from "@/lib/graph-api"
+import type { GraphNode, GraphEdge, WorkflowMarketplaceItem } from "@/lib/graph-api"
+import { getWorkflowMarketplace } from "@/lib/graph-api"
 
 interface ContentResponse {
   nodes: GraphNode[]
@@ -34,20 +35,36 @@ function sourceToNode(s: Source): GraphNode {
   }
 }
 
+function workflowToNode(w: WorkflowMarketplaceItem): GraphNode {
+  return {
+    ref_id: w.ref_id,
+    node_type: "Workflow",
+    properties: {
+      name: w.label || w.source_type,
+      source_type: w.source_type,
+      kind: w.kind,
+      enabled: w.enabled,
+    },
+  }
+}
+
 export function usePanelGraphSync() {
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
+  const workflowsOpen = useAppStore((s) => s.workflowsOpen)
   const pubKey = useUserStore((s) => s.pubKey)
 
   const snapshot = useRef<Snapshot>(null)
-  const activePanel = useRef<"mycontent" | "sources" | null>(null)
+  const activePanel = useRef<"mycontent" | "sources" | "workflows" | null>(null)
 
   useEffect(() => {
-    const next: "mycontent" | "sources" | null = myContentOpen
+    const next: "mycontent" | "sources" | "workflows" | null = myContentOpen
       ? "mycontent"
       : sourcesOpen
         ? "sources"
-        : null
+        : workflowsOpen
+          ? "workflows"
+          : null
 
     if (next === activePanel.current) return
 
@@ -90,6 +107,15 @@ export function usePanelGraphSync() {
           const res = await api.get<SourcesResponse>(`/radar?skip=0&limit=500`)
           const nodes = (res.data ?? []).map(sourceToNode)
           if (!cancelled) useGraphStore.getState().setGraphData(nodes, [])
+        } else if (next === "workflows") {
+          if (isMocksEnabled()) {
+            const nodes = MOCK_WORKFLOW_MARKETPLACE.map(workflowToNode)
+            if (!cancelled) useGraphStore.getState().setGraphData(nodes, [])
+            return
+          }
+          const items = await getWorkflowMarketplace()
+          const nodes = items.map(workflowToNode)
+          if (!cancelled) useGraphStore.getState().setGraphData(nodes, [])
         }
       } catch {
         // Silent — panel itself surfaces its own errors; the graph just stays empty.
@@ -98,5 +124,5 @@ export function usePanelGraphSync() {
 
     load()
     return () => { cancelled = true }
-  }, [myContentOpen, sourcesOpen, pubKey])
+  }, [myContentOpen, sourcesOpen, workflowsOpen, pubKey])
 }
