@@ -80,7 +80,7 @@ interface NodePreviewPanelProps {
   schemas: SchemaNode[]
 }
 
-type UnlockState = "preview" | "loading" | "unlocked" | "error"
+type UnlockState = "preview" | "loading" | "unlocked" | "error" | "unavailable"
 
 // --- Rich content widgets ---
 
@@ -463,6 +463,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [unlockState, setUnlockState] = useState<UnlockState>("loading")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const [price, setPrice] = useState<number | null>(null)
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [watched, setWatched] = useState(false)
@@ -579,9 +580,19 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   useEffect(() => {
     const controller = new AbortController()
 
-    setUnlockState("loading")
     setFullNode(null)
     setPrice(null)
+    setUnavailableReason(null)
+
+    // Blocked nodes (halted/paused/failed/etc) never come back useful from a
+    // probe — skip the call entirely and surface a generic unavailable state
+    // with no retry button.
+    if (nodeIsBlocked) {
+      setUnlockState("unavailable")
+      return () => controller.abort()
+    }
+
+    setUnlockState("loading")
 
     async function probe() {
       if (isMocksEnabled()) {
@@ -619,15 +630,30 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
             setPrice(null)
           }
           setUnlockState("preview")
-        } else {
-          setUnlockState("error")
+          return
         }
+        // Non-402: backend may explain why the content is gone. Parse the
+        // body for `{ error: true, message }` and route to the unavailable
+        // state. Generic network/5xx errors fall through to the retry path.
+        if (err instanceof Response) {
+          try {
+            const body = await err.json()
+            if (body?.error === true && typeof body?.message === "string") {
+              setUnavailableReason(body.message)
+              setUnlockState("unavailable")
+              return
+            }
+          } catch {
+            /* unparseable body — fall through to error */
+          }
+        }
+        setUnlockState("error")
       }
     }
 
     probe()
     return () => controller.abort()
-  }, [node.ref_id, refreshBalance])
+  }, [node.ref_id, refreshBalance, nodeIsBlocked])
 
   const fp = fullNode?.properties
 
@@ -814,14 +840,10 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                   <Skeleton className="h-4 w-3/4" />
                 </>
               )}
-              {nodeIsBlocked ? (
-                <p className="text-xs text-muted-foreground">Content unavailable — check status above.</p>
-              ) : (
-                <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
-                  <Zap className="h-3.5 w-3.5 mr-1.5" />
-                  {price ? `Unlock for ${price} sats` : "Unlock Full Content"}
-                </Button>
-              )}
+              <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
+                <Zap className="h-3.5 w-3.5 mr-1.5" />
+                {price ? `Unlock for ${price} sats` : "Unlock Full Content"}
+              </Button>
             </div>
           )}
 
@@ -839,6 +861,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 Retry Unlock
               </Button>
             </div>
+          )}
+
+          {unlockState === "unavailable" && (
+            <p className="text-xs text-muted-foreground py-2">
+              {unavailableReason ?? "Content is not available."}
+            </p>
           )}
 
           {unlockState === "unlocked" && fp && (
