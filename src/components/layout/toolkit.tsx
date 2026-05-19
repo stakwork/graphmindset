@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   MessageSquare,
+  Cpu,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUserStore } from "@/stores/user-store"
@@ -95,6 +96,8 @@ export function Toolkit({
   onToggleFollowing,
   agentOpen,
   onToggleAgent,
+  workflowsOpen,
+  onToggleWorkflows,
 }: {
   sourcesOpen: boolean
   onToggleSources: () => void
@@ -104,6 +107,8 @@ export function Toolkit({
   onToggleFollowing: () => void
   agentOpen?: boolean
   onToggleAgent?: () => void
+  workflowsOpen?: boolean
+  onToggleWorkflows?: () => void
 }) {
   const router = useRouter()
   const { isAdmin, budget } = useUserStore()
@@ -203,6 +208,12 @@ export function Toolkit({
         onClick={onToggleSources}
         active={sourcesOpen}
       />
+      <ToolkitButton
+        icon={Cpu}
+        ariaLabel="Workflows"
+        onClick={onToggleWorkflows}
+        active={workflowsOpen}
+      />
 
       {isAdmin && (
         <>
@@ -238,6 +249,8 @@ export function ToolkitFAB({
   onToggleFollowing,
   agentOpen,
   onToggleAgent,
+  workflowsOpen,
+  onToggleWorkflows,
 }: {
   sourcesOpen: boolean
   onToggleSources: () => void
@@ -247,6 +260,8 @@ export function ToolkitFAB({
   onToggleFollowing: () => void
   agentOpen?: boolean
   onToggleAgent?: () => void
+  workflowsOpen?: boolean
+  onToggleWorkflows?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
@@ -308,6 +323,7 @@ export function ToolkitFAB({
               { icon: BookMarked, label: "My Content", action: onToggleMyContent, active: myContentOpen },
               { icon: Heart, label: "Following", action: onToggleFollowing, active: followingOpen },
               { icon: Layers, label: "Sources", action: onToggleSources, active: sourcesOpen },
+              { icon: Cpu, label: "Workflows", action: onToggleWorkflows ?? (() => {}), active: workflowsOpen ?? false },
             ].map(({ icon: Icon, label, action, active }) => (
               <button
                 key={label}
