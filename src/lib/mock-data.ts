@@ -488,6 +488,7 @@ const baseCronConfig = {
   workflow_id: "12345",
   created_at: MOCK_CRON_TS,
   updated_at: MOCK_CRON_TS,
+  last_run_at: MOCK_CRON_TS,
 }
 export const MOCK_CRON_CONFIGS = [
   { ...baseCronConfig, ref_id: "rc-twitter", source_type: "twitter_handle" as const, kind: "source" as const, enabled: true, cadence: "0 */6 * * *" },

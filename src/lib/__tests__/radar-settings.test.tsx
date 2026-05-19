@@ -24,6 +24,13 @@ describe("snapToPreset", () => {
 
 // ---- Component tests ----
 // Mock modules before importing the component
+vi.mock("@/stores/user-store", () => ({
+  useUserStore: (sel?: (s: Record<string, unknown>) => unknown) => {
+    const state = { isAdmin: true }
+    return sel ? sel(state) : state
+  },
+}))
+
 vi.mock("@/lib/graph-api", () => ({
   getCronConfig: vi.fn(),
   updateCronConfig: vi.fn(),
@@ -39,6 +46,7 @@ vi.mock("@/lib/mock-data", () => ({
       enabled: true,
       cadence: "*/10 * * * *",
       updated_at: undefined,
+      last_run_at: 1747648560,
     },
     {
       source_type: "rss",
@@ -46,6 +54,7 @@ vi.mock("@/lib/mock-data", () => ({
       enabled: false,
       cadence: "0 */12 * * *",
       updated_at: undefined,
+      last_run_at: undefined,
     },
   ],
 }))
@@ -84,6 +93,7 @@ describe("RadarRow", () => {
           enabled: true,
           cadence: "5 4 * * *", // unknown cron
           updated_at: undefined,
+          last_run_at: undefined,
         },
       ],
     } as never)
@@ -112,6 +122,7 @@ describe("RadarRow", () => {
           enabled: true,
           cadence: "*/10 * * * *",
           updated_at: undefined,
+          last_run_at: undefined,
         },
       ],
     } as never)
@@ -122,6 +133,7 @@ describe("RadarRow", () => {
         enabled: true,
         cadence: "0 * * * *",
         updated_at: undefined,
+        last_run_at: undefined,
       },
     } as never)
 
@@ -132,6 +144,41 @@ describe("RadarRow", () => {
     await user.selectOptions(selects[0], "0 * * * *")
 
     expect(updateCronConfig).toHaveBeenCalledWith("twitter_handle", { cadence: "0 * * * *" })
+  })
+
+  it("shows 'Last run' label with relative time when last_run_at is present", async () => {
+    const { isMocksEnabled } = await import("@/lib/mock-data")
+    vi.mocked(isMocksEnabled).mockReturnValue(true)
+
+    render(<RadarSettings open={true} />)
+
+    // Twitter row has last_run_at set — label should say "Last run" (not "Last updated")
+    const lastRunLabels = await screen.findAllByText(/last run/i)
+    expect(lastRunLabels.length).toBeGreaterThan(0)
+  })
+
+  it("shows 'Never run' fallback when last_run_at is absent", async () => {
+    const { isMocksEnabled } = await import("@/lib/mock-data")
+    vi.mocked(isMocksEnabled).mockReturnValue(false)
+
+    const { getCronConfig } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [
+        {
+          source_type: "twitter_handle",
+          kind: "source",
+          enabled: true,
+          cadence: "*/10 * * * *",
+          updated_at: undefined,
+          last_run_at: undefined,
+        },
+      ],
+    } as never)
+
+    render(<RadarSettings open={true} />)
+
+    const neverRun = await screen.findByText(/last run never run/i)
+    expect(neverRun).toBeTruthy()
   })
 
   it("disables dropdown and Run now button when source is disabled", async () => {

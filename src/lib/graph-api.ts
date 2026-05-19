@@ -294,6 +294,7 @@ export interface CronConfig {
   label?: string
   created_at?: number
   updated_at?: number
+  last_run_at?: number
 }
 
 /** @deprecated Use CronConfig */

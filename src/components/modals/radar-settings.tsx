@@ -186,7 +186,7 @@ function RadarRow({
       </div>
 
       <div className="flex items-center justify-between text-[10px] text-muted-foreground/80">
-        <span>Last updated {formatDateRelative(config.updated_at, "Never run")}</span>
+        <span>Last run {formatDateRelative(config.last_run_at, "Never run")}</span>
         {runMessage && <span>{runMessage}</span>}
       </div>
     </div>
