@@ -470,6 +470,62 @@ describe("ReviewsPage page-fallback guard logic", () => {
   })
 })
 
+// ── eligibleForSelectAll logic ───────────────────────────────────────────────
+
+describe("eligibleForSelectAll logic", () => {
+  function computeEligible(
+    selectableReviews: { ref_id: string; action_name: string }[],
+    lockedActionName: string | null
+  ) {
+    const targetAction = lockedActionName ?? selectableReviews[0]?.action_name
+    return targetAction
+      ? selectableReviews.filter((r) => r.action_name === targetAction)
+      : selectableReviews
+  }
+
+  const mixedReviews = [
+    { ref_id: "r1", action_name: "merge_nodes" },
+    { ref_id: "r2", action_name: "soft_delete" },
+    { ref_id: "r3", action_name: "merge_nodes" },
+    { ref_id: "r4", action_name: "soft_delete" },
+  ]
+
+  it("selects only the action type of the first pending review when no lock and mixed types", () => {
+    const eligible = computeEligible(mixedReviews, null)
+    expect(eligible.map((r) => r.ref_id)).toEqual(["r1", "r3"])
+    expect(eligible.every((r) => r.action_name === "merge_nodes")).toBe(true)
+  })
+
+  it("selects all rows when all pending reviews share a single action type", () => {
+    const homogeneous = [
+      { ref_id: "r1", action_name: "merge_nodes" },
+      { ref_id: "r2", action_name: "merge_nodes" },
+      { ref_id: "r3", action_name: "merge_nodes" },
+    ]
+    const eligible = computeEligible(homogeneous, null)
+    expect(eligible).toHaveLength(3)
+    expect(eligible.every((r) => r.action_name === "merge_nodes")).toBe(true)
+  })
+
+  it("respects lockedActionName when already set, ignoring the first row's type", () => {
+    // First row is merge_nodes but lock is soft_delete (user selected a soft_delete row first)
+    const eligible = computeEligible(mixedReviews, "soft_delete")
+    expect(eligible.map((r) => r.ref_id)).toEqual(["r2", "r4"])
+    expect(eligible.every((r) => r.action_name === "soft_delete")).toBe(true)
+  })
+
+  it("returns empty array when no selectable reviews exist", () => {
+    const eligible = computeEligible([], null)
+    expect(eligible).toHaveLength(0)
+  })
+
+  it("\"Select all N\" label count reflects only eligible same-type rows", () => {
+    // With mixed types and no lock, only 2 of 4 rows are eligible (merge_nodes)
+    const eligible = computeEligible(mixedReviews, null)
+    expect(eligible).toHaveLength(2)
+  })
+})
+
 // ── Mock-mode listReviews ────────────────────────────────────────────────────
 
 describe("listReviews mock mode", () => {
