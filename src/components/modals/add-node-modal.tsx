@@ -21,7 +21,8 @@ import {
   uploadImageToNode,
   type SchemaDomainsResponse,
 } from "@/lib/graph-api"
-import type { SchemaNode, SchemaAttribute } from "@/app/ontology/page"
+import type { SchemaNode } from "@/app/ontology/page"
+import { SYSTEM_ATTRIBUTES, fieldsForSchema } from "@/lib/node-schema-utils"
 
 type Status = "idle" | "checking" | "submitting" | "success" | "error" | "uploading"
 
@@ -29,19 +30,6 @@ type Status = "idle" | "checking" | "submitting" | "success" | "error" | "upload
 // to upload to /v2/images/<ref_id>/upload. Constant lives here so other parts
 // of the modal can branch on the same name without typos.
 const IMAGE_TYPE = "Image"
-
-// Inherited Thing attributes that are book-keeping the user never touches —
-// owner_reference_id is set by the backend from the LSAT, weight/is_muted
-// are graph-internal moderation knobs, unique_source_id is for dedup of
-// ingested content (Stakwork) and gets re-derived from source_link anyway.
-// Surface name though — it's universally relevant.
-const SYSTEM_ATTRIBUTES = new Set([
-  "weight",
-  "is_muted",
-  "unique_source_id",
-  "owner_reference_id",
-  "date_added_to_graph",
-])
 
 // Backend stores node_key as `{typeLower}-{attribute}` (e.g. "image-source_link",
 // "transport-name"). The actual attribute name is the part after the dash.
@@ -61,26 +49,6 @@ function extractRefId(response: unknown): string | null {
     return nodes[0].ref_id
   }
   return null
-}
-
-// Merge own + inherited attributes into one form-field list, with own
-// attributes first. Duplicate keys are deduped (own wins). System-level
-// inherited attrs (weight, is_muted, etc.) are filtered out — they're
-// backend-managed book-keeping, not user input.
-function fieldsForSchema(schema: SchemaNode): SchemaAttribute[] {
-  const seen = new Set<string>()
-  const out: SchemaAttribute[] = []
-  for (const a of schema.attributes) {
-    if (seen.has(a.key) || SYSTEM_ATTRIBUTES.has(a.key)) continue
-    seen.add(a.key)
-    out.push(a)
-  }
-  for (const a of schema.inherited_attributes ?? []) {
-    if (seen.has(a.key) || SYSTEM_ATTRIBUTES.has(a.key)) continue
-    seen.add(a.key)
-    out.push(a)
-  }
-  return out
 }
 
 // Coerce a raw form value into the JSON shape the backend wants. Empty
