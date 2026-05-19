@@ -27,6 +27,7 @@ import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
 import { formatDateAbsolute } from "@/lib/date-format"
+import { useGraphStore } from "@/stores/graph-store"
 
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "owner_reference_id", "node_type", "date_added_to_graph", "status", "project_id",
@@ -457,6 +458,142 @@ function PersonCard({ props }: { props: Record<string, unknown> }) {
   )
 }
 
+// --- Ordered children / parent breadcrumb components ---
+
+export function ChildContentBlock({ heading, body }: { heading: string; body: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold leading-snug">{heading}</p>
+      <SummaryBlock text={body} />
+    </div>
+  )
+}
+
+interface IndexedChildrenProps {
+  nodeRefId: string
+  schemas: SchemaNode[]
+}
+
+export function OrderedChildrenView({ nodeRefId, schemas }: IndexedChildrenProps) {
+  const edges = useGraphStore((s) => s.edges)
+  const nodes = useGraphStore((s) => s.nodes)
+
+  const nodeMap = new Map(nodes.map((n) => [n.ref_id, n]))
+
+  // All outgoing edges from this node
+  const outgoing = edges.filter((e) => e.source === nodeRefId)
+
+  // Split into indexed and unindexed
+  const indexed = outgoing.filter((e) => e.properties?.index !== undefined)
+  const unindexed = outgoing.filter((e) => e.properties?.index === undefined)
+
+  if (indexed.length === 0) return null
+
+  // Sort indexed ascending by index, then append unindexed sorted alphabetically by peer title
+  const resolveTitle = (refId: string): string => {
+    const peer = nodeMap.get(refId)
+    if (!peer) return refId
+    const schema = schemas.find((s) => s.type === peer.node_type)
+    let t = pickString(peer.properties, schema?.title_key) ?? pickString(peer.properties, schema?.index)
+    if (!t) {
+      for (const key of DISPLAY_KEY_FALLBACKS) {
+        t = pickString(peer.properties, key)
+        if (t) break
+      }
+    }
+    return t ?? peer.ref_id
+  }
+
+  const sortedIndexed = [...indexed].sort(
+    (a, b) => Number(a.properties!.index) - Number(b.properties!.index)
+  )
+  const sortedUnindexed = [...unindexed].sort((a, b) =>
+    resolveTitle(a.target).localeCompare(resolveTitle(b.target))
+  )
+  const allEdges = [...sortedIndexed, ...sortedUnindexed]
+
+  // Check if we're still loading — outgoing edges exist but peers not yet in store
+  const allPeersLoaded = outgoing.every((e) => nodeMap.has(e.target))
+  if (!allPeersLoaded && indexed.length > 0) {
+    return (
+      <p className="text-xs text-muted-foreground">Loading sections…</p>
+    )
+  }
+
+  const items = allEdges
+    .map((e) => {
+      const peer = nodeMap.get(e.target)
+      if (!peer) return null
+      const summary = typeof peer.properties?.summary === "string" ? peer.properties.summary : ""
+      if (!summary) return null
+      return { heading: resolveTitle(e.target), body: summary }
+    })
+    .filter((x): x is { heading: string; body: string } => x !== null)
+
+  if (items.length === 0) return null
+
+  return (
+    <div className="space-y-4 pt-2 border-t border-border/30">
+      {items.map((item, i) => (
+        <ChildContentBlock key={i} heading={item.heading} body={item.body} />
+      ))}
+    </div>
+  )
+}
+
+interface ParentBreadcrumbsProps {
+  nodeRefId: string
+  schemas: SchemaNode[]
+}
+
+export function ParentBreadcrumbs({ nodeRefId, schemas }: ParentBreadcrumbsProps) {
+  const edges = useGraphStore((s) => s.edges)
+  const nodes = useGraphStore((s) => s.nodes)
+
+  const nodeMap = new Map(nodes.map((n) => [n.ref_id, n]))
+
+  // Incoming edges with properties.index — dedupe by parent ref_id
+  const seen = new Set<string>()
+  const parents: { node: (typeof nodes)[number]; edge: (typeof edges)[number] }[] = []
+  for (const e of edges) {
+    if (e.target === nodeRefId && e.properties?.index !== undefined) {
+      if (!seen.has(e.source)) {
+        seen.add(e.source)
+        const parentNode = nodeMap.get(e.source)
+        if (parentNode) parents.push({ node: parentNode, edge: e })
+      }
+    }
+  }
+
+  if (parents.length === 0) return null
+
+  const resolveTitle = (node: (typeof nodes)[number]): string => {
+    const schema = schemas.find((s) => s.type === node.node_type)
+    let t = pickString(node.properties, schema?.title_key) ?? pickString(node.properties, schema?.index)
+    if (!t) {
+      for (const key of DISPLAY_KEY_FALLBACKS) {
+        t = pickString(node.properties, key)
+        if (t) break
+      }
+    }
+    return t ?? node.ref_id
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {parents.map(({ node }) => (
+        <button
+          key={node.ref_id}
+          onClick={() => useGraphStore.getState().setSidebarSelectedNode(node)}
+          className="inline-flex items-center gap-1 rounded-sm border border-border/50 bg-muted/30 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          ↑ {resolveTitle(node)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // --- Main component ---
 
 export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProps) {
@@ -516,6 +653,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
   const openModal = useModalStore((s) => s.open)
   const openEdit = useModalStore((s) => s.openEdit)
+
+  const edges = useGraphStore((s) => s.edges)
 
   const nodeType = currentNode.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
@@ -832,6 +971,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
             />
           )}
 
+          {/* Parent breadcrumbs — shown when any incoming edge carries properties.index */}
+          {edges.some((e) => e.target === currentNode.ref_id && e.properties?.index !== undefined) && (
+            <ParentBreadcrumbs nodeRefId={currentNode.ref_id} schemas={schemas} />
+          )}
+
           {/* Title */}
           <p className="text-sm font-semibold">{title}</p>
 
@@ -961,6 +1105,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 </a>
               )}
               {hasTranscript && <TranscriptBlock text={fp.transcript as string} />}
+
+              {/* Ordered child content — shown when outgoing edges carry properties.index */}
+              {edges.some((e) => e.source === currentNode.ref_id && e.properties?.index !== undefined) && (
+                <OrderedChildrenView nodeRefId={currentNode.ref_id} schemas={schemas} />
+              )}
 
               {/* Fallback: remaining properties not covered by widgets */}
               {remainingProps.length > 0 && (

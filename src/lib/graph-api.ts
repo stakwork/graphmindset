@@ -19,6 +19,7 @@ export interface GraphEdge {
   target: string
   edge_type: string
   ref_id?: string
+  properties?: Record<string, unknown>
 }
 
 export interface GraphData {
