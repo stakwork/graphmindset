@@ -740,6 +740,17 @@ export const MOCK_CRON_CONFIGS = [
 /** @deprecated Use MOCK_CRON_CONFIGS */
 export const MOCK_RADAR_CONFIGS = MOCK_CRON_CONFIGS
 
+import type { CronConfig, WorkflowMarketplaceItem } from "./graph-api"
+const MOCK_CRON_CONFIGS_TYPED: CronConfig[] = MOCK_CRON_CONFIGS
+export const MOCK_WORKFLOW_MARKETPLACE: WorkflowMarketplaceItem[] =
+  MOCK_CRON_CONFIGS_TYPED.map(({ ref_id, label, source_type, kind, enabled }) => ({
+    ref_id,
+    label,
+    source_type,
+    kind,
+    enabled,
+  }))
+
 const MOCK_RUN_NOW = new Date("2026-05-04T09:00:00Z")
 const mockRunTs = (minutesAgo: number): number => {
   return (MOCK_RUN_NOW.getTime() - minutesAgo * 60 * 1000) / 1000

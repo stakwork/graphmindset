@@ -11,8 +11,9 @@ import { FollowingPanel } from "./following-panel"
 import { NodePreviewPanel } from "./node-preview-panel"
 import { cn } from "@/lib/utils"
 import { AgentPanel } from "@/components/agent/agent-panel"
+import { WorkflowsPanel } from "./workflows-panel"
 
-type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "agent" | "feed"
+type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "agent" | "workflows" | "feed"
 
 export function LeftPane() {
   const selectedNode = useGraphStore((s) => s.selectedNode)
@@ -22,14 +23,17 @@ export function LeftPane() {
   const clipsOpen = useAppStore((s) => s.clipsOpen)
   const followingOpen = useAppStore((s) => s.followingOpen)
   const agentOpen = useAppStore((s) => s.agentOpen)
+  const workflowsOpen = useAppStore((s) => s.workflowsOpen)
   const setSourcesOpen = useAppStore((s) => s.setSourcesOpen)
   const setMyContentOpen = useAppStore((s) => s.setMyContentOpen)
   const setClipsOpen = useAppStore((s) => s.setClipsOpen)
   const setFollowingOpen = useAppStore((s) => s.setFollowingOpen)
   const setAgentOpen = useAppStore((s) => s.setAgentOpen)
+  const setWorkflowsOpen = useAppStore((s) => s.setWorkflowsOpen)
   const schemas = useSchemaStore((s) => s.schemas)
 
   function pickMode(): Mode {
+    if (workflowsOpen) return "workflows"
     if (agentOpen) return "agent"
     if (sourcesOpen) return "sources"
     if (myContentOpen) return "mycontent"
@@ -54,6 +58,7 @@ export function LeftPane() {
         {mode === "clips" && <ClipsPanel onClose={() => setClipsOpen(false)} />}
         {mode === "following" && <FollowingPanel onClose={() => setFollowingOpen(false)} />}
         {mode === "agent" && <AgentPanel onClose={() => setAgentOpen(false)} />}
+        {mode === "workflows" && <WorkflowsPanel onClose={() => setWorkflowsOpen(false)} />}
         <div className={cn("h-full w-full", mode !== "feed" && "hidden")}>
           <FeedView />
         </div>

@@ -353,6 +353,29 @@ export async function runCron(
   )
 }
 
+export interface WorkflowMarketplaceItem {
+  ref_id: string
+  label?: string
+  source_type: RadarSourceType | JanitorSourceType
+  kind: CronKind
+  enabled: boolean
+}
+
+export async function getWorkflowMarketplace(
+  signal?: AbortSignal
+): Promise<WorkflowMarketplaceItem[]> {
+  const { isMocksEnabled, MOCK_WORKFLOW_MARKETPLACE } = await import("./mock-data")
+  if (isMocksEnabled()) {
+    return MOCK_WORKFLOW_MARKETPLACE
+  }
+  const res = await api.get<{ workflows: WorkflowMarketplaceItem[] }>(
+    '/v2/workflows/marketplace',
+    undefined,
+    signal
+  )
+  return res.workflows ?? []
+}
+
 export async function getCronRuns(
   opts: { source_type?: string; kind?: CronKind; limit?: number },
   signal?: AbortSignal
