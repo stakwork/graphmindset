@@ -104,6 +104,15 @@ export default function ReviewsPage() {
           },
           ctrl.signal
         )
+        if (res.reviews.length === 0 && currentSkip > 0) {
+          const correctedSkip = res.total > 0
+            ? Math.max(0, Math.floor((res.total - 1) / PAGE_SIZE) * PAGE_SIZE)
+            : 0
+          if (correctedSkip < currentSkip) {
+            fetchReviews(correctedSkip, options)
+            return
+          }
+        }
         setReviews(res.reviews)
         setTotal(res.total)
         setSkip(currentSkip)

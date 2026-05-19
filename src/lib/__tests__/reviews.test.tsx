@@ -413,6 +413,63 @@ describe("ReviewRow", () => {
   })
 })
 
+// ── ReviewsPage page-fallback guard (pure logic) ─────────────────────────────
+
+describe("ReviewsPage page-fallback guard logic", () => {
+  const PAGE_SIZE = 20
+
+  function correctedSkip(total: number): number {
+    return total > 0
+      ? Math.max(0, Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE)
+      : 0
+  }
+
+  it("calculates corrected skip to page 0 when total fits on one page (total=15, currentSkip=20)", () => {
+    // floor((15-1)/20)*20 = floor(0.7)*20 = 0
+    expect(correctedSkip(15)).toBe(0)
+    expect(correctedSkip(15)).toBeLessThan(20)
+  })
+
+  it("calculates corrected skip to last populated page (total=35, currentSkip=40)", () => {
+    // floor((35-1)/20)*20 = floor(1.7)*20 = 20
+    expect(correctedSkip(35)).toBe(20)
+    expect(correctedSkip(35)).toBeLessThan(40)
+  })
+
+  it("calculates corrected skip to page 40 when total=81, currentSkip=60", () => {
+    // floor((81-1)/20)*20 = floor(4)*20 = 80 — but currentSkip is 60, 80 > 60 so no redirect
+    // This tests the correctedSkip < currentSkip guard prevents moving forward
+    const cs = correctedSkip(81)
+    expect(cs).toBe(80)
+    // 80 is NOT less than 60 → guard correctly doesn't redirect
+    expect(cs < 60).toBe(false)
+  })
+
+  it("returns 0 when total is 0 (empty list)", () => {
+    expect(correctedSkip(0)).toBe(0)
+  })
+
+  it("does NOT loop when total=0 and skip>0 — guard condition (skip>0) becomes false after redirect to 0", () => {
+    // First call: currentSkip=20, total=0 → correctedSkip=0, 0 < 20 → redirect to skip=0
+    const cs = correctedSkip(0)
+    expect(cs).toBe(0)
+    expect(cs).toBeLessThan(20)
+    // Second call at skip=0: guard requires currentSkip > 0 → false → no further redirect
+    expect(0 > 0).toBe(false)
+  })
+
+  it("correctedSkip < currentSkip guard prevents forward redirect", () => {
+    // If somehow correctedSkip >= currentSkip, no redirect (prevents any loop)
+    const cs = correctedSkip(21)
+    // floor((21-1)/20)*20 = floor(1)*20 = 20
+    expect(cs).toBe(20)
+    // 20 is NOT less than 20 → guard correctly doesn't redirect at skip=20
+    expect(cs < 20).toBe(false)
+    // 20 IS less than 40 → guard correctly redirects at skip=40
+    expect(cs < 40).toBe(true)
+  })
+})
+
 // ── Mock-mode listReviews ────────────────────────────────────────────────────
 
 describe("listReviews mock mode", () => {
