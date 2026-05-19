@@ -20,7 +20,7 @@ import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
 import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, unescapeText, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
-import { getStatusBadge, isBlockedStatus } from "@/lib/node-status"
+import { getStatusBadge, isBlockedStatus, isInProgress } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
@@ -605,6 +605,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const [price, setPrice] = useState<number | null>(null)
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null)
+  const [unavailableRetryable, setUnavailableRetryable] = useState(false)
+  const [unavailableCategory, setUnavailableCategory] = useState<"terminal" | "in_flight" | null>(null)
+  // Bump to force the preview probe to re-run without remounting (used by the
+  // "Check again" button on still-processing nodes).
+  const [probeNonce, setProbeNonce] = useState(0)
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [watched, setWatched] = useState(false)
@@ -748,11 +753,25 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     setFullNode(null)
     setPrice(null)
     setUnavailableReason(null)
+    setUnavailableRetryable(false)
+    setUnavailableCategory(null)
 
     // Blocked nodes (halted/paused/failed/etc) never come back useful from a
-    // probe — skip the call entirely and surface a generic unavailable state
-    // with no retry button.
+    // probe — skip the call entirely and surface the right unavailable copy
+    // up front. Pre-fill the category from the locally-known status so we
+    // can show a "Check again" button for still-processing nodes without
+    // waiting for the backend to tell us the same thing.
     if (nodeIsBlocked) {
+      const localStatus = currentNode.properties?.status
+      if (isInProgress(localStatus)) {
+        setUnavailableCategory("in_flight")
+        setUnavailableRetryable(true)
+        setUnavailableReason("This content is still being processed. Try again in a few minutes.")
+      } else {
+        setUnavailableCategory("terminal")
+        setUnavailableRetryable(false)
+        setUnavailableReason("Processing didn't complete for this content, so it can't be unlocked.")
+      }
       setUnlockState("unavailable")
       return () => controller.abort()
     }
@@ -798,13 +817,21 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           return
         }
         // Non-402: backend may explain why the content is gone. Parse the
-        // body for `{ error: true, message }` and route to the unavailable
-        // state. Generic network/5xx errors fall through to the retry path.
+        // body for `{ error: true, message, retryable?, category? }` and
+        // route to the unavailable state. The structured `retryable` /
+        // `category` fields let us distinguish "Stakwork won't recover this"
+        // from "still processing — try again later" without string-matching
+        // on the message. Generic network/5xx errors fall through to the
+        // retry path.
         if (err instanceof Response) {
           try {
             const body = await err.json()
             if (body?.error === true && typeof body?.message === "string") {
               setUnavailableReason(body.message)
+              setUnavailableRetryable(body.retryable === true)
+              if (body.category === "terminal" || body.category === "in_flight") {
+                setUnavailableCategory(body.category)
+              }
               setUnlockState("unavailable")
               return
             }
@@ -818,7 +845,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
     probe()
     return () => controller.abort()
-  }, [node.ref_id, refreshBalance, nodeIsBlocked])
+  }, [node.ref_id, refreshBalance, nodeIsBlocked, probeNonce])
 
   const fp = fullNode?.properties
 
@@ -1050,9 +1077,36 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           )}
 
           {unlockState === "unavailable" && (
-            <p className="text-xs text-muted-foreground py-2">
-              {unavailableReason ?? "Content is not available."}
-            </p>
+            <div className="space-y-3 py-2">
+              <div className="flex items-start gap-2">
+                {unavailableCategory === "in_flight" ? (
+                  <Loader2 className="h-4 w-4 text-amber-400 mt-0.5 shrink-0 animate-spin" />
+                ) : (
+                  <X className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                )}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium leading-snug">
+                    {unavailableCategory === "in_flight"
+                      ? "Still processing"
+                      : "Content unavailable"}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {unavailableReason ?? "Content is not available."}
+                  </p>
+                </div>
+              </div>
+              {unavailableRetryable && (
+                <Button
+                  onClick={() => setProbeNonce((n) => n + 1)}
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                >
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5" />
+                  Check again
+                </Button>
+              )}
+            </div>
           )}
 
           {unlockState === "unlocked" && fp && (
