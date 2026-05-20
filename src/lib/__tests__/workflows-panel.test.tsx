@@ -71,12 +71,18 @@ describe("WorkflowsPanel", () => {
     render(<WorkflowsPanel onClose={() => {}} />)
 
     await waitFor(() => {
-      // twitter_handle appears twice (label fallback + sub-text); ensure at least one exists
-      expect(screen.getAllByText("twitter_handle").length).toBeGreaterThan(0)
+      // twitter_handle has no label — humanized name "Twitter Handle" appears once
+      expect(screen.getByText("Twitter Handle")).toBeInTheDocument()
       expect(screen.getByText("YouTube Channel")).toBeInTheDocument()
       expect(screen.getByText("Deduplication")).toBeInTheDocument()
       expect(screen.getByText("Content Review")).toBeInTheDocument()
     })
+
+    // Icon tiles render with data-testid per source_type
+    expect(document.querySelector("[data-testid='workflow-icon-twitter_handle']")).toBeTruthy()
+    expect(document.querySelector("[data-testid='workflow-icon-youtube_channel']")).toBeTruthy()
+    expect(document.querySelector("[data-testid='workflow-icon-deduplication']")).toBeTruthy()
+    expect(document.querySelector("[data-testid='workflow-icon-content_review']")).toBeTruthy()
   })
 
   it("falls back to source_type when label is absent", async () => {
@@ -86,8 +92,9 @@ describe("WorkflowsPanel", () => {
     render(<WorkflowsPanel onClose={() => {}} />)
 
     await waitFor(() => {
-      // rc-twitter has no label — source_type is rendered as both primary text and sub-text
-      expect(screen.getAllByText("twitter_handle").length).toBeGreaterThan(0)
+      // rc-twitter has no label — humanized display name shown once, raw source_type not visible
+      expect(screen.getByText("Twitter Handle")).toBeInTheDocument()
+      expect(screen.queryByText("twitter_handle")).not.toBeInTheDocument()
     })
   })
 
@@ -123,8 +130,8 @@ describe("WorkflowsPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Ingestion" }))
 
-    // Source items should be visible (twitter_handle may appear twice as label+sub-text)
-    expect(screen.getAllByText("twitter_handle").length).toBeGreaterThan(0)
+    // Source items should be visible
+    expect(screen.getByText("Twitter Handle")).toBeInTheDocument()
     expect(screen.getByText("YouTube Channel")).toBeInTheDocument()
     // Janitor items should not be visible
     expect(screen.queryByText("Deduplication")).not.toBeInTheDocument()
@@ -144,7 +151,7 @@ describe("WorkflowsPanel", () => {
     expect(screen.getByText("Deduplication")).toBeInTheDocument()
     expect(screen.getByText("Content Review")).toBeInTheDocument()
     // Source items should not be visible
-    expect(screen.queryByText("twitter_handle")).not.toBeInTheDocument()
+    expect(screen.queryByText("Twitter Handle")).not.toBeInTheDocument()
     expect(screen.queryByText("YouTube Channel")).not.toBeInTheDocument()
   })
 
@@ -159,7 +166,7 @@ describe("WorkflowsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Janitor" }))
     await userEvent.click(screen.getByRole("button", { name: "All" }))
 
-    expect(screen.getAllByText("twitter_handle").length).toBeGreaterThan(0)
+    expect(screen.getByText("Twitter Handle")).toBeInTheDocument()
     expect(screen.getByText("Deduplication")).toBeInTheDocument()
   })
 
@@ -184,8 +191,9 @@ describe("WorkflowsPanel", () => {
     render(<WorkflowsPanel onClose={() => {}} />)
 
     await waitFor(() => {
-      // MOCK_ITEMS has twitter_handle (no label) — appears as both primary text and sub-text
-      expect(screen.getAllByText("twitter_handle").length).toBeGreaterThan(0)
+      // twitter_handle item has no label — humanized name shown once
+      expect(screen.getByText("Twitter Handle")).toBeInTheDocument()
+      expect(screen.queryByText("twitter_handle")).not.toBeInTheDocument()
     })
   })
 })

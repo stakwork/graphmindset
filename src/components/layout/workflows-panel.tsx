@@ -6,6 +6,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { getWorkflowMarketplace, type WorkflowMarketplaceItem, type CronKind } from "@/lib/graph-api"
 import { isMocksEnabled, MOCK_WORKFLOW_MARKETPLACE } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
+import {
+  WORKFLOW_TYPE_META,
+  TONE_CLASSES,
+  getWorkflowDisplayName,
+} from "./workflow-card-meta"
 
 type FilterKind = "all" | CronKind
 
@@ -26,33 +31,49 @@ function kindBadgeClass(kind: CronKind): string {
 }
 
 function WorkflowCard({ item }: { item: WorkflowMarketplaceItem }) {
-  const label = item.label || item.source_type
+  const meta = WORKFLOW_TYPE_META[item.source_type]
+  const Icon = meta?.icon ?? Cpu
+  const tone = meta?.tone ?? "slate"
+  const displayName = getWorkflowDisplayName(item)
+
   return (
-    <div className="flex items-center gap-3 rounded-md border border-border/50 bg-muted/20 px-3 py-2.5 hover:bg-muted/30 transition-colors">
-      <span
+    <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-3 hover:bg-card/60 hover:border-border transition-colors flex items-center gap-3">
+      {/* Tinted icon tile */}
+      <div
         className={cn(
-          "h-2 w-2 shrink-0 rounded-full",
-          item.enabled
-            ? "bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]"
-            : "bg-muted-foreground/30"
-        )}
-        aria-label={item.enabled ? "Enabled" : "Disabled"}
-        data-testid={item.enabled ? "dot-enabled" : "dot-disabled"}
-      />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground truncate">{label}</p>
-        <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate">
-          {item.source_type}
-        </p>
-      </div>
-      <span
-        className={cn(
-          "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-mono font-medium",
-          kindBadgeClass(item.kind)
+          "h-10 w-10 shrink-0 rounded-lg flex items-center justify-center border",
+          TONE_CLASSES[tone]
         )}
       >
-        {kindBadgeLabel(item.kind)}
-      </span>
+        <Icon className="h-4 w-4" data-testid={`workflow-icon-${item.source_type}`} />
+      </div>
+
+      {/* Name — single source of truth, no duplicate sub-text */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+      </div>
+
+      {/* Kind chip + enabled dot */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[10px] font-mono font-medium",
+            kindBadgeClass(item.kind)
+          )}
+        >
+          {kindBadgeLabel(item.kind)}
+        </span>
+        <span
+          className={cn(
+            "h-2 w-2 rounded-full",
+            item.enabled
+              ? "bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]"
+              : "bg-muted-foreground/30"
+          )}
+          aria-label={item.enabled ? "Enabled" : "Disabled"}
+          data-testid={item.enabled ? "dot-enabled" : "dot-disabled"}
+        />
+      </div>
     </div>
   )
 }
@@ -144,7 +165,7 @@ export function WorkflowsPanel({ onClose }: { onClose: () => void }) {
             </p>
           </div>
         ) : (
-          <div className="py-2 px-3 flex flex-col gap-1.5">
+          <div className="py-2 px-3 flex flex-col gap-2">
             {filtered.map((item) => (
               <WorkflowCard key={item.ref_id} item={item} />
             ))}
