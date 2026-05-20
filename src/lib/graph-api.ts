@@ -308,8 +308,9 @@ export interface StakworkRun {
   kind?: CronKind
   job_type?: string
   trigger?: "SCHEDULED" | "MANUAL"
-  status: "pending" | "in_progress" | "completed" | "halted" | "error"
+  status: "pending" | "in_progress" | "completed" | "halted" | "error" | "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "ERROR" | "HALTED"
   error?: string
+  error_message?: string
   created_at?: number
   started_at?: number
   finished_at?: number
@@ -456,6 +457,69 @@ export async function checkNodeExists(
 
 
 
+
+// -------------------------------------------------------------------------
+// Deep Research
+// -------------------------------------------------------------------------
+
+// In-flight deep-research mock poll counter (per ref_id)
+const _mockDeepResearchPollCounts: Record<string, number> = {}
+
+// Paid — L402 handled identically to createNode (handles 402 challenge)
+export async function triggerDeepResearch(
+  refId: string,
+  signal?: AbortSignal
+): Promise<{ stakwork_run_ref_id: string }> {
+  if (isMocksEnabled()) {
+    // Reset poll counter so the next getLatestStakworkRun calls cycle through states
+    _mockDeepResearchPollCounts[refId] = 0
+    return { stakwork_run_ref_id: "mock-deep-run-" + refId }
+  }
+  return api.post<{ stakwork_run_ref_id: string }>(
+    `/v2/nodes/${refId}/deep-research`,
+    {},
+    undefined,
+    signal
+  )
+}
+
+// Free poll — returns null when no run exists (404)
+export async function getLatestStakworkRun(
+  refId: string,
+  jobType: string,
+  signal?: AbortSignal
+): Promise<StakworkRun | null> {
+  if (isMocksEnabled()) {
+    const count = (_mockDeepResearchPollCounts[refId] ?? 0) + 1
+    _mockDeepResearchPollCounts[refId] = count
+    if (count <= 2) {
+      return {
+        ref_id: "mock-deep-run-" + refId,
+        job_type: jobType,
+        status: "RUNNING",
+        created_at: Math.floor(Date.now() / 1000),
+      }
+    }
+    return {
+      ref_id: "mock-deep-run-" + refId,
+      job_type: jobType,
+      status: "COMPLETED",
+      created_at: Math.floor(Date.now() / 1000),
+      finished_at: Math.floor(Date.now() / 1000),
+    }
+  }
+  try {
+    const params = new URLSearchParams({ ref_id: refId, job_type: jobType })
+    return await api.get<StakworkRun>(
+      `/v2/stakwork-runs/latest?${params}`,
+      undefined,
+      signal
+    )
+  } catch (err) {
+    if (typeof err === "object" && err !== null && (err as { status?: number }).status === 404) return null
+    throw err
+  }
+}
 
 // -------------------------------------------------------------------------
 // Reviews

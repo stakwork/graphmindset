@@ -610,6 +610,23 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
     ],
     edges: [],
   },
+  "n-graphrag-deep": {
+    nodes: [
+      {
+        ref_id: "n-graphrag-deep",
+        node_type: "Topic",
+        properties: {
+          name: "GraphRAG",
+          description:
+            "GraphRAG is a technique that combines knowledge graphs with retrieval-augmented generation (RAG) to improve LLM reasoning over large corpora. Rather than embedding flat text chunks, GraphRAG first extracts a structured entity-relationship graph from documents and then uses that graph topology to retrieve richer, more contextually grounded evidence at query time.",
+          summary:
+            "Originated in a 2024 Microsoft Research paper by Edge et al. Key contributors include Darren Edge, Ha Trinh, and Jonathan Larson. Closely related to MSFT's Project Graphiti and academic work on graph-based RAG from Stanford and CMU.",
+          image_url: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&q=80",
+        },
+      },
+    ],
+    edges: [],
+  },
 }
 
 export const MOCK_EDGES: GraphEdge[] = [
@@ -855,6 +872,54 @@ export const MOCK_DOMAINS = {
   hidden_types: [] as string[],
   hidden_domains: [] as string[],
 }
+
+// Enriched Topic node for Deep Research mock UI (graphRAG-style)
+export const MOCK_DEEP_RESEARCH_TOPIC: GraphNode = {
+  ref_id: "n-graphrag-deep",
+  node_type: "Topic",
+  properties: {
+    name: "GraphRAG",
+    description:
+      "GraphRAG is a technique that combines knowledge graphs with retrieval-augmented generation (RAG) to improve LLM reasoning over large corpora. Rather than embedding flat text chunks, GraphRAG first extracts a structured entity-relationship graph from documents and then uses that graph topology to retrieve richer, more contextually grounded evidence at query time.",
+    summary:
+      "Originated in a 2024 Microsoft Research paper by Edge et al. The core insight is that community detection on the extracted knowledge graph enables hierarchical summarisation, dramatically improving global reasoning tasks over long documents. Key contributors include Darren Edge, Ha Trinh, and Jonathan Larson. Closely related to MSFT's Project Graphiti and academic work on graph-based RAG from Stanford and CMU. Feeds to watch: Microsoft Research Blog, Arxiv cs.IR/cs.CL, Darren Edge on GitHub.",
+    image_url: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&q=80",
+  },
+}
+
+// StakworkRun fixtures for Deep Research, one per lifecycle status
+export const MOCK_DEEP_RESEARCH_RUNS: StakworkRun[] = [
+  {
+    ref_id: "dr-run-pending",
+    job_type: "deep_research",
+    status: "PENDING",
+    created_at: Math.floor(Date.now() / 1000) - 10,
+  },
+  {
+    ref_id: "dr-run-running",
+    job_type: "deep_research",
+    status: "RUNNING",
+    created_at: Math.floor(Date.now() / 1000) - 60,
+    started_at: Math.floor(Date.now() / 1000) - 55,
+  },
+  {
+    ref_id: "dr-run-completed",
+    job_type: "deep_research",
+    status: "COMPLETED",
+    created_at: Math.floor(Date.now() / 1000) - 300,
+    started_at: Math.floor(Date.now() / 1000) - 295,
+    finished_at: Math.floor(Date.now() / 1000) - 120,
+  },
+  {
+    ref_id: "dr-run-failed",
+    job_type: "deep_research",
+    status: "FAILED",
+    error_message: "Stakwork workflow timed out",
+    created_at: Math.floor(Date.now() / 1000) - 600,
+    started_at: Math.floor(Date.now() / 1000) - 595,
+    finished_at: Math.floor(Date.now() / 1000) - 500,
+  },
+]
 
 export function isMocksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_USE_MOCKS === "true"

@@ -25,6 +25,16 @@ vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => mockApiGet(...args) },
 }))
 
+// --- mock graph-api deep research helpers ---
+const { mockTriggerDeepResearch, mockGetLatestStakworkRun } = vi.hoisted(() => ({
+  mockTriggerDeepResearch: vi.fn(),
+  mockGetLatestStakworkRun: vi.fn(),
+}))
+vi.mock("@/lib/graph-api", () => ({
+  triggerDeepResearch: (...args: unknown[]) => mockTriggerDeepResearch(...args),
+  getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
+}))
+
 vi.mock("@/lib/sphinx/payment", () => ({
   payL402: vi.fn().mockResolvedValue(undefined),
 }))
@@ -150,6 +160,8 @@ function makeGraphData(node: GraphNode) {
 beforeEach(() => {
   mockGraphNodes = []
   mockGraphEdges = []
+  // Default: no prior deep-research run (null = no run found)
+  mockGetLatestStakworkRun.mockResolvedValue(null)
 })
 
 describe("NodePreviewPanel – Connections section smoke test", () => {
@@ -1252,7 +1264,7 @@ describe("NodePreviewPanel – history navigation", () => {
     await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
 
     // Press back — should go back to base node
-    fe.click(screen.getByRole("button", { name: (_, el) => el?.querySelector("svg") !== null && el?.title !== "Copy share link" && el?.title !== "Close panel" && el?.title !== "Watch node" }))
+    fe.click(screen.getByRole("button", { name: (_, el) => el?.querySelector("svg") !== null && el?.title !== "Copy share link" && el?.title !== "Close panel" && el?.title !== "Watch node" && el?.title !== "Deep Research this topic" }))
     // Use ArrowLeft button (first button in header)
     const backBtn = document.querySelector('[class*="flex h-full"] button:first-child') as HTMLElement
     fe.click(backBtn!)
@@ -1337,5 +1349,171 @@ describe("NodePreviewPanel – pencil edit button", () => {
     expect(mockOpenEdit).toHaveBeenCalledWith(
       expect.objectContaining({ ref_id: BASE_NODE.ref_id })
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Deep Research button — eligibility, states, polling, refetch
+// ---------------------------------------------------------------------------
+describe("NodePreviewPanel – Deep Research button", () => {
+  const TOPIC_NODE: GraphNode = {
+    ref_id: "topic-dr",
+    node_type: "Topic",
+    properties: { name: "GraphRAG" },
+  }
+  const NON_TOPIC_NODE: GraphNode = {
+    ref_id: "ep-dr",
+    node_type: "Episode",
+    properties: { name: "Some Episode", media_url: "https://example.com/a.mp3" },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockApiGet.mockResolvedValue(makeGraphData(TOPIC_NODE))
+    mockGetLatestStakworkRun.mockResolvedValue(null)
+    mockTriggerDeepResearch.mockResolvedValue({ stakwork_run_ref_id: "mock-run-topic-dr" })
+  })
+
+  it("renders Deep Research button for Topic nodes", async () => {
+    render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByTestId("deep-research-button")).toBeInTheDocument())
+    expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Deep Research")
+  })
+
+  it("does NOT render Deep Research button for non-Topic nodes", async () => {
+    mockApiGet.mockResolvedValue(makeGraphData(NON_TOPIC_NODE))
+    render(<NodePreviewPanel node={NON_TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByText("Some Episode")).toBeInTheDocument())
+    expect(screen.queryByTestId("deep-research-button")).toBeNull()
+  })
+
+  it("shows 'Researching…' and is disabled when status is PENDING after click", async () => {
+    render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByTestId("deep-research-button")).toBeInTheDocument())
+
+    screen.getByTestId("deep-research-button").click()
+
+    await waitFor(() => {
+      expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Researching…")
+      expect(screen.getByTestId("deep-research-button")).toBeDisabled()
+    })
+  })
+
+  it("shows 'Re-run Research' when prior run status is COMPLETED", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue({
+      ref_id: "dr-run-1",
+      job_type: "deep_research",
+      status: "COMPLETED",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() =>
+      expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Re-run Research")
+    )
+    expect(screen.getByTestId("deep-research-button")).not.toBeDisabled()
+  })
+
+  it("shows 'Retry Research' when prior run status is FAILED", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue({
+      ref_id: "dr-run-2",
+      job_type: "deep_research",
+      status: "FAILED",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() =>
+      expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Retry Research")
+    )
+    expect(screen.getByTestId("deep-research-button")).not.toBeDisabled()
+  })
+
+  it("shows 'Retry Research' when prior run status is HALTED", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue({
+      ref_id: "dr-run-3",
+      job_type: "deep_research",
+      status: "HALTED",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() =>
+      expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Retry Research")
+    )
+  })
+
+  it("shows 'Researching…' disabled when prior run status is RUNNING", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue({
+      ref_id: "dr-run-4",
+      job_type: "deep_research",
+      status: "RUNNING",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() =>
+      expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Researching…")
+    )
+    expect(screen.getByTestId("deep-research-button")).toBeDisabled()
+  })
+
+  it("calls triggerDeepResearch on button click and optimistically sets PENDING", async () => {
+    render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByTestId("deep-research-button")).toBeInTheDocument())
+
+    screen.getByTestId("deep-research-button").click()
+
+    expect(mockTriggerDeepResearch).toHaveBeenCalledWith(TOPIC_NODE.ref_id)
+    await waitFor(() =>
+      expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Researching…")
+    )
+  })
+
+  it("polling: transitions from RUNNING to COMPLETED on poll", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockGetLatestStakworkRun
+        // mount hydrate → RUNNING
+        .mockResolvedValueOnce({ ref_id: "dr-run-5", job_type: "deep_research", status: "RUNNING", created_at: 0 })
+        // first interval poll → still RUNNING
+        .mockResolvedValueOnce({ ref_id: "dr-run-5", job_type: "deep_research", status: "RUNNING", created_at: 0 })
+        // second interval poll → COMPLETED
+        .mockResolvedValueOnce({ ref_id: "dr-run-5", job_type: "deep_research", status: "COMPLETED", created_at: 0 })
+
+      render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+      await waitFor(() =>
+        expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Researching…")
+      )
+
+      // Fire two poll intervals (5s each)
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Re-run Research")
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("polling interval stops after unmount", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockGetLatestStakworkRun
+        .mockResolvedValueOnce({ ref_id: "dr-run-6", job_type: "deep_research", status: "RUNNING", created_at: 0 })
+        .mockResolvedValue({ ref_id: "dr-run-6", job_type: "deep_research", status: "RUNNING", created_at: 0 })
+
+      const { unmount } = render(<NodePreviewPanel node={TOPIC_NODE} onBack={vi.fn()} schemas={[]} />)
+      await waitFor(() =>
+        expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Researching…")
+      )
+
+      const callsBefore = mockGetLatestStakworkRun.mock.calls.length
+      unmount()
+
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(mockGetLatestStakworkRun.mock.calls.length).toBe(callsBefore)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
