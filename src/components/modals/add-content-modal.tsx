@@ -56,6 +56,8 @@ export function AddContentModal() {
   const [price, setPrice] = useState<number | null>(null)
   const [topics, setTopics] = useState<string[]>([])
   const [topicDraft, setTopicDraft] = useState("")
+  const [category, setCategory] = useState("")
+  const [weight, setWeight] = useState<number | null>(null)
   const [cacheStatus, setCacheStatus] = useState<CacheStatus>(null)
   const [cachedRefId, setCachedRefId] = useState<string | null>(null)
   const [previewState, setPreviewState] = useState<PreviewState>(null)
@@ -189,6 +191,8 @@ export function AddContentModal() {
         if (sourceType === SOURCE_TYPES.TWITTER_HANDLE && topics.length) {
           radarBody.topics = topics
         }
+        if (category) radarBody.category = category
+        if (weight !== null) radarBody.weight = weight
         await api.post("/radar", radarBody, headers)
         return
       }
@@ -205,7 +209,7 @@ export function AddContentModal() {
 
       await api.post("/v2/content", body, headers)
     },
-    [pubKey, routeHint, topics, cacheStatus, cachedRefId]
+    [pubKey, routeHint, topics, category, weight, cacheStatus, cachedRefId]
   )
 
   const handleSubmit = useCallback(async () => {
@@ -227,6 +231,8 @@ export function AddContentModal() {
         setPrice(null)
         setTopics([])
         setTopicDraft("")
+        setCategory("")
+        setWeight(null)
         setCacheStatus(null)
         setCachedRefId(null)
         setPreviewState(null)
@@ -256,6 +262,8 @@ export function AddContentModal() {
             setDetectedType(null)
             setSuccess(false)
             setPrice(null)
+            setCategory("")
+            setWeight(null)
             setCacheStatus(null)
             setCachedRefId(null)
             setPreviewState(null)
@@ -297,6 +305,8 @@ export function AddContentModal() {
         setPrice(null)
         setTopics([])
         setTopicDraft("")
+        setCategory("")
+        setWeight(null)
         setCacheStatus(null)
         setCachedRefId(null)
         setPreviewState(null)
@@ -448,6 +458,38 @@ export function AddContentModal() {
               <p className="text-[10px] text-muted-foreground">
                 Only tweets matching one of these topics will be ingested.
               </p>
+            </div>
+          )}
+
+          {/* Admin-only category & weight inputs for subscription sources */}
+          {isAdmin && detectedType && isSubscriptionSource(detectedType) && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+                  Category (optional)
+                </label>
+                <input
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="e.g. AI, crypto, finance"
+                  className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+                  Weight 0–1 (optional)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={weight ?? ""}
+                  onChange={(e) => setWeight(e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0.0 – 1.0"
+                  className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              </div>
             </div>
           )}
 

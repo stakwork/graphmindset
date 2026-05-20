@@ -259,7 +259,7 @@ export async function getStats(signal?: AbortSignal): Promise<StatsResponse> {
 
 // Add content via v2/content
 export async function addContent(
-  data: { source: string; source_type: string; topics?: string[] },
+  data: { source: string; source_type: string; topics?: string[]; category?: string; weight?: number },
   signal?: AbortSignal
 ) {
   return api.post("/radar", data, undefined, signal)

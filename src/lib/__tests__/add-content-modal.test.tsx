@@ -18,6 +18,7 @@ vi.mock("@/stores/modal-store", () => ({
 // --- User store mock ---
 const mockSetBudget = vi.fn()
 const mockRefreshBalance = vi.fn().mockResolvedValue(undefined)
+let mockIsAdmin = false
 
 vi.mock("@/stores/user-store", () => ({
   useUserStore: (sel?: (s: unknown) => unknown) => {
@@ -26,7 +27,7 @@ vi.mock("@/stores/user-store", () => ({
       setBudget: mockSetBudget,
       pubKey: "testpubkey",
       routeHint: "",
-      isAdmin: false,
+      isAdmin: mockIsAdmin,
       refreshBalance: mockRefreshBalance,
     }
     return sel ? sel(state) : state
@@ -390,5 +391,70 @@ describe("AddContentModal — bumpMyContentRefresh on submission", () => {
     expect(btn).toBeDisabled()
 
     expect(mockBumpMyContentRefresh).not.toHaveBeenCalled()
+  })
+})
+
+
+describe("AddContentModal — admin category/weight fields", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockActiveModal = "addContent"
+    mockIsAdmin = false
+    mockGetL402.mockResolvedValue(null)
+    mockPayL402.mockResolvedValue(undefined)
+    mockGetPrice.mockResolvedValue(0)
+    mockApiPost.mockResolvedValue({})
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+  })
+
+  it("renders category and weight inputs for admins with subscription sources", async () => {
+    mockIsAdmin = true
+    mockDetectSourceType.mockResolvedValue("youtube_channel")
+    mockIsSubscriptionSource.mockReturnValue(true)
+
+    render(<AddContentModal />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/@testchannel")
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/e\.g\. AI, crypto, finance/i)).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/0\.0 – 1\.0/i)).toBeInTheDocument()
+    })
+  })
+
+  it("does not render category/weight inputs for non-admins", async () => {
+    mockIsAdmin = false
+    mockDetectSourceType.mockResolvedValue("youtube_channel")
+    mockIsSubscriptionSource.mockReturnValue(true)
+
+    render(<AddContentModal />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/@testchannel")
+
+    await waitFor(() => {
+      expect(mockDetectSourceType).toHaveBeenCalled()
+    })
+
+    expect(screen.queryByPlaceholderText(/e\.g\. AI, crypto, finance/i)).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/0\.0 – 1\.0/i)).not.toBeInTheDocument()
+  })
+
+  it("does not render category/weight inputs for one-off sources even for admins", async () => {
+    mockIsAdmin = true
+    mockDetectSourceType.mockResolvedValue("youtube_video")
+    mockIsSubscriptionSource.mockReturnValue(false)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+
+    render(<AddContentModal />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/watch?v=abc")
+
+    await waitFor(() => {
+      expect(mockDetectSourceType).toHaveBeenCalled()
+    })
+
+    expect(screen.queryByPlaceholderText(/e\.g\. AI, crypto, finance/i)).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/0\.0 – 1\.0/i)).not.toBeInTheDocument()
   })
 })
