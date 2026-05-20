@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -21,13 +21,16 @@ import { useModalStore } from "@/stores/modal-store"
 import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, unescapeText, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge, isBlockedStatus, isInProgress } from "@/lib/node-status"
-import type { GraphNode, GraphData } from "@/lib/graph-api"
+import type { GraphNode, GraphData, StakworkRun } from "@/lib/graph-api"
+import { triggerDeepResearch, getLatestStakworkRun } from "@/lib/graph-api"
 import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
 import { formatDateAbsolute } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
+
+const DEEP_RESEARCH_NODE_TYPES = ["Topic"]
 
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "owner_reference_id", "node_type", "date_added_to_graph", "status", "project_id",
@@ -616,6 +619,85 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [watched, setWatched] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
 
+  // Deep Research state
+  type DeepResearchStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "ERROR" | "HALTED" | null
+  const [deepResearchStatus, setDeepResearchStatus] = useState<DeepResearchStatus>(null)
+  const [deepResearchLoading, setDeepResearchLoading] = useState(false)
+  const deepResearchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  function isDeepResearchInFlight(status: DeepResearchStatus): boolean {
+    return status === "PENDING" || status === "RUNNING"
+  }
+
+  function mapRunStatus(status: string): DeepResearchStatus {
+    const s = status.toUpperCase()
+    if (s === "PENDING" || s === "IN_PROGRESS" || s === "RUNNING") return "RUNNING"
+    if (s === "COMPLETED") return "COMPLETED"
+    if (s === "FAILED" || s === "ERROR" || s === "HALTED") return "FAILED"
+    return null
+  }
+
+  function startDeepResearchPoll(refId: string) {
+    if (deepResearchPollRef.current) clearInterval(deepResearchPollRef.current)
+    deepResearchPollRef.current = setInterval(async () => {
+      try {
+        const run = await getLatestStakworkRun(refId, "deep_research")
+        if (!run) return
+        const mapped = mapRunStatus(run.status)
+        setDeepResearchStatus(mapped)
+        if (mapped !== "PENDING" && mapped !== "RUNNING") {
+          if (deepResearchPollRef.current) clearInterval(deepResearchPollRef.current)
+          deepResearchPollRef.current = null
+          if (mapped === "COMPLETED") {
+            // Trigger node refetch by bumping probeNonce
+            setProbeNonce((n) => n + 1)
+          }
+        }
+      } catch {
+        // silent — keep polling
+      }
+    }, 5000)
+  }
+
+  // Hydrate deep research status on mount / node change
+  useEffect(() => {
+    setDeepResearchStatus(null)
+    if (!DEEP_RESEARCH_NODE_TYPES.includes(currentNode.node_type)) return
+    let cancelled = false
+    getLatestStakworkRun(currentNode.ref_id, "deep_research")
+      .then((run) => {
+        if (cancelled || !run) return
+        const mapped = mapRunStatus(run.status)
+        setDeepResearchStatus(mapped)
+        if (mapped === "PENDING" || mapped === "RUNNING") {
+          startDeepResearchPoll(currentNode.ref_id)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (deepResearchPollRef.current) {
+        clearInterval(deepResearchPollRef.current)
+        deepResearchPollRef.current = null
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentNode.ref_id])
+
+  async function handleDeepResearch() {
+    if (deepResearchLoading || isDeepResearchInFlight(deepResearchStatus)) return
+    setDeepResearchLoading(true)
+    setDeepResearchStatus("PENDING")
+    try {
+      await triggerDeepResearch(currentNode.ref_id)
+      startDeepResearchPoll(currentNode.ref_id)
+    } catch {
+      setDeepResearchStatus("FAILED")
+    } finally {
+      setDeepResearchLoading(false)
+    }
+  }
+
   // Reset local state when an external node selection replaces the prop
   useEffect(() => {
     setCurrentNode(node)
@@ -1034,6 +1116,43 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               </a>
             )
           })()}
+
+          {/* Deep Research — Topic nodes only */}
+          {DEEP_RESEARCH_NODE_TYPES.includes(currentNode.node_type) && (
+            <div className="pt-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                disabled={deepResearchLoading || isDeepResearchInFlight(deepResearchStatus)}
+                onClick={handleDeepResearch}
+                data-testid="deep-research-button"
+                title="Deep Research this topic"
+              >
+                {isDeepResearchInFlight(deepResearchStatus) ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Researching…
+                  </>
+                ) : deepResearchStatus === "COMPLETED" ? (
+                  <>
+                    <FlaskConical className="h-3.5 w-3.5 mr-1.5" />
+                    Re-run Research
+                  </>
+                ) : (deepResearchStatus === "FAILED" || deepResearchStatus === "ERROR" || deepResearchStatus === "HALTED") ? (
+                  <>
+                    <FlaskConical className="h-3.5 w-3.5 mr-1.5" />
+                    Retry Research
+                  </>
+                ) : (
+                  <>
+                    <FlaskConical className="h-3.5 w-3.5 mr-1.5" />
+                    Deep Research
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
 
           {/* Preview / Loading / Unlocked / Error */}
           {unlockState === "preview" && (
