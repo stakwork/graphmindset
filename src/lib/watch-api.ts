@@ -5,7 +5,7 @@ import type { GraphNode, GraphEdge } from "./graph-api"
 export interface WatchEntry {
   ref_id: string
   node_type?: string
-  title?: string
+  properties?: Record<string, unknown>
 }
 
 export async function watchNode(refId: string): Promise<void> {
@@ -31,7 +31,7 @@ export async function unsubscribeType(nodeType: string): Promise<void> {
 export async function getWatches(): Promise<{ nodes: WatchEntry[]; types: string[] }> {
   if (isMocksEnabled()) {
     return {
-      nodes: [{ ref_id: "mock-1", node_type: "Episode", title: "Mock Episode" }],
+      nodes: [{ ref_id: "mock-1", node_type: "Episode", properties: { episode_title: "Mock Episode" } }],
       types: ["Clip"],
     }
   }

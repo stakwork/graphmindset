@@ -55,7 +55,7 @@ const MOCK_NODES = [
 ]
 
 const MOCK_WATCHES_WITH_DATA = {
-  nodes: [{ ref_id: "mock-1", node_type: "Episode", title: "Mock Episode" }],
+  nodes: [{ ref_id: "mock-1", node_type: "Episode", properties: { episode_title: "Mock Episode" } }],
   types: ["Clip"],
 }
 
