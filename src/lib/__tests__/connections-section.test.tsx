@@ -123,15 +123,27 @@ describe("ConnectionsSection – skips peer nodes not in store", () => {
   })
 })
 
-describe("ConnectionsSection – rows are read-only", () => {
+describe("ConnectionsSection – rows are clickable", () => {
   beforeEach(() => {
     mockNodes = [N1, N2]
     mockEdges = [EDGE_MENTIONS_N2]
   })
 
-  it("connection rows have no onClick handler", () => {
+  it("fires onNavigate with the correct peer GraphNode when a row is clicked", () => {
+    const onNavigate = vi.fn()
+    render(<ConnectionsSection nodeRefId="n1" schemas={[]} onNavigate={onNavigate} />)
+    const row = screen.getByText("Blockchain").closest("button")
+    expect(row).toBeTruthy()
+    fireEvent.click(row!)
+    expect(onNavigate).toHaveBeenCalledTimes(1)
+    expect(onNavigate).toHaveBeenCalledWith(N2)
+  })
+
+  it("does not crash when onNavigate is omitted", () => {
     render(<ConnectionsSection nodeRefId="n1" schemas={[]} />)
-    const row = screen.getByText("Blockchain").closest("div")
-    expect(row).not.toHaveAttribute("onClick")
+    const row = screen.getByText("Blockchain").closest("button")
+    expect(row).toBeTruthy()
+    // Clicking without onNavigate should not throw
+    expect(() => fireEvent.click(row!)).not.toThrow()
   })
 })

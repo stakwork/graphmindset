@@ -17,6 +17,9 @@ export interface GraphNode {
   loaderId?: string;
   nodeType?: string;
   weight?: number; // 0–1 importance/relevance for visual prominence
+  /** For synthetic `_cluster` / `_group` proxies: the underlying member type
+   *  (e.g. "Person", "Tweet"). Drives per-type cluster glyph selection. */
+  clusterMemberType?: string;
 }
 
 export type LayoutStrategyName = "radial" | "force" | "auto";

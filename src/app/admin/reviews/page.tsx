@@ -86,12 +86,12 @@ export default function ReviewsPage() {
   }, [isAdmin, router])
 
   const fetchReviews = useCallback(
-    async (currentSkip = 0) => {
+    async (currentSkip = 0, options?: { silent?: boolean }) => {
       if (abortRef.current) abortRef.current.abort()
       const ctrl = new AbortController()
       abortRef.current = ctrl
 
-      setLoading(true)
+      if (!options?.silent) setLoading(true)
       setError(null)
       try {
         const res = await listReviews(
@@ -104,16 +104,25 @@ export default function ReviewsPage() {
           },
           ctrl.signal
         )
+        if (res.reviews.length === 0 && currentSkip > 0) {
+          const correctedSkip = res.total > 0
+            ? Math.max(0, Math.floor((res.total - 1) / PAGE_SIZE) * PAGE_SIZE)
+            : 0
+          if (correctedSkip < currentSkip) {
+            fetchReviews(correctedSkip, options)
+            return
+          }
+        }
         setReviews(res.reviews)
         setTotal(res.total)
         setSkip(currentSkip)
-        setSelectedIds(new Set())
+        if (!options?.silent) setSelectedIds(new Set())
       } catch (err: unknown) {
         if ((err as { name?: string })?.name !== "AbortError") {
           setError("Failed to load reviews")
         }
       } finally {
-        setLoading(false)
+        if (!options?.silent) setLoading(false)
       }
     },
     [statusFilter, actionFilter, sort]
@@ -158,14 +167,13 @@ export default function ReviewsPage() {
   const lockedActionName: string | null =
     selectedReviews.length > 0 ? selectedReviews[0].action_name : null
 
-  // Rows eligible for select-all: pending + (matches locked action OR no lock yet)
-  const eligibleForSelectAll = useMemo(
-    () =>
-      selectableReviews.filter(
-        (r) => lockedActionName === null || r.action_name === lockedActionName
-      ),
-    [selectableReviews, lockedActionName]
-  )
+  // Rows eligible for select-all: pending + matches locked action (or first pending action when no lock)
+  const eligibleForSelectAll = useMemo(() => {
+    const targetAction = lockedActionName ?? selectableReviews[0]?.action_name
+    return targetAction
+      ? selectableReviews.filter((r) => r.action_name === targetAction)
+      : selectableReviews
+  }, [selectableReviews, lockedActionName])
 
   const allEligibleSelected =
     eligibleForSelectAll.length > 0 &&
@@ -205,7 +213,7 @@ export default function ReviewsPage() {
         `${failures} of ${selectedReviews.length} ${kind === "approve" ? "approvals" : "dismissals"} failed`
       )
     }
-    await fetchReviews(skip)
+    await fetchReviews(skip, { silent: true })
     refreshPendingCount()
   }
 
@@ -400,7 +408,7 @@ export default function ReviewsPage() {
                     key={review.ref_id}
                     review={review}
                     schemas={schemas}
-                    onRefresh={() => fetchReviews(skip)}
+                    onRefresh={() => fetchReviews(skip, { silent: true })}
                     onCountRefresh={refreshPendingCount}
                     selectable={review.status === "pending"}
                     selected={selectedIds.has(review.ref_id)}

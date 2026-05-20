@@ -1,4 +1,5 @@
-import { api } from "./api"
+import { api, API_URL } from "./api"
+import { getSignedMessage, getL402 } from "./sphinx"
 import { isMocksEnabled, MOCK_REVIEWS } from "./mock-data"
 
 export interface GraphNode {
@@ -18,6 +19,7 @@ export interface GraphEdge {
   target: string
   edge_type: string
   ref_id?: string
+  properties?: Record<string, unknown>
 }
 
 export interface GraphData {
@@ -149,6 +151,50 @@ export async function createNode(
   return api.post("/v2/nodes", { node_type: nodeType, node_data: nodeData }, undefined, signal)
 }
 
+// Upload an image file and attach it to an existing Image node.
+//
+// The Image node must have been created first via createNode("Image", ...).
+// Backend resolves the caller's identity (admin or owner via L402/Sphinx-sig)
+// and writes the resulting S3 URL onto the node's `url` property.
+//
+// Built as a one-off rather than going through `api.post` because that helper
+// always JSON-encodes the body — multipart needs FormData and the browser
+// setting its own boundary'd Content-Type header.
+export async function uploadImageToNode(
+  refId: string,
+  file: File,
+  signal?: AbortSignal
+): Promise<{ url: string; ref_id: string }> {
+  const url = new URL(`${API_URL}/v2/images/${refId}/upload`)
+
+  // Sphinx-signed admin path piggybacks on query params (matches api.ts).
+  const signed = await getSignedMessage()
+  if (signed.signature) {
+    url.searchParams.append("sig", signed.signature)
+    url.searchParams.append("msg", signed.message)
+  }
+
+  const headers: Record<string, string> = {}
+  const l402 = await getL402()
+  if (l402) headers.Authorization = l402
+
+  const form = new FormData()
+  form.append("file", file)
+
+  // Do NOT set Content-Type — the browser fills in the multipart boundary.
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form,
+    signal: signal ?? new AbortController().signal,
+  })
+
+  if (!response.ok) {
+    throw response
+  }
+  return response.json()
+}
+
 // Update a node
 export async function updateNode(
   refId: string,
@@ -156,6 +202,20 @@ export async function updateNode(
   signal?: AbortSignal
 ) {
   return api.post(`/v2/nodes/${refId}`, data, undefined, signal)
+}
+
+// Admin update a node via boltwall PUT /node (type changes + property edits)
+export async function adminUpdateNode(
+  payload: {
+    ref_id: string
+    node_type: string
+    node_data: Record<string, unknown>
+    type_to_be_deleted?: string[]
+    properties_to_be_deleted?: string[]
+  },
+  signal?: AbortSignal
+) {
+  return api.put("/node", payload, undefined, signal)
 }
 
 // Delete a node
@@ -235,6 +295,7 @@ export interface CronConfig {
   label?: string
   created_at?: number
   updated_at?: number
+  last_run_at?: number
 }
 
 /** @deprecated Use CronConfig */
@@ -290,6 +351,29 @@ export async function runCron(
     undefined,
     signal
   )
+}
+
+export interface WorkflowMarketplaceItem {
+  ref_id: string
+  label?: string
+  source_type: RadarSourceType | JanitorSourceType
+  kind: CronKind
+  enabled: boolean
+}
+
+export async function getWorkflowMarketplace(
+  signal?: AbortSignal
+): Promise<WorkflowMarketplaceItem[]> {
+  const { isMocksEnabled, MOCK_WORKFLOW_MARKETPLACE } = await import("./mock-data")
+  if (isMocksEnabled()) {
+    return MOCK_WORKFLOW_MARKETPLACE
+  }
+  const res = await api.get<{ workflows: WorkflowMarketplaceItem[] }>(
+    '/v2/workflows/marketplace',
+    undefined,
+    signal
+  )
+  return res.workflows ?? []
 }
 
 export async function getCronRuns(

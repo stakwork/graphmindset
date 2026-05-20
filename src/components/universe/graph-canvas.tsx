@@ -5,6 +5,7 @@ import { Canvas, useFrame } from "@react-three/fiber"
 import { CameraControls } from "@react-three/drei"
 import { EffectComposer, Bloom } from "@react-three/postprocessing"
 import { Vector3 } from "three"
+import * as THREE from "three"
 import type CameraControlsImpl from "camera-controls"
 import {
   buildGraph,
@@ -65,7 +66,7 @@ function truncateLabel(label: string): string {
 // When a single source has this many neighbors of the same (edge_type,
 // target_type), insert a synthetic cluster junction so the bundle reads as
 // "source → cluster → 20 leaves" instead of 20 individual lines fanning out.
-const CLUSTER_THRESHOLD = 8
+const CLUSTER_THRESHOLD = 5
 
 // Edge types whose data direction is "child → parent" — flip them so the
 // hierarchy reads parent → child. The container/originator should end up
@@ -289,9 +290,21 @@ function apiToGraph(
   }
   // Mark synthetic nodes — clusters get their own marker so renderers can
   // distinguish them from the older top-level type bundlers (`_group`).
+  // Also record the underlying member type so the shader can pick a
+  // type-specific glyph (Person clusters render differently from Tweet
+  // clusters, etc.).
   for (let i = nodes.length; i < graph.nodes.length; i++) {
     const id = rawNodes[i].id
-    graph.nodes[i].nodeType = id.startsWith("__cluster_") ? "_cluster" : "_group"
+    if (id.startsWith("__cluster_")) {
+      graph.nodes[i].nodeType = "_cluster"
+      // id = __cluster_<source>_<edge_type>_<target_type> — target_type is last.
+      const lastUnderscore = id.lastIndexOf("_")
+      graph.nodes[i].clusterMemberType = id.slice(lastUnderscore + 1)
+    } else {
+      graph.nodes[i].nodeType = "_group"
+      // id = __group_<type>
+      graph.nodes[i].clusterMemberType = id.slice("__group_".length)
+    }
   }
 
   // Only map real nodes — synthetic nodes have no API counterpart
@@ -542,6 +555,128 @@ function CameraSync({
   return null
 }
 
+// Debug overlay — fixed world reference + per-frame crosshairs for camera and
+// click-anchor positions. Lets you see whether the selected node, the camera
+// target, and the camera look-at are converging or diverging across a layout
+// rebuild. Render *after* GraphView so the markers draw on top.
+function DebugMarkers({
+  graph,
+  selectedNodeId,
+  camAnim,
+  clickAnchorRef,
+  cameraRef,
+}: {
+  graph: Graph
+  selectedNodeId: number | null
+  camAnim: React.RefObject<{
+    target: CamTarget
+    progress: number
+    pos: [number, number, number]
+    look: [number, number, number]
+  }>
+  clickAnchorRef: React.RefObject<{
+    refId: string
+    pos: { x: number; y: number; z: number }
+  } | null>
+  cameraRef: React.RefObject<CameraControlsImpl | null>
+}) {
+  const ghostRef = useRef<THREE.Group>(null)
+  const liveSelRef = useRef<THREE.Group>(null)
+  const camTargetRef = useRef<THREE.Group>(null)
+  const camLookRef = useRef<THREE.Group>(null)
+  const lookTmp = useRef(new Vector3())
+
+  useFrame(() => {
+    // Yellow: click-anchor ghost. World-fixed at the position the node had
+    // when the user clicked. Hidden until the first click.
+    const anchor = clickAnchorRef.current
+    if (ghostRef.current) {
+      if (anchor) {
+        ghostRef.current.position.set(anchor.pos.x, 0.1, anchor.pos.z)
+        ghostRef.current.visible = true
+      } else {
+        ghostRef.current.visible = false
+      }
+    }
+
+    // Green: where the selected node IS right now (live position from graph).
+    // If this diverges from yellow, the layout has moved the node since click.
+    if (liveSelRef.current) {
+      if (selectedNodeId != null && graph.nodes[selectedNodeId]) {
+        const p = graph.nodes[selectedNodeId].position
+        liveSelRef.current.position.set(p.x, 0.15, p.z)
+        liveSelRef.current.visible = true
+      } else {
+        liveSelRef.current.visible = false
+      }
+    }
+
+    // Magenta: where the camera is heading (target.lookX/Y/Z). Frozen once
+    // setCamTarget runs, so if the node moves after click, this stays behind.
+    if (camTargetRef.current) {
+      const t = camAnim.current.target
+      camTargetRef.current.position.set(t.lookX, 0.2, t.lookZ)
+    }
+
+    // Cyan: where the camera is actually looking RIGHT NOW. Read from the
+    // controls so we see the lerped value, not the target.
+    if (camLookRef.current) {
+      const cam = cameraRef.current
+      if (cam) {
+        cam.getTarget(lookTmp.current)
+        camLookRef.current.position.set(
+          lookTmp.current.x,
+          0.25,
+          lookTmp.current.z
+        )
+      }
+    }
+  })
+
+  // Rings lie flat in XZ plane (rotated -π/2 on X) so the overhead camera
+  // sees them as circles. Different radii so they don't fully overlap.
+  return (
+    <>
+      {/* World axes at the origin (R=X, G=Y, B=Z), length 30. */}
+      <axesHelper args={[30]} />
+      {/* Ground grid at y=0. 200u total, 40 divisions. */}
+      <gridHelper args={[200, 40, 0x444466, 0x222233]} position={[0, -0.05, 0]} />
+
+      {/* Yellow — click anchor ghost */}
+      <group ref={ghostRef} visible={false}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[1.6, 2.0, 48]} />
+          <meshBasicMaterial color={0xffd11a} transparent opacity={0.85} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+
+      {/* Green — live selected node tracker */}
+      <group ref={liveSelRef} visible={false}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[2.2, 2.55, 48]} />
+          <meshBasicMaterial color={0x33ff66} transparent opacity={0.9} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+
+      {/* Magenta — camera target (where camera is heading) */}
+      <group ref={camTargetRef}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[2.75, 3.1, 48]} />
+          <meshBasicMaterial color={0xff33dd} transparent opacity={0.9} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+
+      {/* Cyan — camera look-at (where camera is looking right now) */}
+      <group ref={camLookRef}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[3.3, 3.65, 48]} />
+          <meshBasicMaterial color={0x33e6ff} transparent opacity={0.9} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+    </>
+  )
+}
+
 interface GraphCanvasProps {
   nodes: ApiNode[]
   edges: ApiEdge[]
@@ -631,6 +766,20 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // bullet at full opacity.
   const [hoveredLine, setHoveredLine] = useState<string | null>(null)
   const [hoveredState, setHoveredState] = useState<StationState | null>(null)
+
+  // Debug overlay: world-fixed markers + per-frame camera/anchor crosshairs.
+  // Gated entirely behind NEXT_PUBLIC_DEBUG_MARKERS so production builds carry
+  // no debug UI. When the env is set, markers default on and a toggle button
+  // appears for in-session A/B'ing.
+  const debugAvailable = process.env.NEXT_PUBLIC_DEBUG_MARKERS === "1"
+  const [debugMarkers, setDebugMarkers] = useState<boolean>(debugAvailable)
+  // Click anchor: world position of the node the user clicked, captured at
+  // click time. Stays fixed after the click so a layout rebuild moves the
+  // node away from it visibly.
+  const clickAnchorRef = useRef<{
+    refId: string
+    pos: { x: number; y: number; z: number }
+  } | null>(null)
 
   // CameraSync drives this each frame using the same lerp curve as GraphView,
   // so geometry inflation and camera dolly stay in lockstep.
@@ -784,6 +933,41 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     nodeToLines,
   ])
 
+  // Top-3 ranked search hits, by descending score. GraphView amplifies their
+  // size + color and tints their labels (rank 0 gold, ranks 1-2 cool blue).
+  const topMatchRanks = useMemo<Map<number, number> | null>(() => {
+    const hits: { i: number; score: number }[] = []
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].matched_property === undefined) continue
+      hits.push({ i, score: typeof nodes[i].score === "number" ? nodes[i].score! : 0 })
+    }
+    if (hits.length === 0) return null
+    hits.sort((a, b) => b.score - a.score)
+    const m = new Map<number, number>()
+    for (let r = 0; r < Math.min(3, hits.length); r++) m.set(hits[r].i, r)
+    return m
+  }, [nodes])
+
+  // Feature 2 (GRAPH_FEATURES.md): pan to the rank-0 search hit once per new
+  // search query. Tracks the last search term we've already panned for, so a
+  // neighbor-fetch payload that arrives later (same query, fresher graph)
+  // doesn't re-pan and override a user click in between. handleNodeClick
+  // consumes the pending pan by writing the current searchTerm into the ref —
+  // see below.
+  const lastPannedSearchTerm = useRef<string>("")
+  useEffect(() => {
+    if (!searchTerm) return
+    if (searchTerm === lastPannedSearchTerm.current) return
+    if (!topMatchRanks) return
+    let topIdx = -1
+    for (const [idx, rank] of topMatchRanks) {
+      if (rank === 0) { topIdx = idx; break }
+    }
+    if (topIdx < 0 || !graph.nodes[topIdx]) return
+    setCamTarget(computeCamTarget(graph, topIdx))
+    lastPannedSearchTerm.current = searchTerm
+  }, [searchTerm, topMatchRanks, graph, setCamTarget])
+
   const handleHoverChange = useCallback(
     (nodeId: number | null) => {
       if (nodeId === null) {
@@ -819,6 +1003,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         if (apiNode) onNodeSelect(apiNode)
       }
 
+      // Debug: snapshot the clicked node's world position BEFORE rescale.
+      // The yellow ghost marker lives here so layout rebuilds become visible.
+      const preClickPos = graph.nodes[nodeId]?.position
+      if (refId && preClickPos) {
+        clickAnchorRef.current = {
+          refId,
+          pos: { x: preClickPos.x, y: preClickPos.y, z: preClickPos.z },
+        }
+      }
+
       // Re-scale the world around the clicked node. Selected stays put on
       // screen; descendants' offsets from selected grow to R1-sized rings,
       // ancestors push outward. No camera motion — the anchor doesn't move.
@@ -828,33 +1022,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
       const sub = extractSubgraph(graph, nodeId, 30, { useAdj: "undirected" })
 
-      // extractSubgraph walks graph.adj only — it doesn't know about
-      // absorbed/extra edges. Patch in the 1-hop absorbed neighbors so the
-      // highlight, label gate (depth ≤ 1), and offscreen indicators
-      // (which iterate depthMap looking for depth === 1) all see them.
-      // Absorbed edges are direct connections, so always promote their
-      // endpoints to depth 1 — even if BFS already reached them via a
-      // longer path through cluster/group nodes (which would otherwise
-      // leave them at depth ≥ 2 and hide their labels).
-      if (graph.extraEdges && graph.extraEdges.length > 0) {
-        const inSub = new Set(sub.nodeIds)
-        const addNeighbor = (other: number) => {
-          if (!inSub.has(other)) {
-            sub.nodeIds.push(other)
-            inSub.add(other)
-            if (!sub.neighborsByDepth[0]) sub.neighborsByDepth[0] = []
-            sub.neighborsByDepth[0].push(other)
-          }
-          const existing = sub.depthMap.get(other)
-          if (existing === undefined || existing > 1) {
-            sub.depthMap.set(other, 1)
-          }
-        }
-        for (const e of graph.extraEdges) {
-          if (e.src === nodeId) addNeighbor(e.dst)
-          else if (e.dst === nodeId) addNeighbor(e.src)
-        }
-      }
+      // Intentionally do NOT promote extraEdge (cluster-absorbed) endpoints
+      // to depth 1. The cluster proxy is the 1-hop stand-in for its members;
+      // promoting members would label every absorbed clip at once. Members
+      // become labelable when the user hovers the proxy directly.
 
       setViewState((prev) => {
         const prevHistory = prev.mode === "subgraph" ? prev.navigationHistory : []
@@ -898,14 +1069,24 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       // through the lerp — no drift like when both the camera and the
       // anchor were moving in opposite directions.
       setCamTarget(computeCamTarget(graph, nodeId))
+
+      // Consume any pending search-pan: if results haven't landed yet, a
+      // later payload would otherwise yank the camera off the node the
+      // user just clicked. Marking this term as "already panned for" stops
+      // the search-pan effect from firing for it.
+      lastPannedSearchTerm.current = searchTerm
     },
-    [graph, indexMap, nodes, onNodeSelect, setCamTarget]
+    [graph, indexMap, nodes, onNodeSelect, setCamTarget, searchTerm]
   )
 
   const handleReset = useCallback(() => {
     restoreOriginalPositions(graph)
     setViewState({ mode: "overview" })
     setCamTarget(OVERVIEW_CAM)
+    // Clear hover + sidebar selection so highlight edges / external-selected
+    // beziers from the previously focused node don't linger after the reset.
+    useGraphStore.getState().setSidebarSelectedNode(null)
+    useGraphStore.getState().setHoveredNode(null)
   }, [graph, setCamTarget])
 
   useEffect(() => {
@@ -950,13 +1131,24 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           externalHoveredId={externalHoveredId}
           externalSelectedId={externalSelectedId}
           searchMatches={lineHoverMatches ?? stateHoverMatches ?? searchMatches}
+          topMatchRanks={topMatchRanks}
           searchTerm={searchTerm}
           nodeTypeIcons={nodeTypeIcons}
+          onResetView={handleReset}
           onGraphClick={() => {
             useGraphStore.getState().setSidebarSelectedNode(null)
             useGraphStore.getState().setHoveredNode(null)
           }}
         />
+        {debugMarkers && (
+          <DebugMarkers
+            graph={graph}
+            selectedNodeId={viewState.mode === "subgraph" ? viewState.selectedNodeId : null}
+            camAnim={camAnim}
+            clickAnchorRef={clickAnchorRef}
+            cameraRef={cameraRef}
+          />
+        )}
         <OffscreenIndicators
           graph={graph}
           viewState={viewState}
@@ -991,6 +1183,29 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         >
           Reset view
         </button>
+      )}
+
+      {debugAvailable && (
+        <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-md bg-background/80 px-2 py-1.5 text-xs text-foreground backdrop-blur">
+          <button
+            onClick={() => setDebugMarkers((v) => !v)}
+            className={`rounded px-2 py-0.5 transition-colors ${
+              debugMarkers
+                ? "bg-foreground text-background"
+                : "hover:bg-foreground/10"
+            }`}
+          >
+            Debug markers {debugMarkers ? "on" : "off"}
+          </button>
+          {debugMarkers && (
+            <div className="flex items-center gap-3 text-[10px] leading-none">
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: "#ffd11a" }} /> click anchor</span>
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: "#33ff66" }} /> live node</span>
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: "#ff33dd" }} /> cam target</span>
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: "#33e6ff" }} /> cam look</span>
+            </div>
+          )}
+        </div>
       )}
 
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />

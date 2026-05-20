@@ -87,6 +87,30 @@ export const MOCK_NODES: GraphNode[] = [
     },
   },
   {
+    ref_id: "n10a",
+    node_type: "Section",
+    properties: {
+      text: "Section 1 — Introduction",
+      summary: "Commerce on the Internet has come to rely almost exclusively on financial institutions serving as trusted third parties to process electronic payments. While the system works well enough for most transactions, it still suffers from the inherent weaknesses of the trust based model.",
+    },
+  },
+  {
+    ref_id: "n10b",
+    node_type: "Section",
+    properties: {
+      text: "Section 2 — Transactions",
+      summary: "We define an electronic coin as a chain of digital signatures. Each owner transfers the coin to the next by digitally signing a hash of the previous transaction and the public key of the next owner and adding these to the end of the coin.",
+    },
+  },
+  {
+    ref_id: "n10c",
+    node_type: "Section",
+    properties: {
+      text: "Section 3 — Timestamp Server",
+      summary: "The solution we propose begins with a timestamp server. A timestamp server works by taking a hash of a block of items to be timestamped and widely publishing the hash, such as in a newspaper or Usenet post.",
+    },
+  },
+  {
     ref_id: "n11",
     node_type: "Claim",
     properties: {
@@ -165,6 +189,104 @@ export const MOCK_NODES: GraphNode[] = [
     ref_id: "n20",
     node_type: "WebPage",
     properties: { name: "Sphinx Chat Website", description: "Decentralised messaging on Lightning." },
+  },
+  // Cluster 1: additional clips from same episode as n12 (What Bitcoin Did #412)
+  {
+    ref_id: "n22",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 2 - 30,
+    properties: {
+      name: "Hash rate follows price",
+      description: "Hash rate is a lagging indicator. It always follows price, not the other way around.",
+      show: "What Bitcoin Did",
+      episode_number: 412,
+      duration: 41,
+      timestamp: 1400,
+      speaker_name: "Adam Back",
+      thumbnail: "https://picsum.photos/seed/clip-hashrate/600/400",
+      boost: 310,
+    },
+  },
+  {
+    ref_id: "n23",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 2 - 60,
+    properties: {
+      name: "Miners are the backbone",
+      description: "Miners don't control Bitcoin. They secure it. There's a difference.",
+      show: "What Bitcoin Did",
+      episode_number: 412,
+      duration: 35,
+      timestamp: 1560,
+      speaker_name: "Adam Back",
+      thumbnail: "https://picsum.photos/seed/clip-miners/600/400",
+      boost: 275,
+    },
+  },
+  {
+    ref_id: "n24",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 2 - 90,
+    properties: {
+      name: "Difficulty adjustment is genius",
+      description: "The difficulty adjustment is Satoshi's most underrated innovation. Pure elegance.",
+      show: "What Bitcoin Did",
+      episode_number: 412,
+      duration: 29,
+      timestamp: 1700,
+      speaker_name: "Adam Back",
+      thumbnail: "https://picsum.photos/seed/clip-difficulty/600/400",
+      boost: 198,
+    },
+  },
+  // Cluster 2: additional clips from same episode as n13 (Citation Needed #87)
+  {
+    ref_id: "n25",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 5 - 30,
+    properties: {
+      name: "Dollar debasement is policy",
+      description: "Inflation isn't an accident or a mistake. It is the policy. It always has been.",
+      show: "Citation Needed",
+      episode_number: 87,
+      duration: 55,
+      timestamp: 2050,
+      speaker_name: "Lyn Alden",
+      thumbnail: "https://picsum.photos/seed/clip-debasement/600/400",
+      boost: 322,
+    },
+  },
+  {
+    ref_id: "n26",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 5 - 60,
+    properties: {
+      name: "Energy is the unit of account",
+      description: "If you want a truly neutral reserve asset, it has to be backed by something scarce — like energy.",
+      show: "Citation Needed",
+      episode_number: 87,
+      duration: 48,
+      timestamp: 2200,
+      speaker_name: "Lyn Alden",
+      thumbnail: "https://picsum.photos/seed/clip-energy/600/400",
+      boost: 287,
+    },
+  },
+  {
+    ref_id: "n27",
+    node_type: "Clip",
+    date_added_to_graph: Math.floor(Date.now() / 1000) - 60 * 60 * 5 - 90,
+    properties: {
+      name: "Network effects compound",
+      description: "Bitcoin's network effect is not linear. It's exponential. Every new user makes it stronger.",
+      show: "Citation Needed",
+      episode_number: 87,
+      duration: 43,
+      timestamp: 2350,
+      speaker_name: "Lyn Alden",
+      thumbnail: "https://picsum.photos/seed/clip-network/600/400",
+      boost: 241,
+    },
   },
 ]
 
@@ -298,8 +420,36 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
           summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Digital signatures provide part of the solution, but the main benefits are lost if a trusted third party is still required to prevent double-spending. We propose a solution to the double-spending problem using a peer-to-peer network.",
         },
       },
+      {
+        ref_id: "n10a",
+        node_type: "Section",
+        properties: {
+          text: "Section 1 — Introduction",
+          summary: "Commerce on the Internet has come to rely almost exclusively on financial institutions serving as trusted third parties to process electronic payments. While the system works well enough for most transactions, it still suffers from the inherent weaknesses of the trust based model.",
+        },
+      },
+      {
+        ref_id: "n10b",
+        node_type: "Section",
+        properties: {
+          text: "Section 2 — Transactions",
+          summary: "We define an electronic coin as a chain of digital signatures. Each owner transfers the coin to the next by digitally signing a hash of the previous transaction and the public key of the next owner and adding these to the end of the coin.",
+        },
+      },
+      {
+        ref_id: "n10c",
+        node_type: "Section",
+        properties: {
+          text: "Section 3 — Timestamp Server",
+          summary: "The solution we propose begins with a timestamp server. A timestamp server works by taking a hash of a block of items to be timestamped and widely publishing the hash, such as in a newspaper or Usenet post.",
+        },
+      },
     ],
-    edges: [],
+    edges: [
+      { source: "n6", target: "n10a", edge_type: "HAS", properties: { index: 0 } },
+      { source: "n6", target: "n10b", edge_type: "HAS", properties: { index: 1 } },
+      { source: "n6", target: "n10c", edge_type: "HAS", properties: { index: 2 } },
+    ],
   },
   n9: {
     nodes: [
@@ -367,6 +517,84 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
     ],
     edges: [],
   },
+  n10a: {
+    nodes: [
+      {
+        ref_id: "n10a",
+        node_type: "Section",
+        properties: {
+          text: "Section 1 — Introduction",
+          summary: "Commerce on the Internet has come to rely almost exclusively on financial institutions serving as trusted third parties to process electronic payments. While the system works well enough for most transactions, it still suffers from the inherent weaknesses of the trust based model.",
+        },
+      },
+      {
+        ref_id: "n6",
+        node_type: "Document",
+        properties: {
+          title: "Bitcoin Whitepaper",
+          source_link: "https://bitcoin.org/bitcoin.pdf",
+          author: "Satoshi Nakamoto",
+          content_type: "paper",
+          summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution.",
+        },
+      },
+    ],
+    edges: [
+      { source: "n6", target: "n10a", edge_type: "HAS", properties: { index: 0 } },
+    ],
+  },
+  n10b: {
+    nodes: [
+      {
+        ref_id: "n10b",
+        node_type: "Section",
+        properties: {
+          text: "Section 2 — Transactions",
+          summary: "We define an electronic coin as a chain of digital signatures. Each owner transfers the coin to the next by digitally signing a hash of the previous transaction and the public key of the next owner and adding these to the end of the coin.",
+        },
+      },
+      {
+        ref_id: "n6",
+        node_type: "Document",
+        properties: {
+          title: "Bitcoin Whitepaper",
+          source_link: "https://bitcoin.org/bitcoin.pdf",
+          author: "Satoshi Nakamoto",
+          content_type: "paper",
+          summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution.",
+        },
+      },
+    ],
+    edges: [
+      { source: "n6", target: "n10b", edge_type: "HAS", properties: { index: 1 } },
+    ],
+  },
+  n10c: {
+    nodes: [
+      {
+        ref_id: "n10c",
+        node_type: "Section",
+        properties: {
+          text: "Section 3 — Timestamp Server",
+          summary: "The solution we propose begins with a timestamp server. A timestamp server works by taking a hash of a block of items to be timestamped and widely publishing the hash, such as in a newspaper or Usenet post.",
+        },
+      },
+      {
+        ref_id: "n6",
+        node_type: "Document",
+        properties: {
+          title: "Bitcoin Whitepaper",
+          source_link: "https://bitcoin.org/bitcoin.pdf",
+          author: "Satoshi Nakamoto",
+          content_type: "paper",
+          summary: "A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution.",
+        },
+      },
+    ],
+    edges: [
+      { source: "n6", target: "n10c", edge_type: "HAS", properties: { index: 2 } },
+    ],
+  },
   n11: {
     nodes: [
       {
@@ -392,6 +620,15 @@ export const MOCK_EDGES: GraphEdge[] = [
   { source: "n5", target: "n1", edge_type: "ABOUT" },
   { source: "n7", target: "n1", edge_type: "RELATED_TO" },
   { source: "n8", target: "n4", edge_type: "CLIP_OF" },
+  // Episode → Clip HAS edges for Hot Takes diversification
+  { source: "ep-wbd-412", target: "n12", edge_type: "HAS" },
+  { source: "ep-wbd-412", target: "n22", edge_type: "HAS" },
+  { source: "ep-wbd-412", target: "n23", edge_type: "HAS" },
+  { source: "ep-wbd-412", target: "n24", edge_type: "HAS" },
+  { source: "ep-cn-87", target: "n13", edge_type: "HAS" },
+  { source: "ep-cn-87", target: "n25", edge_type: "HAS" },
+  { source: "ep-cn-87", target: "n26", edge_type: "HAS" },
+  { source: "ep-cn-87", target: "n27", edge_type: "HAS" },
 ]
 
 export const MOCK_SOURCES = [
@@ -488,6 +725,7 @@ const baseCronConfig = {
   workflow_id: "12345",
   created_at: MOCK_CRON_TS,
   updated_at: MOCK_CRON_TS,
+  last_run_at: MOCK_CRON_TS,
 }
 export const MOCK_CRON_CONFIGS = [
   { ...baseCronConfig, ref_id: "rc-twitter", source_type: "twitter_handle" as const, kind: "source" as const, enabled: true, cadence: "0 */6 * * *" },
@@ -501,6 +739,17 @@ export const MOCK_CRON_CONFIGS = [
 
 /** @deprecated Use MOCK_CRON_CONFIGS */
 export const MOCK_RADAR_CONFIGS = MOCK_CRON_CONFIGS
+
+import type { CronConfig, WorkflowMarketplaceItem } from "./graph-api"
+const MOCK_CRON_CONFIGS_TYPED: CronConfig[] = MOCK_CRON_CONFIGS
+export const MOCK_WORKFLOW_MARKETPLACE: WorkflowMarketplaceItem[] =
+  MOCK_CRON_CONFIGS_TYPED.map(({ ref_id, label, source_type, kind, enabled }) => ({
+    ref_id,
+    label,
+    source_type,
+    kind,
+    enabled,
+  }))
 
 const MOCK_RUN_NOW = new Date("2026-05-04T09:00:00Z")
 const mockRunTs = (minutesAgo: number): number => {

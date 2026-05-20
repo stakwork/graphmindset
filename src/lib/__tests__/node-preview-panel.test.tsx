@@ -1,6 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import React from "react"
+
+// --- mock isSphinx ---
+const { mockIsSphinx } = vi.hoisted(() => ({ mockIsSphinx: vi.fn(() => false) }))
+vi.mock("@/lib/sphinx/detect", () => ({
+  isSphinx: () => mockIsSphinx(),
+  isAndroid: vi.fn(() => false),
+}))
 
 // --- mock getL402 ---
 const { mockGetL402 } = vi.hoisted(() => ({ mockGetL402: vi.fn(() => "") }))
@@ -63,22 +70,31 @@ vi.mock("@/stores/user-store", () => ({
 }))
 
 const mockOpen = vi.fn()
+const mockOpenEdit = vi.fn()
 vi.mock("@/stores/modal-store", () => ({
-  useModalStore: (sel: (s: { open: typeof mockOpen }) => unknown) =>
-    sel({ open: mockOpen }),
+  useModalStore: (sel: (s: { open: typeof mockOpen; openEdit: typeof mockOpenEdit }) => unknown) =>
+    sel({ open: mockOpen, openEdit: mockOpenEdit }),
 }))
+
+import type { GraphNode as GN, GraphEdge as GE } from "@/lib/graph-api"
+
+let mockGraphNodes: GN[] = []
+let mockGraphEdges: GE[] = []
 
 vi.mock("@/stores/graph-store", () => ({
   useGraphStore: Object.assign(
-    (sel: (s: { nodes: never[]; edges: never[]; addNodes: () => void }) => unknown) =>
-      sel({ nodes: [], edges: [], addNodes: vi.fn() }),
+    (sel: (s: { nodes: GN[]; edges: GE[]; addNodes: () => void }) => unknown) =>
+      sel({ nodes: mockGraphNodes, edges: mockGraphEdges, addNodes: vi.fn() }),
     { getState: () => ({ addNodes: vi.fn() }) },
   ),
 }))
 
+type PlayerStoreState = { isPlaying: boolean; playingNode: { ref_id: string } | null; setPlayingNode: () => void; setIsPlaying: () => void }
+let playerStoreOverrides: Partial<PlayerStoreState> = {}
+
 vi.mock("@/stores/player-store", () => ({
-  usePlayerStore: (sel: (s: { isPlaying: boolean; playingNode: null; setPlayingNode: () => void; setIsPlaying: () => void }) => unknown) =>
-    sel({ isPlaying: false, playingNode: null, setPlayingNode: vi.fn(), setIsPlaying: vi.fn() }),
+  usePlayerStore: (sel: (s: PlayerStoreState) => unknown) =>
+    sel({ isPlaying: false, playingNode: null, setPlayingNode: vi.fn(), setIsPlaying: vi.fn(), ...playerStoreOverrides }),
 }))
 
 // --- schema icons ---
@@ -129,6 +145,12 @@ const NODE_B: GraphNode = {
 function makeGraphData(node: GraphNode) {
   return { nodes: [node], edges: [] }
 }
+
+// Reset graph store mocks before each test so history navigation tests don't bleed
+beforeEach(() => {
+  mockGraphNodes = []
+  mockGraphEdges = []
+})
 
 describe("NodePreviewPanel – Connections section smoke test", () => {
   beforeEach(() => {
@@ -930,6 +952,51 @@ describe("NodePreviewPanel – share button", () => {
     expect(screen.queryByText("Copied!")).toBeNull()
     vi.useRealTimers()
   })
+
+  describe("inside Sphinx (isSphinx() === true)", () => {
+    beforeEach(() => {
+      mockIsSphinx.mockReturnValue(true)
+    })
+    afterEach(() => {
+      mockIsSphinx.mockReturnValue(false)
+    })
+
+    it("renders a dropdown trigger instead of a plain share button", async () => {
+      const { fireEvent } = await import("@testing-library/react")
+      const node: GraphNode = { ref_id: "sphinx-node-1", node_type: "Topic", properties: { name: "Sphinx Test" } }
+      render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+      // The trigger button still has the title
+      const trigger = document.querySelector("button[title='Copy share link']")
+      expect(trigger).toBeTruthy()
+      // Open the dropdown
+      fireEvent.click(trigger as HTMLElement)
+      expect(screen.getByText("Copy link")).toBeInTheDocument()
+      expect(screen.getByText("Copy Sphinx link")).toBeInTheDocument()
+    })
+
+    it("'Copy link' writes the web URL to clipboard", async () => {
+      const { fireEvent } = await import("@testing-library/react")
+      const node: GraphNode = { ref_id: "sphinx-node-2", node_type: "Topic", properties: { name: "Sphinx Test" } }
+      render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+      const trigger = document.querySelector("button[title='Copy share link']") as HTMLElement
+      fireEvent.click(trigger)
+      fireEvent.click(screen.getByText("Copy link"))
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://example.com/?id=sphinx-node-2")
+    })
+
+    it("'Copy Sphinx link' writes the sphinx.chat deep link to clipboard", async () => {
+      const { fireEvent } = await import("@testing-library/react")
+      const node: GraphNode = { ref_id: "sphinx-node-3", node_type: "Topic", properties: { name: "Sphinx Test" } }
+      render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+      const trigger = document.querySelector("button[title='Copy share link']") as HTMLElement
+      fireEvent.click(trigger)
+      fireEvent.click(screen.getByText("Copy Sphinx link"))
+      const expectedWebUrl = "https://example.com/?id=sphinx-node-3"
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        `sphinx.chat://?action=webapp&url=${encodeURIComponent(expectedWebUrl)}`
+      )
+    })
+  })
 })
 
 describe("NodePreviewPanel – description truncation cap", () => {
@@ -1098,5 +1165,177 @@ describe("NodePreviewPanel – WatchButton", () => {
     })
     // Other properties should still render
     expect(screen.queryByText("is_ad")).toBeNull()
+  })
+})
+
+describe("NodePreviewPanel – MediaCard host div marginBottom", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    playerStoreOverrides = {}
+  })
+
+  afterEach(() => {
+    playerStoreOverrides = {}
+  })
+
+  it("reserves at least 52px marginBottom on the host div when the node is actively playing", async () => {
+    const node: GraphNode = {
+      ref_id: "media-playing-1",
+      node_type: "Episode",
+      properties: { name: "Playing Episode", media_url: "https://example.com/episode.mp3" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+    // Simulate the node being the currently playing node
+    playerStoreOverrides = { playingNode: { ref_id: node.ref_id } }
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      // When playing, the host div replaces the Play button — Play Audio should be absent
+      expect(screen.queryByText("Play Audio")).toBeNull()
+    })
+
+    // Find the host div: it has the marginBottom style set
+    const hostDiv = document.querySelector<HTMLElement>("[style*='margin-bottom']")
+    expect(hostDiv).not.toBeNull()
+    const marginBottom = parseInt(hostDiv!.style.marginBottom, 10)
+    expect(marginBottom).toBeGreaterThanOrEqual(52)
+  })
+})
+
+describe("NodePreviewPanel – history navigation", () => {
+  const PEER_NODE: GraphNode = {
+    ref_id: "peer1",
+    node_type: "Topic",
+    properties: { name: "Peer Node" },
+  }
+
+  const EDGE_TO_PEER = { source: BASE_NODE.ref_id, target: PEER_NODE.ref_id, edge_type: "MENTIONS" }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockGraphNodes = [BASE_NODE, PEER_NODE]
+    mockGraphEdges = [EDGE_TO_PEER]
+    // Probe always resolves with full node
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.includes(PEER_NODE.ref_id)) return Promise.resolve(makeGraphData(PEER_NODE))
+      return Promise.resolve(makeGraphData(BASE_NODE))
+    })
+  })
+
+  it("clicking a connection row updates the panel to display the peer node title", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    // Wait for unlocked state to render
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Click the connection row for Peer Node
+    const row = await waitFor(() => screen.getByText("Peer Node").closest("button"))
+    fe.click(row!)
+
+    // Panel should now show the peer node title
+    await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
+  })
+
+  it("Back button with non-empty history returns to the previous node title", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Navigate to peer
+    const row = await waitFor(() => screen.getByText("Peer Node").closest("button"))
+    fe.click(row!)
+    await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
+
+    // Press back — should go back to base node
+    fe.click(screen.getByRole("button", { name: (_, el) => el?.querySelector("svg") !== null && el?.title !== "Copy share link" && el?.title !== "Close panel" && el?.title !== "Watch node" }))
+    // Use ArrowLeft button (first button in header)
+    const backBtn = document.querySelector('[class*="flex h-full"] button:first-child') as HTMLElement
+    fe.click(backBtn!)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+  })
+
+  it("Back button (←) with empty history calls onBack", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    const onBack = vi.fn()
+    render(<NodePreviewPanel node={BASE_NODE} onBack={onBack} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Find and click the ArrowLeft button (first button in header)
+    const buttons = document.querySelectorAll("button")
+    const backBtn = Array.from(buttons).find(
+      (b) => b.querySelector("svg") && b.className.includes("text-muted-foreground") && !b.title
+    )
+    fe.click(backBtn!)
+
+    expect(onBack).toHaveBeenCalled()
+  })
+
+  it("✕ close button always calls onBack regardless of history depth", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    const onBack = vi.fn()
+    render(<NodePreviewPanel node={BASE_NODE} onBack={onBack} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    // Navigate to peer to build history
+    const row = await waitFor(() => screen.getByText("Peer Node").closest("button"))
+    fe.click(row!)
+    await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
+
+    // Click the ✕ close button
+    const closeBtn = screen.getByTitle("Close panel")
+    fe.click(closeBtn)
+
+    expect(onBack).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Pencil edit button — admin visibility
+// ---------------------------------------------------------------------------
+describe("NodePreviewPanel – pencil edit button", () => {
+  beforeEach(() => {
+    mockOpenEdit.mockReset()
+    mockApiGet.mockResolvedValue({})
+  })
+
+  it("renders pencil 'Edit node' button for admin users", async () => {
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    expect(screen.getByTitle("Edit node")).toBeInTheDocument()
+  })
+
+  it("does not render pencil button for non-admin users", async () => {
+    userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    expect(screen.queryByTitle("Edit node")).toBeNull()
+  })
+
+  it("calls openEdit with the current node when pencil is clicked", async () => {
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    const pencilBtn = screen.getByTitle("Edit node")
+    pencilBtn.click()
+
+    expect(mockOpenEdit).toHaveBeenCalledOnce()
+    expect(mockOpenEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ ref_id: BASE_NODE.ref_id })
+    )
   })
 })

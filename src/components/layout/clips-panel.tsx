@@ -16,7 +16,6 @@ const PAGE_SIZE = 20
 export function ClipsPanel({ onClose }: { onClose: () => void }) {
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
-  const setClipsOpen = useAppStore((s) => s.setClipsOpen)
   const schemas = useSchemaStore((s) => s.schemas)
 
   const [clips, setClips] = useState<GraphNode[]>([])
@@ -87,7 +86,6 @@ export function ClipsPanel({ onClose }: { onClose: () => void }) {
   function openClip(node: GraphNode) {
     setSelectedNode(node)
     setSidebarSelectedNode(node)
-    setClipsOpen(false)
   }
 
   return (

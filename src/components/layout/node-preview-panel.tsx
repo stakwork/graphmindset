@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -10,6 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import { payL402 } from "@/lib/sphinx"
+import { isSphinx } from "@/lib/sphinx/detect"
+import { buildSphinxDeepLink } from "@/lib/sphinx/deep-link"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { unlockNode } from "@/lib/unlock-node"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
@@ -17,13 +20,14 @@ import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
 import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, unescapeText, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
-import { getStatusBadge, isBlockedStatus } from "@/lib/node-status"
+import { getStatusBadge, isBlockedStatus, isInProgress } from "@/lib/node-status"
 import type { GraphNode, GraphData } from "@/lib/graph-api"
 import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
 import { formatDateAbsolute } from "@/lib/date-format"
+import { useGraphStore } from "@/stores/graph-store"
 
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "owner_reference_id", "node_type", "date_added_to_graph", "status", "project_id",
@@ -77,7 +81,7 @@ interface NodePreviewPanelProps {
   schemas: SchemaNode[]
 }
 
-type UnlockState = "preview" | "loading" | "unlocked" | "error"
+type UnlockState = "preview" | "loading" | "unlocked" | "error" | "unavailable"
 
 // --- Rich content widgets ---
 
@@ -224,7 +228,9 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
           <div
             ref={setHost}
             className={cn("w-full", isVideo ? "aspect-video" : "h-[48px]")}
-            style={{ marginBottom: 44 }}
+            // 52px = 4px (h-1 progress bar) + 48px (py-2 controls row with h-8 button).
+            // Must stay in sync with the MediaPlayer controls layout in media-player.tsx.
+            style={{ marginBottom: 52 }}
           />
         ) : (
           <Button
@@ -454,19 +460,194 @@ function PersonCard({ props }: { props: Record<string, unknown> }) {
   )
 }
 
+// --- Ordered children / parent breadcrumb components ---
+
+export function ChildContentBlock({ heading, body }: { heading: string; body: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold leading-snug">{heading}</p>
+      <SummaryBlock text={body} />
+    </div>
+  )
+}
+
+interface IndexedChildrenProps {
+  nodeRefId: string
+  schemas: SchemaNode[]
+}
+
+export function OrderedChildrenView({ nodeRefId, schemas }: IndexedChildrenProps) {
+  const edges = useGraphStore((s) => s.edges)
+  const nodes = useGraphStore((s) => s.nodes)
+
+  const nodeMap = new Map(nodes.map((n) => [n.ref_id, n]))
+
+  // All outgoing edges from this node
+  const outgoing = edges.filter((e) => e.source === nodeRefId)
+
+  // Split into indexed and unindexed
+  const indexed = outgoing.filter((e) => e.properties?.index !== undefined)
+  const unindexed = outgoing.filter((e) => e.properties?.index === undefined)
+
+  if (indexed.length === 0) return null
+
+  // Sort indexed ascending by index, then append unindexed sorted alphabetically by peer title
+  const resolveTitle = (refId: string): string => {
+    const peer = nodeMap.get(refId)
+    if (!peer) return refId
+    const schema = schemas.find((s) => s.type === peer.node_type)
+    let t = pickString(peer.properties, schema?.title_key) ?? pickString(peer.properties, schema?.index)
+    if (!t) {
+      for (const key of DISPLAY_KEY_FALLBACKS) {
+        t = pickString(peer.properties, key)
+        if (t) break
+      }
+    }
+    return t ?? peer.ref_id
+  }
+
+  const sortedIndexed = [...indexed].sort(
+    (a, b) => Number(a.properties!.index) - Number(b.properties!.index)
+  )
+  const sortedUnindexed = [...unindexed].sort((a, b) =>
+    resolveTitle(a.target).localeCompare(resolveTitle(b.target))
+  )
+  const allEdges = [...sortedIndexed, ...sortedUnindexed]
+
+  // Check if we're still loading — outgoing edges exist but peers not yet in store
+  const allPeersLoaded = outgoing.every((e) => nodeMap.has(e.target))
+  if (!allPeersLoaded && indexed.length > 0) {
+    return (
+      <p className="text-xs text-muted-foreground">Loading sections…</p>
+    )
+  }
+
+  const items = allEdges
+    .map((e) => {
+      const peer = nodeMap.get(e.target)
+      if (!peer) return null
+      const summary = typeof peer.properties?.summary === "string" ? peer.properties.summary : ""
+      if (!summary) return null
+      return { heading: resolveTitle(e.target), body: summary }
+    })
+    .filter((x): x is { heading: string; body: string } => x !== null)
+
+  if (items.length === 0) return null
+
+  return (
+    <div className="space-y-4 pt-2 border-t border-border/30">
+      {items.map((item, i) => (
+        <ChildContentBlock key={i} heading={item.heading} body={item.body} />
+      ))}
+    </div>
+  )
+}
+
+interface ParentBreadcrumbsProps {
+  nodeRefId: string
+  schemas: SchemaNode[]
+}
+
+export function ParentBreadcrumbs({ nodeRefId, schemas }: ParentBreadcrumbsProps) {
+  const edges = useGraphStore((s) => s.edges)
+  const nodes = useGraphStore((s) => s.nodes)
+
+  const nodeMap = new Map(nodes.map((n) => [n.ref_id, n]))
+
+  // Incoming edges with properties.index — dedupe by parent ref_id
+  const seen = new Set<string>()
+  const parents: { node: (typeof nodes)[number]; edge: (typeof edges)[number] }[] = []
+  for (const e of edges) {
+    if (e.target === nodeRefId && e.properties?.index !== undefined) {
+      if (!seen.has(e.source)) {
+        seen.add(e.source)
+        const parentNode = nodeMap.get(e.source)
+        if (parentNode) parents.push({ node: parentNode, edge: e })
+      }
+    }
+  }
+
+  if (parents.length === 0) return null
+
+  const resolveTitle = (node: (typeof nodes)[number]): string => {
+    const schema = schemas.find((s) => s.type === node.node_type)
+    let t = pickString(node.properties, schema?.title_key) ?? pickString(node.properties, schema?.index)
+    if (!t) {
+      for (const key of DISPLAY_KEY_FALLBACKS) {
+        t = pickString(node.properties, key)
+        if (t) break
+      }
+    }
+    return t ?? node.ref_id
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {parents.map(({ node }) => (
+        <button
+          key={node.ref_id}
+          onClick={() => useGraphStore.getState().setSidebarSelectedNode(node)}
+          className="inline-flex items-center gap-1 rounded-sm border border-border/50 bg-muted/30 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          ↑ {resolveTitle(node)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // --- Main component ---
 
 export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProps) {
+  const [currentNode, setCurrentNode] = useState<GraphNode>(node)
+  const [history, setHistory] = useState<GraphNode[]>([])
   const [unlockState, setUnlockState] = useState<UnlockState>("loading")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
   const [price, setPrice] = useState<number | null>(null)
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null)
+  const [unavailableRetryable, setUnavailableRetryable] = useState(false)
+  const [unavailableCategory, setUnavailableCategory] = useState<"terminal" | "in_flight" | null>(null)
+  // Bump to force the preview probe to re-run without remounting (used by the
+  // "Check again" button on still-processing nodes).
+  const [probeNonce, setProbeNonce] = useState(0)
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollContentRef = useRef<HTMLDivElement>(null)
   const [watched, setWatched] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
 
-  function handleShare() {
-    navigator.clipboard.writeText(`${window.location.origin}/?id=${node.ref_id}`).then(() => {
+  // Reset local state when an external node selection replaces the prop
+  useEffect(() => {
+    setCurrentNode(node)
+    setHistory([])
+  }, [node.ref_id])
+
+  function handleNavigate(peer: GraphNode) {
+    setHistory((prev) => [...prev, currentNode])
+    setCurrentNode(peer)
+    scrollContentRef.current?.parentElement?.scrollTo({ top: 0 })
+  }
+
+  function handleBack() {
+    if (history.length > 0) {
+      const prev = history[history.length - 1]
+      setHistory((h) => h.slice(0, -1))
+      setCurrentNode(prev)
+    } else {
+      onBack()
+    }
+  }
+
+  function handleCopyLink() {
+    navigator.clipboard.writeText(`${window.location.origin}/?id=${currentNode.ref_id}`).then(() => {
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
+    }).catch(() => { })
+  }
+
+  function handleCopySphinxLink() {
+    navigator.clipboard.writeText(buildSphinxDeepLink(currentNode.ref_id)).then(() => {
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
@@ -480,12 +661,15 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const pubKey = useUserStore((s) => s.pubKey)
   const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
   const openModal = useModalStore((s) => s.open)
+  const openEdit = useModalStore((s) => s.openEdit)
 
-  const nodeType = node.node_type ?? "Unknown"
+  const edges = useGraphStore((s) => s.edges)
+
+  const nodeType = currentNode.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
   const paidProperties = schema?.paid_properties ?? []
 
-  const props = node.properties
+  const props = currentNode.properties
   const nodeIsBlocked = isBlockedStatus(props?.status)
   const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
   // Legacy pubkey/route_hint for the admin direct-keysend path; phase-4d removes them.
@@ -505,7 +689,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       if (title) break
     }
   }
-  if (!title) title = node.ref_id
+  if (!title) title = currentNode.ref_id
   title = unescapeText(title)
 
   // When the schema points title and description at the same field, the
@@ -524,14 +708,14 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   // the inline MediaPlayer card (rendered by MediaCard below) already shows
   // the video frame, so both together would be a duplicate.
   const isThisNodePlayingHere = usePlayerStore(
-    (s) => s.playingNode?.ref_id === node.ref_id
+    (s) => s.playingNode?.ref_id === currentNode.ref_id
   )
   const showThumbnail = !!thumbnail && !isThisNodePlayingHere
 
   async function handleUnlock() {
     setUnlockState("loading")
     try {
-      const unlocked = await unlockNode(node.ref_id)
+      const unlocked = await unlockNode(currentNode.ref_id)
       setFullNode(unlocked)
       setUnlockState("unlocked")
       refreshBalance()
@@ -539,7 +723,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       if (err instanceof Response && err.status === 402) {
         try {
           await payL402(() => { })
-          const unlocked = await unlockNode(node.ref_id)
+          const unlocked = await unlockNode(currentNode.ref_id)
           setFullNode(unlocked)
           setUnlockState("unlocked")
           refreshBalance()
@@ -558,25 +742,49 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     if (hasIdentity) {
       getWatches()
         .then((data) => {
-          setWatched(data.nodes.some((n) => n.ref_id === node.ref_id))
+          setWatched(data.nodes.some((n) => n.ref_id === currentNode.ref_id))
         })
         .catch(() => {})
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node.ref_id, hasIdentity])
+  }, [currentNode.ref_id, hasIdentity])
 
   useEffect(() => {
     const controller = new AbortController()
 
-    setUnlockState("loading")
     setFullNode(null)
     setPrice(null)
+    setUnavailableReason(null)
+    setUnavailableRetryable(false)
+    setUnavailableCategory(null)
+
+    // Blocked nodes (halted/paused/failed/etc) never come back useful from a
+    // probe — skip the call entirely and surface the right unavailable copy
+    // up front. Pre-fill the category from the locally-known status so we
+    // can show a "Check again" button for still-processing nodes without
+    // waiting for the backend to tell us the same thing.
+    if (nodeIsBlocked) {
+      const localStatus = currentNode.properties?.status
+      if (isInProgress(localStatus)) {
+        setUnavailableCategory("in_flight")
+        setUnavailableRetryable(true)
+        setUnavailableReason("This content is still being processed. Try again in a few minutes.")
+      } else {
+        setUnavailableCategory("terminal")
+        setUnavailableRetryable(false)
+        setUnavailableReason("Processing didn't complete for this content, so it can't be unlocked.")
+      }
+      setUnlockState("unavailable")
+      return () => controller.abort()
+    }
+
+    setUnlockState("loading")
 
     async function probe() {
       if (isMocksEnabled()) {
         await new Promise((r) => setTimeout(r, 300))
         if (controller.signal.aborted) return
-        const mock = MOCK_FULL_NODES[node.ref_id]
+        const mock = MOCK_FULL_NODES[currentNode.ref_id]
         if (mock) {
           setFullNode(mock.nodes?.[0] ?? null)
           setUnlockState("unlocked")
@@ -590,7 +798,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         // contributor checks without ever debiting the user. Admin/contributor still
         // bypass via signed query params; first-time users get 402 + price as before.
         const result = await api.get<GraphData>(
-          `/v2/nodes/${node.ref_id}?preview=1`,
+          `/v2/nodes/${currentNode.ref_id}?preview=1`,
           undefined,
           controller.signal,
         )
@@ -608,15 +816,38 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
             setPrice(null)
           }
           setUnlockState("preview")
-        } else {
-          setUnlockState("error")
+          return
         }
+        // Non-402: backend may explain why the content is gone. Parse the
+        // body for `{ error: true, message, retryable?, category? }` and
+        // route to the unavailable state. The structured `retryable` /
+        // `category` fields let us distinguish "Stakwork won't recover this"
+        // from "still processing — try again later" without string-matching
+        // on the message. Generic network/5xx errors fall through to the
+        // retry path.
+        if (err instanceof Response) {
+          try {
+            const body = await err.json()
+            if (body?.error === true && typeof body?.message === "string") {
+              setUnavailableReason(body.message)
+              setUnavailableRetryable(body.retryable === true)
+              if (body.category === "terminal" || body.category === "in_flight") {
+                setUnavailableCategory(body.category)
+              }
+              setUnlockState("unavailable")
+              return
+            }
+          } catch {
+            /* unparseable body — fall through to error */
+          }
+        }
+        setUnlockState("error")
       }
     }
 
     probe()
     return () => controller.abort()
-  }, [node.ref_id, refreshBalance])
+  }, [currentNode.ref_id, refreshBalance, nodeIsBlocked, probeNonce])
 
   const fp = fullNode?.properties
 
@@ -659,7 +890,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-sidebar-border">
         <button
-          onClick={onBack}
+          onClick={handleBack}
           className="text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -671,17 +902,36 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           {displayNodeType(nodeType)}
         </Badge>
         <div className="ml-auto flex items-center gap-1.5">
-          <button
-            onClick={handleShare}
-            className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
-            title="Copy share link"
-          >
-            {copied ? (
-              <span className="text-[10px] text-green-500">Copied!</span>
-            ) : (
-              <Link className="h-3.5 w-3.5" />
-            )}
-          </button>
+          {isSphinx() ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                  className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
+                  title="Copy share link"
+                >
+                  {copied ? (
+                    <span className="text-[10px] text-green-500">Copied!</span>
+                  ) : (
+                    <Link className="h-3.5 w-3.5" />
+                  )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleCopyLink}>Copy link</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleCopySphinxLink}>Copy Sphinx link</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <button
+              onClick={handleCopyLink}
+              className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
+              title="Copy share link"
+            >
+              {copied ? (
+                <span className="text-[10px] text-green-500">Copied!</span>
+              ) : (
+                <Link className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
           {hasIdentity && (
             <button
               onClick={async () => {
@@ -691,9 +941,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 setWatchLoading(true)
                 try {
                   if (next) {
-                    await watchNode(node.ref_id)
+                    await watchNode(currentNode.ref_id)
                   } else {
-                    await unwatchNode(node.ref_id)
+                    await unwatchNode(currentNode.ref_id)
                   }
                 } catch {
                   setWatched(!next)
@@ -715,18 +965,34 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           )}
           {ownerReference && !hideBoost && (
             <BoostButton
-              refId={node.ref_id}
+              refId={currentNode.ref_id}
               ownerReference={ownerReference}
               pubkey={pubkey}
               routeHint={routeHint}
               boostCount={boostAmt}
             />
           )}
+          {isAdmin && (
+            <button
+              onClick={() => openEdit(currentNode)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Edit node"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            onClick={onBack}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="Close panel"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="px-4 py-4 space-y-4">
+        <div ref={scrollContentRef} className="px-4 py-4 space-y-4">
           {/* Thumbnail — only rendered when a real image exists */}
           {showThumbnail && (
             <img
@@ -734,6 +1000,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               alt={title}
               className="w-full h-32 object-cover rounded-md"
             />
+          )}
+
+          {/* Parent breadcrumbs — shown when any incoming edge carries properties.index */}
+          {edges.some((e) => e.target === currentNode.ref_id && e.properties?.index !== undefined) && (
+            <ParentBreadcrumbs nodeRefId={currentNode.ref_id} schemas={schemas} />
           )}
 
           {/* Title */}
@@ -784,14 +1055,10 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                   <Skeleton className="h-4 w-3/4" />
                 </>
               )}
-              {nodeIsBlocked ? (
-                <p className="text-xs text-muted-foreground">Content unavailable — check status above.</p>
-              ) : (
-                <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
-                  <Zap className="h-3.5 w-3.5 mr-1.5" />
-                  {price ? `Unlock for ${price} sats` : "Unlock Full Content"}
-                </Button>
-              )}
+              <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
+                <Zap className="h-3.5 w-3.5 mr-1.5" />
+                {price ? `Unlock for ${price} sats` : "Unlock Full Content"}
+              </Button>
             </div>
           )}
 
@@ -808,6 +1075,39 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 <Zap className="h-3.5 w-3.5 mr-1.5" />
                 Retry Unlock
               </Button>
+            </div>
+          )}
+
+          {unlockState === "unavailable" && (
+            <div className="space-y-3 py-2">
+              <div className="flex items-start gap-2">
+                {unavailableCategory === "in_flight" ? (
+                  <Loader2 className="h-4 w-4 text-amber-400 mt-0.5 shrink-0 animate-spin" />
+                ) : (
+                  <X className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                )}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium leading-snug">
+                    {unavailableCategory === "in_flight"
+                      ? "Still processing"
+                      : "Content unavailable"}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {unavailableReason ?? "Content is not available."}
+                  </p>
+                </div>
+              </div>
+              {unavailableRetryable && (
+                <Button
+                  onClick={() => setProbeNonce((n) => n + 1)}
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                >
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5" />
+                  Check again
+                </Button>
+              )}
             </div>
           )}
 
@@ -864,6 +1164,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               )}
               {hasTranscript && <TranscriptBlock text={fp.transcript as string} />}
 
+              {/* Ordered child content — shown when outgoing edges carry properties.index */}
+              {edges.some((e) => e.source === currentNode.ref_id && e.properties?.index !== undefined) && (
+                <OrderedChildrenView nodeRefId={currentNode.ref_id} schemas={schemas} />
+              )}
+
               {/* Fallback: remaining properties not covered by widgets */}
               {remainingProps.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-border/30">
@@ -892,7 +1197,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           )}
           {/* Connections — always visible regardless of unlock state */}
           <div className="pt-2 border-t border-border/30">
-            <ConnectionsSection nodeRefId={node.ref_id} schemas={schemas} />
+            <ConnectionsSection nodeRefId={currentNode.ref_id} schemas={schemas} onNavigate={handleNavigate} />
           </div>
         </div>
       </ScrollArea>

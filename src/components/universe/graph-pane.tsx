@@ -30,6 +30,8 @@ export function GraphPane() {
   const toggleMyContent = useAppStore((s) => s.toggleMyContent)
   const toggleFollowing = useAppStore((s) => s.toggleFollowing)
   const toggleAgent = useAppStore((s) => s.toggleAgent)
+  const workflowsOpen = useAppStore((s) => s.workflowsOpen)
+  const toggleWorkflows = useAppStore((s) => s.toggleWorkflows)
 
   function onSelect(node: GraphNode) {
     setSelectedNode(node)
@@ -48,6 +50,7 @@ export function GraphPane() {
     !followingOpen &&
     !agentOpen &&
     !clipsOpen &&
+    !workflowsOpen &&
     !selectedNode &&
     !searchTerm
   const title = graphName || "Knowledge Graph"
@@ -108,6 +111,8 @@ export function GraphPane() {
             onToggleFollowing={() => openPanel(toggleFollowing)}
             agentOpen={agentOpen}
             onToggleAgent={() => openPanel(toggleAgent)}
+            workflowsOpen={workflowsOpen}
+            onToggleWorkflows={() => openPanel(toggleWorkflows)}
           />
         </div>
         <ToolkitFAB
@@ -119,6 +124,8 @@ export function GraphPane() {
           onToggleFollowing={() => openPanel(toggleFollowing)}
           agentOpen={agentOpen}
           onToggleAgent={() => openPanel(toggleAgent)}
+          workflowsOpen={workflowsOpen}
+          onToggleWorkflows={() => openPanel(toggleWorkflows)}
         />
       </div>
 
