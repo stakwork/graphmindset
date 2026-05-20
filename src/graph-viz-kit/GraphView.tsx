@@ -756,7 +756,6 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
 
   const highlightedEdges = useMemo(() => {
-    if (hovered === null && selectedId === null) return [];
     // Source from graph.edges (not targetEdges) so cross-edges touching the
     // hovered/selected node surface here even when the subgraph-mode filter
     // strips them out of the base render. Skip extraEdges (cluster-absorbed
@@ -766,44 +765,47 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     const visibleSet = viewState.mode === "subgraph"
       ? new Set(viewState.visibleNodeIds)
       : null;
-    const real = graph.edges.filter((e) => {
-      const touches =
-        e.src === hovered || e.dst === hovered ||
-        e.src === selectedId || e.dst === selectedId;
-      if (!touches) return false;
-      const srcType = graph.nodes[e.src]?.nodeType;
-      if (srcType === "_group" || srcType === "_cluster") {
-        // Spokes are dropped by default — for large clusters the ring chord
-        // polygon below handles them. For a small cluster (<RING_MIN_MEMBERS)
-        // the ring would degenerate to a triangle/line, so we instead show
-        // the spokes themselves — but only when the proxy itself is the focus.
-        const isFocusedProxy = e.src === hovered || e.src === selectedId;
-        if (!isFocusedProxy) return false;
-        const visibleMembers = (graph.outAdj?.[e.src] ?? []).filter(
-          (m) => !visibleSet || visibleSet.has(m),
-        );
-        if (visibleMembers.length >= RING_MIN_MEMBERS) return false;
-      }
-      if (visibleSet && (!visibleSet.has(e.src) || !visibleSet.has(e.dst))) return false;
-      return true;
-    });
+    const hasFocus = hovered !== null || selectedId !== null;
+    const real = !hasFocus
+      ? []
+      : graph.edges.filter((e) => {
+          const touches =
+            e.src === hovered || e.dst === hovered ||
+            e.src === selectedId || e.dst === selectedId;
+          if (!touches) return false;
+          const srcType = graph.nodes[e.src]?.nodeType;
+          if (srcType === "_group" || srcType === "_cluster") {
+            // Spokes are dropped by default — for large clusters the ring chord
+            // polygon below handles them. For a small cluster (<RING_MIN_MEMBERS)
+            // the ring would degenerate to a triangle/line, so we instead show
+            // the spokes themselves — but only when the proxy itself is the focus.
+            const isFocusedProxy = e.src === hovered || e.src === selectedId;
+            if (!isFocusedProxy) return false;
+            const visibleMembers = (graph.outAdj?.[e.src] ?? []).filter(
+              (m) => !visibleSet || visibleSet.has(m),
+            );
+            if (visibleMembers.length >= RING_MIN_MEMBERS) return false;
+          }
+          if (visibleSet && (!visibleSet.has(e.src) || !visibleSet.has(e.dst))) return false;
+          return true;
+        });
 
-    // Ring chord polygon (Feature 5): when the focused node is a proxy with
-    // ≥ RING_MIN_MEMBERS, connect members in angular order around the proxy
-    // so the cluster reads as a perimeter rather than N independent spokes.
-    // outAdj (children only) — using graph.adj would pull the proxy's source
-    // (e.g. the parent Episode) into the perimeter.
+    // Ring chord polygon (Feature 5): connect members in angular order around
+    // every cluster/group proxy with ≥ RING_MIN_MEMBERS members so the cluster
+    // reads as a perimeter. Always rendered for `_group` proxies (members are
+    // real laid-out roots/orphans). For `_cluster` proxies, members stay
+    // collapsed/invisible at a tiny offset until the proxy is expanded, so we
+    // only draw the ring while expanded — otherwise the perimeter degenerates
+    // into a tight stack of dots at the proxy center.
     const ring: GraphEdge[] = [];
-    const seen = new Set<number>();
-    const addRingFor = (proxyId: number | null) => {
-      if (proxyId === null || seen.has(proxyId)) return;
-      seen.add(proxyId);
+    for (let proxyId = 0; proxyId < graph.nodes.length; proxyId++) {
       const nodeType = graph.nodes[proxyId]?.nodeType;
-      if (nodeType !== "_group" && nodeType !== "_cluster") return;
+      if (nodeType !== "_group" && nodeType !== "_cluster") continue;
+      if (nodeType === "_cluster" && proxyId !== expandedClusterId) continue;
       const members = (graph.outAdj?.[proxyId] ?? []).filter(
         (m) => !visibleSet || visibleSet.has(m),
       );
-      if (members.length < RING_MIN_MEMBERS) return;
+      if (members.length < RING_MIN_MEMBERS) continue;
       const p = graph.nodes[proxyId].position;
       const sorted = members
         .slice()
@@ -819,12 +821,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           type: RING_EDGE_TYPE,
         });
       }
-    };
-    addRingFor(hovered);
-    addRingFor(selectedId);
+    }
 
     return ring.length > 0 ? [...real, ...ring] : real;
-  }, [hovered, selectedId, graph.edges, graph.nodes, graph.outAdj, viewState]);
+  }, [hovered, selectedId, graph.edges, graph.nodes, graph.outAdj, viewState, expandedClusterId]);
 
   // For each neighbor of the focused node, the set of edge types connecting
   // it to the focused node. Lets the label render show "via MENTIONS" etc.
@@ -1840,11 +1840,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                 : isHoverNeighbor ? "rgba(200,200,200,0.85)"
                   : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
                     : "rgba(190,200,210,0.75)";
-          const labelSize = isHovered || isSelected ? 14
-            : isTopHit ? (topRank === 0 ? 16 : 14)
-              : isRecentNode ? 13
-                : isHoverNeighbor ? 12
-                  : 11;
+          const labelSize = isHovered || isSelected ? 15
+            : isTopHit ? (topRank === 0 ? 17 : 15)
+              : isRecentNode ? 14
+                : isHoverNeighbor ? 13
+                  : 12;
           const labelWeight = isHovered || isSelected || isExpandedProxy || isTopHit ? 700 : 500;
 
           const iconColor = node.icon
@@ -1895,7 +1895,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               >
                 <div style={{
                   color: isExpandedProxy ? "rgba(100,220,255,0.95)" : labelColor,
-                  fontSize: isExpandedProxy ? 13 : labelSize,
+                  fontSize: isExpandedProxy ? 14 : labelSize,
                   fontFamily: "'Barlow', sans-serif",
                   fontWeight: labelWeight,
                   letterSpacing: "0.3px",
@@ -1939,7 +1939,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                             background: "rgba(255,255,255,0.025)",
                             border: "1px solid rgba(255,255,255,0.07)",
                             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                            fontSize: 7,
+                            fontSize: 9,
                             color: "rgba(190,205,215,0.78)",
                             letterSpacing: "0.02em",
                             lineHeight: 1.4,
@@ -1949,14 +1949,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                               display: "inline-flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              width: 11, height: 11,
+                              width: 13, height: 13,
                               borderRadius: 2,
                               background: `${tint}1f`,
                               border: `1px solid ${tint}55`,
                               color: tint,
                               lineHeight: 1,
                             }}>
-                              <Icon size={7} strokeWidth={2} />
+                              <Icon size={9} strokeWidth={2} />
                             </span>
                             {node.nodeType!.toLowerCase()}
                           </div>
@@ -1967,7 +1967,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                         return (
                           <div key={t} style={{
                             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                            fontSize: 7,
+                            fontSize: 9,
                             color: rgbToCss(ec, 0.95),
                             background: rgbToCss(ec, 0.12),
                             border: `1px solid ${rgbToCss(ec, 0.55)}`,
