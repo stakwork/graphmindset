@@ -15,7 +15,6 @@ export function GraphPane() {
   const edges = useGraphStore((s) => s.edges)
   const selectedNode = useGraphStore((s) => s.selectedNode)
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
-  const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const schemas = useSchemaStore((s) => s.schemas)
 
@@ -33,9 +32,13 @@ export function GraphPane() {
   const workflowsOpen = useAppStore((s) => s.workflowsOpen)
   const toggleWorkflows = useAppStore((s) => s.toggleWorkflows)
 
+  // Canvas clicks only update `selectedNode` (drives the preview panel).
+  // `sidebarSelectedNode` stays for sidebar-list selections, which gate the
+  // 1-hop neighbor fetch (use-sidebar-neighbor-fetch). Re-firing the fetch
+  // on every canvas click re-parented absorbed members across rebuilds and
+  // sent the camera to stale positions.
   function onSelect(node: GraphNode) {
     setSelectedNode(node)
-    setSidebarSelectedNode(node)
   }
 
   function openPanel(toggle: () => void) {
