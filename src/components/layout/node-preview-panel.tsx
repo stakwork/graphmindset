@@ -612,6 +612,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [probeNonce, setProbeNonce] = useState(0)
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollContentRef = useRef<HTMLDivElement>(null)
   const [watched, setWatched] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
 
@@ -624,6 +625,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   function handleNavigate(peer: GraphNode) {
     setHistory((prev) => [...prev, currentNode])
     setCurrentNode(peer)
+    scrollContentRef.current?.parentElement?.scrollTo({ top: 0 })
   }
 
   function handleBack() {
@@ -845,7 +847,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
     probe()
     return () => controller.abort()
-  }, [node.ref_id, refreshBalance, nodeIsBlocked, probeNonce])
+  }, [currentNode.ref_id, refreshBalance, nodeIsBlocked, probeNonce])
 
   const fp = fullNode?.properties
 
@@ -990,7 +992,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="px-4 py-4 space-y-4">
+        <div ref={scrollContentRef} className="px-4 py-4 space-y-4">
           {/* Thumbnail — only rendered when a real image exists */}
           {showThumbnail && (
             <img
