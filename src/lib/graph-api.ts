@@ -195,6 +195,53 @@ export async function uploadImageToNode(
   return response.json()
 }
 
+// Single-shot image content upload — multipart POST to /v2/content/image.
+// Backend stages the file in sphinx-swarm/temp, creates the Image node,
+// and triggers the same Stakwork workflow as Episodes. Caller doesn't
+// need to call createNode first or know any ref_ids.
+//
+// Multipart same as uploadImageToNode — bypasses api.post (which forces
+// application/json) so the browser can set the multipart boundary itself.
+export async function addImageContent(
+  file: File,
+  opts: { name?: string; webhookUrl?: string } = {},
+  signal?: AbortSignal
+): Promise<{
+  status: string
+  nodes: Array<Record<string, unknown>>
+  status_messages: string[]
+  temp_url?: string
+}> {
+  const url = new URL(`${API_URL}/v2/content/image`)
+
+  const signed = await getSignedMessage()
+  if (signed.signature) {
+    url.searchParams.append("sig", signed.signature)
+    url.searchParams.append("msg", signed.message)
+  }
+
+  const headers: Record<string, string> = {}
+  const l402 = await getL402()
+  if (l402) headers.Authorization = l402
+
+  const form = new FormData()
+  form.append("file", file)
+  if (opts.name) form.append("name", opts.name)
+  if (opts.webhookUrl) form.append("webhook_url", opts.webhookUrl)
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form,
+    signal: signal ?? new AbortController().signal,
+  })
+
+  if (!response.ok) {
+    throw response
+  }
+  return response.json()
+}
+
 // Update a node
 export async function updateNode(
   refId: string,
