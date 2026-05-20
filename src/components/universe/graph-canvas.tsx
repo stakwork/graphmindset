@@ -182,8 +182,13 @@ function apiToGraph(
   for (const [key, arr] of bundles) {
     if (arr.length < CLUSTER_THRESHOLD) continue
     const [source, edge_type, target_type] = key.split("::")
+    // Skip clusters whose source isn't in the loaded payload — buildGraph drops
+    // edges with unknown endpoints, so the cluster's parent edge would vanish
+    // and the proxy would end up as an orphan synthetic root with no visible
+    // parent. Let the targets fall back to __group_<type> grouping instead.
+    if (!nodeTypeById.has(source)) continue
     const clusterId = `__cluster_${source}_${edge_type}_${target_type}`
-    extraNodes.push({ id: clusterId, label: `${target_type} × ${arr.length}` })
+    extraNodes.push({ id: clusterId, label: `${target_type} × ${arr.length} · ${edge_type}` })
     extraEdges.push({ source, target: clusterId, label: edge_type })
     for (const e of arr) {
       extraEdges.push({ source: clusterId, target: e.target, label: edge_type })
