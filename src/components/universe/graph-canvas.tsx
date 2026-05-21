@@ -341,6 +341,7 @@ function applyLayout(graph: Graph) {
   graph.originalPositions = snapshot
 }
 
+
 // Matches DEPTH_SHRINK in computeRadialLayout. Click inflation is the
 // inverse: 1/0.45^d makes the ring around a depth-d node land at R1 again.
 const DEPTH_SHRINK = 0.45
