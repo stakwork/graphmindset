@@ -752,6 +752,7 @@ export const MOCK_CRON_CONFIGS = [
   { ...baseCronConfig, ref_id: "rc-deduplication", source_type: "deduplication" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", workflow_id: "mock-gm-workflow-id", label: "Deduplication" },
   { ...baseCronConfig, ref_id: "rc-content-review", source_type: "content_review" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Content review" },
   { ...baseCronConfig, ref_id: "rc-topic-review", source_type: "topic_review" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Topic review" },
+  { ...baseCronConfig, ref_id: "rc-orphan-node", source_type: "orphan_node" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Orphan node cleanup" },
 ]
 
 /** @deprecated Use MOCK_CRON_CONFIGS */

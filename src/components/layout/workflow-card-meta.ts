@@ -16,6 +16,7 @@ export const WORKFLOW_TYPE_META: Record<RadarSourceType | JanitorSourceType, Wor
   deduplication:   { icon: Layers,      label: "Deduplication",   tone: "violet"  },
   content_review:  { icon: ShieldCheck, label: "Content Review",  tone: "emerald" },
   topic_review:    { icon: Sparkles,    label: "Topic Review",    tone: "fuchsia" },
+  orphan_node:     { icon: Layers,      label: "Orphan Node",     tone: "slate"   },
 }
 
 // Static tone → Tailwind class mapping to avoid Tailwind purge issues
