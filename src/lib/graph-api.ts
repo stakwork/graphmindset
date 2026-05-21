@@ -280,7 +280,7 @@ export const RADAR_SOURCE_TYPES: RadarSourceType[] = [
   "topic",
 ]
 
-export type JanitorSourceType = "deduplication" | "content_review" | "topic_review"
+export type JanitorSourceType = "deduplication" | "content_review" | "topic_review" | "orphan_node"
 
 export type CronKind = "source" | "janitor"
 
