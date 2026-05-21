@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, Trash2, type LucideIcon } from "lucide-react"
+import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, PlusCircle, Trash2, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
@@ -229,6 +229,11 @@ const ACTION_LABELS: Record<string, ActionLabels> = {
     rowLabel: (s) => `Replace ${s.displayName ?? s.typeLabel}`,
     approvePrompt: () => "Replace the old node with the new one?",
   },
+  add_source: {
+    approve: "Add",
+    rowLabel: () => "Add new source",
+    approvePrompt: () => "Add this source to the radar?",
+  },
 }
 
 // ── Confirm action popover (used for both Approve and Dismiss) ────────────────
@@ -408,6 +413,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "git-merge": GitMerge,
   "trash-2": Trash2,
   "arrow-right-left": ArrowRightLeft,
+  "plus-circle": PlusCircle,
 }
 
 // ── Main ReviewRow ────────────────────────────────────────────────────────────
@@ -553,7 +559,9 @@ export function ReviewRow({
           </div>
         ) : (
           <span className="text-[12px] text-muted-foreground">
-            {labels.rowLabel(subjectSummary)}
+            {(!direction && review.subject_nodes.length === 0 && review.display_label)
+              ? review.display_label
+              : labels.rowLabel(subjectSummary)}
           </span>
         )}
 
@@ -644,6 +652,22 @@ export function ReviewRow({
                   schemas={schemas}
                   onClick={() => router.push(`/?ref=${direction.toId}`)}
                 />
+              </div>
+            </div>
+          ) : review.action_name === "add_source" && review.action_payload && typeof review.action_payload === "object" ? (
+            <div>
+              <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Suggested Source
+              </div>
+              <div className="flex flex-col gap-1 text-[12px]">
+                <div>
+                  <span className="text-muted-foreground">Type: </span>
+                  <span>{String((review.action_payload as Record<string, unknown>).source_type ?? "—")}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Source: </span>
+                  <span className="break-all">{String((review.action_payload as Record<string, unknown>).source ?? "—")}</span>
+                </div>
               </div>
             </div>
           ) : (

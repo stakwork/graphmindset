@@ -386,6 +386,141 @@ describe("ReviewRow", () => {
     expect(getByText(/Hide Mock Episode/)).toBeTruthy()
   })
 
+  // ── add_source / new_source_candidate ─────────────────────────────────────
+
+  it("collapsed row shows display_label when subject_nodes is empty and display_label is set", () => {
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-new-source-1",
+          type: "new_source_candidate",
+          action_name: "add_source",
+          action_payload: { source: "https://www.youtube.com/@lexfridman", source_type: "youtube_channel" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Youtube Channel: https://www.youtube.com/@lexfridman",
+          icon: "plus-circle",
+          accent: "green",
+          action_verb: "Add",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(getByText("Add Youtube Channel: https://www.youtube.com/@lexfridman")).toBeTruthy()
+  })
+
+  it("collapsed row renders plus-circle icon for add_source action", () => {
+    const { container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          type: "new_source_candidate",
+          action_name: "add_source",
+          action_payload: { source: "https://www.youtube.com/@lexfridman", source_type: "youtube_channel" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Youtube Channel: https://www.youtube.com/@lexfridman",
+          icon: "plus-circle",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(container.querySelector("svg")).toBeTruthy()
+  })
+
+  it("approve button label shows 'Add' for add_source action", () => {
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          type: "new_source_candidate",
+          action_name: "add_source",
+          action_payload: { source: "https://www.youtube.com/@lexfridman", source_type: "youtube_channel" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Youtube Channel: https://www.youtube.com/@lexfridman",
+          icon: "plus-circle",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(getByText("Add")).toBeTruthy()
+  })
+
+  it("expanded section shows 'Suggested Source' heading with source_type and source for add_source", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-new-source-1",
+          type: "new_source_candidate",
+          action_name: "add_source",
+          action_payload: { source: "https://www.youtube.com/@lexfridman", source_type: "youtube_channel" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Youtube Channel: https://www.youtube.com/@lexfridman",
+          icon: "plus-circle",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    // Click the row to expand
+    await user.click(getByText("Add Youtube Channel: https://www.youtube.com/@lexfridman"))
+    expect(getByText("Suggested Source")).toBeTruthy()
+    expect(getByText("youtube_channel")).toBeTruthy()
+    expect(getByText("https://www.youtube.com/@lexfridman")).toBeTruthy()
+  })
+
+  it("expanded section does NOT show 'Subjects (0)' for add_source", async () => {
+    const user = userEvent.setup()
+    const { getByText, queryByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          type: "new_source_candidate",
+          action_name: "add_source",
+          action_payload: { source: "https://www.youtube.com/@lexfridman", source_type: "youtube_channel" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Youtube Channel: https://www.youtube.com/@lexfridman",
+          icon: "plus-circle",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Add Youtube Channel: https://www.youtube.com/@lexfridman"))
+    expect(queryByText("Subjects (0)")).toBeNull()
+  })
+
+  it("shows error_message inline for failed new_source_candidate review", () => {
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-new-source-2",
+          type: "new_source_candidate",
+          action_name: "add_source",
+          action_payload: { source: "https://feeds.transistor.fm/example", source_type: "rss" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Rss: https://feeds.transistor.fm/example",
+          icon: "plus-circle",
+          status: "failed",
+          error_message: "add_source failed: Source already exists",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(getByText(/add_source failed: Source already exists/)).toBeTruthy()
+  })
+
   it("renders topic_review_candidate row without errors", () => {
     const { container, getByText } = render(
       <ReviewRow
