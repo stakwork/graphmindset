@@ -44,4 +44,65 @@ describe("detectSourceType", () => {
       expect(await detectSourceType("https://example.com/podcast.mp3")).toBe(SOURCE_TYPES.LINK)
     })
   })
+
+  describe("RSS Feed URLs", () => {
+    describe("Static regex matches (no network call)", () => {
+      it("detects feed.xml URLs as RSS", async () => {
+        expect(await detectSourceType("https://huggingface.co/blog/feed.xml")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("detects atom.xml URLs as RSS", async () => {
+        expect(await detectSourceType("https://example.com/atom.xml")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("detects index.xml URLs as RSS", async () => {
+        expect(await detectSourceType("https://example.com/index.xml")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("detects /feed/ path as RSS", async () => {
+        expect(await detectSourceType("https://example.com/blog/feed/")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("detects /rss/ path as RSS", async () => {
+        expect(await detectSourceType("https://example.com/rss/")).toBe(SOURCE_TYPES.RSS)
+      })
+    })
+
+    describe("Dynamic content-type detection", () => {
+      it("detects application/atom+xml response as RSS", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({
+          headers: { get: () => "application/atom+xml" },
+        }))
+        expect(await detectSourceType("https://example.com/somefeed")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("detects text/xml response as RSS", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({
+          headers: { get: () => "text/xml" },
+        }))
+        expect(await detectSourceType("https://example.com/somefeed")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("detects application/xml response as RSS", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({
+          headers: { get: () => "application/xml" },
+        }))
+        expect(await detectSourceType("https://example.com/somefeed")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("detects application/rdf+xml response as RSS", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({
+          headers: { get: () => "application/rdf+xml" },
+        }))
+        expect(await detectSourceType("https://example.com/somefeed")).toBe(SOURCE_TYPES.RSS)
+      })
+
+      it("falls back to WEB_PAGE for text/html response (regression guard)", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({
+          headers: { get: () => "text/html" },
+        }))
+        expect(await detectSourceType("https://example.com/somepage")).toBe(SOURCE_TYPES.WEB_PAGE)
+      })
+    })
+  })
 })

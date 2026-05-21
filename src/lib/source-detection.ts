@@ -32,7 +32,7 @@ const tweetUrlRegex =
   /https:\/\/(twitter\.com|x\.com)\/[^/]+\/status\/(\d+)/
 const mp3Regex = /(https?:\/\/)?([A-Za-z0-9_-]+)\.mp3/
 const rssRegex =
-  /(https?:\/\/)?(.*\.)?.+\/(feed|rss|rss.xml|.*.rss|.*\?(feed|format)=rss)$/
+  /(https?:\/\/)?(.*\.)?.+\/(feed\.xml|atom\.xml|index\.xml|rss2\.xml|feed\/?|rss\/?|rss\.xml|atom|.*\.rss|.*\?(feed|format)=rss)$/
 const youtubeChannelPattern =
   /https?:\/\/(www\.)?youtube\.com\/(user\/)?(@)?([\w-]+)/
 const githubRepoPattern = /https:\/\/github\.com\/[\w-]+\/[\w-]+/
@@ -42,7 +42,13 @@ async function checkIfRSS(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { method: "HEAD" })
     const contentType = response.headers.get("Content-Type")
-    return contentType?.includes("application/rss+xml") ?? false
+    return (
+      contentType?.includes("application/rss+xml") ||
+      contentType?.includes("application/atom+xml") ||
+      contentType?.includes("application/xml") ||
+      contentType?.includes("text/xml") ||
+      contentType?.includes("application/rdf+xml")
+    ) ?? false
   } catch {
     return false
   }
