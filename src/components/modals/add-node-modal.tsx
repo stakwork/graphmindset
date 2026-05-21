@@ -15,21 +15,29 @@ import { useUserStore } from "@/stores/user-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { getPrice, payL402 } from "@/lib/sphinx"
 import {
+  ALLOWED_IMAGE_TYPES,
+  MAX_IMAGE_UPLOAD_BYTES,
+  addImageContent,
   checkNodeExists,
   createNode,
   getSchemaDomains,
-  uploadImageToNode,
   type SchemaDomainsResponse,
 } from "@/lib/graph-api"
 import type { SchemaNode } from "@/app/ontology/page"
-import { SYSTEM_ATTRIBUTES, fieldsForSchema } from "@/lib/node-schema-utils"
+import { fieldsForSchema } from "@/lib/node-schema-utils"
 
 type Status = "idle" | "checking" | "submitting" | "success" | "error" | "uploading"
 
-// Image type triggers a second phase: after node creation we ask for a file
-// to upload to /v2/images/<ref_id>/upload. Constant lives here so other parts
-// of the modal can branch on the same name without typos.
+// Image is special-cased: the user picks a file directly in this modal and a
+// single multipart POST to /v2/content/image handles upload + node creation +
+// Stakwork dispatch. source_link/url are minted server-side from the upload,
+// so we hide those form fields entirely.
 const IMAGE_TYPE = "Image"
+const IMAGE_AUTO_FIELDS = new Set(["source_link", "url"])
+
+// Pre-submit gate. Backend re-validates with the same thresholds — these are
+// just here to catch obvious mistakes before burning a multipart roundtrip.
+const ALLOWED_IMAGE_TYPE_SET = new Set<string>(ALLOWED_IMAGE_TYPES)
 
 // Backend stores node_key as `{typeLower}-{attribute}` (e.g. "image-source_link",
 // "transport-name"). The actual attribute name is the part after the dash.
@@ -37,18 +45,6 @@ function actualKeyField(schema: SchemaNode): string {
   const raw = schema.node_key || "name"
   const prefix = `${schema.type.toLowerCase()}-`
   return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw
-}
-
-function extractRefId(response: unknown): string | null {
-  if (!response || typeof response !== "object") return null
-  const r = response as Record<string, unknown>
-  const data = r.data as Record<string, unknown> | undefined
-  if (data && typeof data.ref_id === "string") return data.ref_id
-  const nodes = r.nodes as Array<Record<string, unknown>> | undefined
-  if (Array.isArray(nodes) && nodes[0] && typeof nodes[0].ref_id === "string") {
-    return nodes[0].ref_id
-  }
-  return null
 }
 
 // Coerce a raw form value into the JSON shape the backend wants. Empty
@@ -82,10 +78,24 @@ export function AddNodeModal() {
   const [price, setPrice] = useState<number | null>(null)
   const [status, setStatus] = useState<Status>("idle")
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  // When non-null, the modal is in "upload phase": Image node already created,
-  // waiting for the user to pick a file to attach.
-  const [pendingImage, setPendingImage] = useState<{ refId: string } | null>(null)
+  // Image-only: the file picked by the user, validated client-side before
+  // we hit the multipart endpoint.
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  // Object URL for the in-modal preview. Created from the local File so the
+  // user sees the image before any network roundtrip — the file isn't on S3
+  // yet at this point. Revoked when the file changes or the modal closes.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setPreviewUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(selectedFile)
+    setPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [selectedFile])
 
   // Visible schemas: drop hidden types and anything in a hidden domain. A
   // schema's domain is the lowercased name of its root ancestor under Thing
@@ -128,6 +138,15 @@ export function AddNodeModal() {
     [selectedSchema]
   )
 
+  // What we actually render in the form. For Image, source_link/url are
+  // populated server-side from the upload — no user input.
+  const visibleFields = useMemo(() => {
+    if (selectedSchema?.type === IMAGE_TYPE) {
+      return fields.filter((f) => !IMAGE_AUTO_FIELDS.has(f.key))
+    }
+    return fields
+  }, [selectedSchema, fields])
+
   // Fetch price + domains on open
   useEffect(() => {
     if (activeModal !== "addNode") return
@@ -147,7 +166,7 @@ export function AddNodeModal() {
     setFieldValues({})
     setErrorMsg(null)
     setStatus("idle")
-    setPendingImage(null)
+    setSelectedFile(null)
     abortRef.current?.abort()
     close()
   }, [close])
@@ -165,8 +184,33 @@ export function AddNodeModal() {
         return
       }
 
-      // Required attributes must all have values.
-      const missing = fields
+      const isImage = selectedSchema.type === IMAGE_TYPE
+
+      // Image flow: needs a file, and the file has to pass format + size
+      // gates before we burn a paid roundtrip. Backend re-checks both — these
+      // are friendlier upfront errors.
+      if (isImage) {
+        if (!selectedFile) {
+          setErrorMsg("Pick an image to upload")
+          return
+        }
+        if (!ALLOWED_IMAGE_TYPE_SET.has(selectedFile.type)) {
+          setErrorMsg(
+            `Unsupported format "${selectedFile.type || "unknown"}". Allowed: JPEG, PNG, WebP, GIF.`
+          )
+          return
+        }
+        if (selectedFile.size > MAX_IMAGE_UPLOAD_BYTES) {
+          const maxMb = Math.round(MAX_IMAGE_UPLOAD_BYTES / (1024 * 1024))
+          const fileMb = (selectedFile.size / (1024 * 1024)).toFixed(1)
+          setErrorMsg(`File is ${fileMb} MB; max is ${maxMb} MB.`)
+          return
+        }
+      }
+
+      // Required attributes must all have values. For Image we skip
+      // source_link/url since the backend mints them from the upload.
+      const missing = visibleFields
         .filter((f) => f.required)
         .filter((f) => (fieldValues[f.key] ?? "").trim() === "")
         .map((f) => f.key)
@@ -175,9 +219,52 @@ export function AddNodeModal() {
         return
       }
 
-      // The node_key (usually `name`) is what the server matches duplicates
-      // on. Backend stores it type-prefixed (e.g. "transport-name") — strip
-      // that to recover the actual attribute name the form is using.
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      // Image path: single multipart POST. Backend handles upload + node
+      // create + Stakwork dispatch.
+      if (isImage) {
+        const name = (fieldValues["name"] ?? "").trim() || selectedFile!.name
+        const doUpload = async () => {
+          await addImageContent(
+            selectedFile!,
+            { name },
+            controller.signal
+          )
+          setStatus("success")
+          setTimeout(() => handleClose(), 1500)
+        }
+
+        setStatus("uploading")
+        setErrorMsg(null)
+        try {
+          await doUpload()
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") return
+          if (err instanceof Response && err.status === 402) {
+            try {
+              await payL402(setBudget)
+              await doUpload()
+            } catch {
+              setStatus("error")
+              setErrorMsg("Payment failed. Please try again.")
+            }
+            return
+          }
+          setStatus("error")
+          if (err instanceof Response) {
+            const body = await err.json().catch(() => null) as { errorCode?: string; message?: string } | null
+            setErrorMsg(body?.message || body?.errorCode || `Upload failed (HTTP ${err.status})`)
+          } else {
+            setErrorMsg("Upload failed. Try again or pick a different file.")
+          }
+        }
+        return
+      }
+
+      // Non-image path: existing checkNodeExists + createNode flow.
       const keyField = actualKeyField(selectedSchema)
       const keyValue = (fieldValues[keyField] ?? "").trim()
       if (!keyValue) {
@@ -185,12 +272,6 @@ export function AddNodeModal() {
         return
       }
 
-      abortRef.current?.abort()
-      const controller = new AbortController()
-      abortRef.current = controller
-
-      // Build the payload: only fields with non-empty trimmed values, coerced
-      // by their declared attribute type.
       const nodeData: Record<string, unknown> = {}
       for (const f of fields) {
         const v = parseFieldValue(f.type, fieldValues[f.key] ?? "")
@@ -228,22 +309,6 @@ export function AddNodeModal() {
           setErrorMsg(`A ${selectedSchema.type} with this ${keyField} already exists.`)
           return
         }
-        // Image nodes flip into the upload phase instead of auto-closing.
-        // Every other type closes after a brief success flash.
-        if (selectedSchema.type === IMAGE_TYPE) {
-          const refId = extractRefId(response)
-          if (refId) {
-            setStatus("idle")
-            setPendingImage({ refId })
-            return
-          }
-          // No ref_id in the response — treat as a soft error so the user
-          // sees we got partway. Node likely exists; they'd need to re-find
-          // it to attach the image, which isn't possible from this modal.
-          setStatus("error")
-          setErrorMsg("Image node created but ref_id missing — can't attach file. Reload and try again.")
-          return
-        }
         setStatus("success")
         setTimeout(() => handleClose(), 1500)
       }
@@ -267,93 +332,26 @@ export function AddNodeModal() {
         setErrorMsg("Something went wrong. Please try again.")
       }
     },
-    [selectedSchema, fields, fieldValues, setBudget, handleClose]
-  )
-
-  // File-pick handler for the upload phase. Uploads immediately and closes
-  // the modal on success; failures keep the phase open so the user can retry
-  // with a different file.
-  const handleFilePick = useCallback(
-    async (file: File | null) => {
-      if (!file || !pendingImage) return
-      abortRef.current?.abort()
-      const controller = new AbortController()
-      abortRef.current = controller
-
-      setStatus("uploading")
-      setErrorMsg(null)
-      try {
-        await uploadImageToNode(pendingImage.refId, file, controller.signal)
-        setStatus("success")
-        setTimeout(() => handleClose(), 800)
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return
-        setStatus("error")
-        if (err instanceof Response) {
-          const body = await err.json().catch(() => null) as { errorCode?: string; message?: string } | null
-          setErrorMsg(body?.message || body?.errorCode || `Upload failed (HTTP ${err.status})`)
-        } else {
-          setErrorMsg("Upload failed. Try again or pick a different file.")
-        }
-      }
-    },
-    [pendingImage, handleClose]
+    [selectedSchema, fields, visibleFields, fieldValues, selectedFile, setBudget, handleClose]
   )
 
   const isOpen = activeModal === "addNode"
   const busy = status === "checking" || status === "submitting" || status === "success" || status === "uploading"
+
+  const isImageType = selectedSchema?.type === IMAGE_TYPE
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="border-border/50 bg-card noise-bg sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-heading text-lg tracking-wide">
-            {pendingImage ? "Attach Image" : "Add Node"}
+            Add Node
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            {pendingImage
-              ? "Image node created. Pick a file to upload — it'll be resized and stored automatically."
-              : "Create a new node in the graph. Choose a type, then fill in its attributes."}
+            Create a new node in the graph. Choose a type, then fill in its attributes.
           </DialogDescription>
         </DialogHeader>
 
-        {pendingImage ? (
-          <div className="relative z-10 space-y-4 pt-2">
-            <label className="block">
-              <input
-                type="file"
-                accept="image/*"
-                disabled={busy}
-                onChange={(e) => handleFilePick(e.target.files?.[0] ?? null)}
-                className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-xs file:text-primary-foreground hover:file:bg-primary/90 disabled:opacity-50"
-              />
-            </label>
-
-            {status === "uploading" && (
-              <p className="text-xs text-muted-foreground">Uploading…</p>
-            )}
-            {status === "success" && (
-              <p className="text-xs text-primary">Uploaded. Closing…</p>
-            )}
-            {errorMsg && <p className="text-xs text-destructive">{errorMsg}</p>}
-
-            <p className="text-xs text-muted-foreground/70">
-              Skip the upload to leave the node imageless — you can come back
-              later to attach a file.
-            </p>
-
-            <div className="flex justify-end pt-1">
-              <Button
-                type="button"
-                onClick={handleClose}
-                disabled={status === "uploading"}
-                className="text-xs bg-muted text-foreground hover:bg-muted/80"
-              >
-                {status === "success" ? "Done" : "Skip"}
-              </Button>
-            </div>
-          </div>
-        ) : (
         <form onSubmit={handleSubmit} className="relative z-10 space-y-4 pt-2">
           {/* Type picker */}
           <div className="flex flex-col gap-1.5">
@@ -373,6 +371,7 @@ export function AddNodeModal() {
                   // attribute set cleanly.
                   setSelectedType(v)
                   setFieldValues({})
+                  setSelectedFile(null)
                   setErrorMsg(null)
                 }}
                 options={typeOptions}
@@ -381,10 +380,47 @@ export function AddNodeModal() {
             )}
           </div>
 
+          {/* Image file picker — only for Image type. Backend mints
+              source_link/url from the upload, so we don't render those
+              fields below. */}
+          {isImageType && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+                File <span className="text-destructive">*</span>
+                <span className="ml-2 normal-case text-muted-foreground/40 font-mono">
+                  JPEG / PNG / WebP / GIF · max {Math.round(MAX_IMAGE_UPLOAD_BYTES / (1024 * 1024))} MB
+                </span>
+              </label>
+              <input
+                type="file"
+                accept={ALLOWED_IMAGE_TYPES.join(",")}
+                disabled={busy}
+                onChange={(e) => {
+                  setSelectedFile(e.target.files?.[0] ?? null)
+                  setErrorMsg(null)
+                }}
+                className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-xs file:text-primary-foreground hover:file:bg-primary/90 disabled:opacity-50"
+              />
+              {selectedFile && (
+                <span className="text-xs text-muted-foreground/70 truncate">
+                  {selectedFile.name} ({(selectedFile.size / 1024).toFixed(0)} KB)
+                </span>
+              )}
+              {previewUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={previewUrl}
+                  alt="Preview of selected image — local only, not yet uploaded"
+                  className="mt-1 max-h-40 w-full rounded-md border border-border/50 object-contain bg-muted/20"
+                />
+              )}
+            </div>
+          )}
+
           {/* Dynamic fields — appear once a type is chosen */}
-          {selectedSchema && fields.length > 0 && (
+          {selectedSchema && visibleFields.length > 0 && (
             <div className="space-y-3">
-              {fields.map((f) => (
+              {visibleFields.map((f) => (
                 <div key={f.key} className="flex flex-col gap-1.5">
                   <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
                     {f.key}{" "}
@@ -448,18 +484,19 @@ export function AddNodeModal() {
                 ? "Checking..."
                 : status === "submitting"
                   ? "Adding..."
-                  : status === "success"
-                    ? "Added!"
-                    : (() => {
-                        const verb = selectedSchema
-                          ? `Add ${selectedSchema.type}`
-                          : "Add"
-                        return price && price > 0 ? `${verb} · ${price} sats` : verb
-                      })()}
+                  : status === "uploading"
+                    ? "Uploading..."
+                    : status === "success"
+                      ? "Added!"
+                      : (() => {
+                          const verb = selectedSchema
+                            ? `Add ${selectedSchema.type}`
+                            : "Add"
+                          return price && price > 0 ? `${verb} · ${price} sats` : verb
+                        })()}
             </Button>
           </div>
         </form>
-        )}
       </DialogContent>
     </Dialog>
   )
