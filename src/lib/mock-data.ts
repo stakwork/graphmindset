@@ -649,11 +649,11 @@ export const MOCK_EDGES: GraphEdge[] = [
 ]
 
 export const MOCK_SOURCES = [
-  { ref_id: "s1", source: "jack", source_type: "twitter_handle" },
+  { ref_id: "s1", source: "jack", source_type: "twitter_handle", category: "crypto", weight: 0.9 },
   { ref_id: "s2", source: "staborobot", source_type: "twitter_handle" },
-  { ref_id: "s3", source: "https://www.youtube.com/@bitcoinmagazine", source_type: "youtube_channel" },
-  { ref_id: "s4", source: "https://bitcoinist.com/feed/", source_type: "rss" },
-  { ref_id: "s5", source: "https://github.com/nicksparks/sphinx-nav-fiber", source_type: "github_repository" },
+  { ref_id: "s3", source: "https://www.youtube.com/@bitcoinmagazine", source_type: "youtube_channel", category: "crypto", weight: 0.8 },
+  { ref_id: "s4", source: "https://bitcoinist.com/feed/", source_type: "rss", category: "AI", weight: 0.6 },
+  { ref_id: "s5", source: "https://github.com/nicksparks/sphinx-nav-fiber", source_type: "github_repository", category: "AI", weight: 0.5 },
 ]
 
 export const MOCK_CONTENT = {

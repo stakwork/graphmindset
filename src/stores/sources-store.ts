@@ -7,6 +7,8 @@ export interface Source {
   source: string
   source_type: string
   topics?: string[]
+  category?: string
+  weight?: number
 }
 
 interface SourcesState {
