@@ -43,6 +43,16 @@ vi.mock("@/lib/mock-data", () => ({
       namespace: "mock",
       label: "Topic review",
     },
+    {
+      ref_id: "rc-orphan-node",
+      source_type: "orphan_node",
+      kind: "janitor",
+      enabled: false,
+      cadence: "0 * * * *",
+      workflow_id: "mock-gm-workflow-id",
+      namespace: "mock",
+      label: "Orphan node cleanup",
+    },
   ],
   MOCK_STAKWORK_RUNS: [
     {
@@ -333,5 +343,19 @@ describe("JanitorSettings", () => {
     expect(await screen.findByText("Deduplication")).toBeInTheDocument()
     expect(await screen.findByText("Content review")).toBeInTheDocument()
     expect(await screen.findByText("Topic review")).toBeInTheDocument()
+  })
+
+  it("renders orphan_node label from config.label", async () => {
+    const { getCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [
+        { ...mockJanitorConfig, ref_id: "rc-orphan-node", source_type: "orphan_node" as const, label: "Orphan node cleanup" },
+      ],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+
+    render(<JanitorSettings open={true} />)
+
+    expect(await screen.findByText("Orphan node cleanup")).toBeInTheDocument()
   })
 })
