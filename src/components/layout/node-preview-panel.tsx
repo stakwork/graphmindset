@@ -13,6 +13,7 @@ import { payL402 } from "@/lib/sphinx"
 import { isSphinx } from "@/lib/sphinx/detect"
 import { buildSphinxDeepLink } from "@/lib/sphinx/deep-link"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { unlockNode } from "@/lib/unlock-node"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
 import { usePlayerStore } from "@/stores/player-store"
@@ -463,6 +464,48 @@ function PersonCard({ props }: { props: Record<string, unknown> }) {
   )
 }
 
+// Image-type node — the image IS the content, so render it full-width with
+// native aspect ratio. Click opens a lightbox at viewport size. Falls back
+// across the property keys an Image node might use depending on backend
+// (uploaded files land in image_url; some pipelines use source_link/url).
+function ImageCard({ props }: { props: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  const raw =
+    (typeof props.image_url === "string" && props.image_url) ||
+    (typeof props.source_link === "string" && props.source_link) ||
+    (typeof props.url === "string" && props.url) ||
+    null
+  if (!raw) return null
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="block w-full overflow-hidden rounded-md ring-1 ring-foreground/10 hover:ring-foreground/30 transition"
+      >
+        <img
+          src={raw}
+          alt=""
+          className="w-full h-auto object-contain bg-black/20"
+        />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          className="!max-w-[92vw] !sm:max-w-[92vw] p-2 bg-popover"
+          showCloseButton
+        >
+          <img
+            src={raw}
+            alt=""
+            className="max-h-[85vh] max-w-full mx-auto object-contain"
+          />
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 // --- Ordered children / parent breadcrumb components ---
 
 export function ChildContentBlock({ heading, body }: { heading: string; body: string }) {
@@ -788,11 +831,13 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const thumbnail = (props?.image_url ?? props?.thumbnail) as string | undefined
   // Hide the static thumbnail when this node is the one currently playing —
   // the inline MediaPlayer card (rendered by MediaCard below) already shows
-  // the video frame, so both together would be a duplicate.
+  // the video frame, so both together would be a duplicate. Also suppress
+  // for Image-type nodes, which render their own full-width ImageCard.
   const isThisNodePlayingHere = usePlayerStore(
     (s) => s.playingNode?.ref_id === currentNode.ref_id
   )
-  const showThumbnail = !!thumbnail && !isThisNodePlayingHere
+  const isImageNode = currentNode.node_type === "Image"
+  const showThumbnail = !!thumbnail && !isThisNodePlayingHere && !isImageNode
 
   async function handleUnlock() {
     setUnlockState("loading")
@@ -1268,6 +1313,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               {hasTwitterAccount && <TwitterAccountCard props={fp} />}
               {hasPerson && <PersonCard props={fp} />}
               {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}
+              {isImageNode && <ImageCard props={fp} />}
               {hasSummary && <SummaryBlock text={fp.summary as string} />}
               {hasArticle && <ArticleCard props={fp} />}
               {hasWebPageLink && (
