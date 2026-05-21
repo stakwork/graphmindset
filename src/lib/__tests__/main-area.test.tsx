@@ -26,10 +26,14 @@ const appState = {
   myContentOpen: false,
   clipsOpen: false,
   followingOpen: false,
+  agentOpen: false,
+  workflowsOpen: false,
   setSourcesOpen: vi.fn(),
   setMyContentOpen: vi.fn(),
   setClipsOpen: vi.fn(),
   setFollowingOpen: vi.fn(),
+  setAgentOpen: vi.fn(),
+  setWorkflowsOpen: vi.fn(),
 }
 
 vi.mock("@/stores/app-store", () => ({
@@ -76,6 +80,8 @@ describe("LeftPane pickMode()", () => {
     appState.myContentOpen = false
     appState.clipsOpen = false
     appState.followingOpen = false
+    appState.agentOpen = false
+    appState.workflowsOpen = false
   })
 
   it("shows feed when nothing is open", () => {
@@ -105,6 +111,10 @@ describe("LeftPane pickMode()", () => {
     render(<LeftPane />)
     expect(screen.getByTestId("clips-panel")).toBeTruthy()
     expect(screen.queryByTestId("node-preview-panel")).toBeNull()
-    expect(screen.queryByTestId("feed-view")).toBeNull()
+    // FeedView is always in the DOM but wrapped in a Tailwind "hidden" div when
+    // not in feed mode. jsdom doesn't evaluate CSS classes, so we check the
+    // wrapper element carries the "hidden" class instead.
+    const feedEl = screen.queryByTestId("feed-view")
+    expect(feedEl?.parentElement?.classList.contains("hidden")).toBe(true)
   })
 })

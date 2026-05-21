@@ -150,6 +150,17 @@ describe("AddContentModal — preview probe", () => {
     mockIsSubscriptionSource.mockReturnValue(false)
   })
 
+  afterEach(() => {
+    // userEvent.type fires handleDetect on every keystroke, each of which starts
+    // async chains (detectSourceType → checkNodeExists → api.get). After the test
+    // ends, still-pending microtasks can fire against the next test's mock setup.
+    // Resetting mocks here makes any stale calls resolve to harmless defaults so
+    // they don't interfere with subsequent tests.
+    mockDetectSourceType.mockResolvedValue(null)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+    mockApiGet.mockResolvedValue({ nodes: [] })
+  })
+
   it("owned (200): auto-routes to player and closes modal", async () => {
     mockDetectSourceType.mockResolvedValue("youtube_video")
     mockCheckNodeExists.mockResolvedValue({

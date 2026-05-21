@@ -69,6 +69,9 @@ vi.mock("@/lib/sphinx", () => ({
   pollPaymentStatus: (...args: unknown[]) => mockPollPaymentStatus(...args),
   fetchBuyLsatChallenge: (...args: unknown[]) => mockFetchBuyLsatChallenge(...args),
   fetchTransactionHistory: (...args: unknown[]) => mockFetchTransactionHistory(...args),
+  savePendingLsat: vi.fn((challenge: unknown, amount?: number) => ({ ...challenge as object, amount: amount ?? 0, createdAt: Date.now() })),
+  getPendingLsat: vi.fn(() => null),
+  clearPendingLsat: vi.fn(),
 }))
 
 // --- Mock data ---

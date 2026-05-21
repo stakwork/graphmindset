@@ -194,11 +194,16 @@ describe("NodePreviewPanel – price display", () => {
   })
 
   it("renders 'Unlock for 10 sats' when 402 body has price: 10", async () => {
-    mockApiGet.mockRejectedValue(
-      new Response(JSON.stringify({ price: 10 }), {
-        status: 402,
-        headers: { "Content-Type": "application/json" },
-      })
+    // Use mockImplementation (not mockRejectedValue) so each call gets a fresh
+    // Response instance — a Response body can only be consumed once, and stale
+    // async effects from prior tests can otherwise exhaust the shared instance.
+    mockApiGet.mockImplementation(() =>
+      Promise.reject(
+        new Response(JSON.stringify({ price: 10 }), {
+          status: 402,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
     )
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)

@@ -50,17 +50,15 @@ function parseSseLine(line: string): { event: string; data: string } | null {
   return null
 }
 
-// Process a stream of SSE data using ReadableStream
-async function processSSEStream(
+// Process the async event bus SSE stream
+async function processEventStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
-  opts: StreamAgentOpts,
-  retryFn: () => Promise<void>
+  opts: StreamAgentOpts
 ): Promise<void> {
   const decoder = new TextDecoder()
   let buffer = ""
   let finalAnswer = ""
   let citedRefIds: string[] = []
-  const activeToolCalls = new Map<string, ToolCallEvent>()
 
   while (true) {
     const { done, value } = await reader.read()
@@ -73,69 +71,38 @@ async function processSSEStream(
     for (const line of lines) {
       const parsed = parseSseLine(line.trim())
       if (!parsed) continue
-
       const raw = parsed.data
       if (raw === "[DONE]") continue
 
       try {
         const chunk = JSON.parse(raw)
+        if (typeof chunk !== "object" || chunk === null) continue
 
-        // AI SDK UI stream format
-        if (typeof chunk === "object" && chunk !== null) {
-          // Text delta
-          if (chunk.type === "text-delta" || chunk.type === "0") {
-            const delta = chunk.textDelta ?? chunk.value ?? ""
-            if (delta) {
-              finalAnswer += delta
-              opts.onChunk(delta)
-            }
+        if (chunk.type === "text") {
+          const text = chunk.text ?? ""
+          if (text) {
+            finalAnswer += text
+            opts.onChunk(text)
           }
-          // Tool call start
-          else if (chunk.type === "tool-call" || chunk.type === "9") {
-            const toolName = chunk.toolName ?? chunk.tool ?? ""
-            const toolCallId = chunk.toolCallId ?? chunk.id ?? String(Date.now())
-            const toolCall: ToolCallEvent = {
-              id: toolCallId,
-              tool: toolName,
-              params: chunk.args ?? chunk.params ?? {},
-              status: "in-flight",
-            }
-            activeToolCalls.set(toolCallId, toolCall)
-            opts.onToolCall({ ...toolCall })
+        } else if (chunk.type === "tool_call") {
+          const id = chunk.toolName + "-" + Date.now()
+          opts.onToolCall({
+            id,
+            tool: chunk.toolName ?? "",
+            params: chunk.input ?? {},
+            status: "in-flight",
+          })
+        } else if (chunk.type === "done") {
+          if (chunk.result?.answer) finalAnswer = chunk.result.answer
+          if (Array.isArray(chunk.result?.cited_ref_ids)) {
+            citedRefIds = chunk.result.cited_ref_ids
           }
-          // Tool result
-          else if (chunk.type === "tool-result" || chunk.type === "a") {
-            const toolCallId = chunk.toolCallId ?? chunk.id ?? ""
-            const existing = activeToolCalls.get(toolCallId)
-            if (existing) {
-              const resultCount =
-                chunk.result?.nodes?.length ?? chunk.result?.count ?? undefined
-              const updated: ToolCallEvent = {
-                ...existing,
-                status: "done",
-                resultCount,
-              }
-              activeToolCalls.set(toolCallId, updated)
-              opts.onToolCall({ ...updated })
-            }
-          }
-          // Done / finish
-          else if (chunk.type === "done" || chunk.type === "finish-message") {
-            if (chunk.answer) finalAnswer = chunk.answer
-            if (Array.isArray(chunk.cited_ref_ids)) citedRefIds = chunk.cited_ref_ids
-          }
-          // Error
-          else if (chunk.type === "error") {
-            opts.onError(new Error(chunk.error ?? "Agent error"))
-            return
-          }
+        } else if (chunk.type === "error") {
+          opts.onError(new Error(chunk.error ?? "Agent error"))
+          return
         }
       } catch {
-        // Non-JSON lines are plain text deltas (some SSE formats)
-        if (raw && raw !== "[DONE]") {
-          finalAnswer += raw
-          opts.onChunk(raw)
-        }
+        // skip non-JSON lines
       }
     }
   }
@@ -213,7 +180,7 @@ export async function streamAgent(
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      Accept: "text/event-stream",
+      Accept: "application/json",
     }
     if (l402) headers["Authorization"] = l402
 
@@ -224,7 +191,6 @@ export async function streamAgent(
         headers,
         body: JSON.stringify({
           prompt,
-          stream: true,
           sessionId: opts.sessionId,
         }),
         signal: opts.signal,
@@ -252,13 +218,44 @@ export async function streamAgent(
       return
     }
 
-    const reader = response.body?.getReader()
-    if (!reader) {
-      opts.onError(new Error("No response body"))
+    let startPayload: { request_id: string; sessionId?: string }
+    try {
+      startPayload = await response.json()
+    } catch {
+      opts.onError(new Error("Invalid JSON from agent"))
+      return
+    }
+    const { request_id } = startPayload
+    if (!request_id) {
+      opts.onError(new Error("No request_id in agent response"))
       return
     }
 
-    await processSSEStream(reader, opts, () => doRequest(true))
+    const eventsUrl = await buildSignedUrl(`/v2/agent/events/${request_id}`)
+    let eventsRes: Response
+    try {
+      eventsRes = await fetch(eventsUrl, {
+        method: "GET",
+        signal: opts.signal,
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return
+      opts.onError(err instanceof Error ? err : new Error(String(err)))
+      return
+    }
+
+    if (!eventsRes.ok) {
+      opts.onError(new Error(`Events stream failed: ${eventsRes.status}`))
+      return
+    }
+
+    const reader = eventsRes.body?.getReader()
+    if (!reader) {
+      opts.onError(new Error("No events response body"))
+      return
+    }
+
+    await processEventStream(reader, opts)
   }
 
   return doRequest()
