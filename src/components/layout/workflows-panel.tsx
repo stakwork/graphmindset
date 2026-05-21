@@ -1,10 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Cpu, Loader2, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { ChevronDown, ChevronUp, Cpu, ExternalLink, Loader2, X } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { getWorkflowMarketplace, type WorkflowMarketplaceItem, type CronKind } from "@/lib/graph-api"
-import { isMocksEnabled, MOCK_WORKFLOW_MARKETPLACE } from "@/lib/mock-data"
+import { RunStatusBadge } from "@/components/ui/run-status-badge"
+import { getWorkflowMarketplace, getCronRuns, type WorkflowMarketplaceItem, type CronKind, type StakworkRun } from "@/lib/graph-api"
+import { isMocksEnabled, MOCK_WORKFLOW_MARKETPLACE, MOCK_STAKWORK_RUNS } from "@/lib/mock-data"
+import { formatDateRelative } from "@/lib/date-format"
+import { useUserStore } from "@/stores/user-store"
 import { cn } from "@/lib/utils"
 import {
   WORKFLOW_TYPE_META,
@@ -30,14 +33,124 @@ function kindBadgeClass(kind: CronKind): string {
     : "bg-violet-500/15 text-violet-400 border border-violet-500/25"
 }
 
-function WorkflowCard({ item }: { item: WorkflowMarketplaceItem }) {
+function WorkflowRunRow({ run }: { run: StakworkRun }) {
+  const timestamp = run.finished_at ?? run.started_at ?? run.created_at
+  return (
+    <div className="flex flex-col gap-0.5 py-1.5 border-b border-border/40 last:border-0">
+      <div className="flex items-center gap-2">
+        <RunStatusBadge status={run.status} />
+        <span className="text-[11px] text-muted-foreground flex-1">
+          {formatDateRelative(timestamp, "Never")}
+        </span>
+        {run.project_id && (
+          <a
+            href={`https://jobs.stakwork.com/admin/projects/${run.project_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="View on Stakwork"
+            data-testid="stakwork-link"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+      {run.error && (
+        <p className="text-[10px] text-destructive/70 pl-0.5">{run.error}</p>
+      )}
+    </div>
+  )
+}
+
+function WorkflowRunsSection({
+  item,
+  runsCache,
+}: {
+  item: WorkflowMarketplaceItem
+  runsCache: React.MutableRefObject<Record<string, StakworkRun[]>>
+}) {
+  const [runs, setRuns] = useState<StakworkRun[] | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (runsCache.current[item.source_type]) {
+      setRuns(runsCache.current[item.source_type])
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    async function fetchRuns() {
+      try {
+        if (isMocksEnabled()) {
+          const filtered = MOCK_STAKWORK_RUNS.filter(
+            (r) => r.source_type === item.source_type
+          ).slice(0, 10)
+          if (!cancelled) {
+            runsCache.current[item.source_type] = filtered
+            setRuns(filtered)
+          }
+        } else {
+          const { runs: fetched } = await getCronRuns({
+            source_type: item.source_type,
+            kind: item.kind,
+            limit: 10,
+          })
+          if (!cancelled) {
+            runsCache.current[item.source_type] = fetched
+            setRuns(fetched)
+          }
+        }
+      } catch {
+        /* silent */
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    fetchRuns()
+    return () => {
+      cancelled = true
+    }
+  }, [item.source_type, item.kind, runsCache])
+
+  return (
+    <div className="px-3 pb-2 pt-1 bg-muted/10 border-t border-border/40" data-testid="runs-section">
+      {loading ? (
+        <div className="flex items-center justify-center py-3">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : !runs || runs.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground py-2 text-center">No runs yet</p>
+      ) : (
+        <div className="flex flex-col">
+          {runs.map((run) => (
+            <WorkflowRunRow key={run.ref_id} run={run} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WorkflowCard({
+  item,
+  isAdmin,
+  isExpanded,
+  onToggle,
+  runsCache,
+}: {
+  item: WorkflowMarketplaceItem
+  isAdmin?: boolean
+  isExpanded?: boolean
+  onToggle?: () => void
+  runsCache?: React.MutableRefObject<Record<string, StakworkRun[]>>
+}) {
   const meta = WORKFLOW_TYPE_META[item.source_type]
   const Icon = meta?.icon ?? Cpu
   const tone = meta?.tone ?? "slate"
   const displayName = getWorkflowDisplayName(item)
 
-  return (
-    <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-3 hover:bg-card/60 hover:border-border transition-colors flex items-center gap-3">
+  const cardHeader = (
+    <>
       {/* Tinted icon tile */}
       <div
         className={cn(
@@ -48,12 +161,12 @@ function WorkflowCard({ item }: { item: WorkflowMarketplaceItem }) {
         <Icon className="h-4 w-4" data-testid={`workflow-icon-${item.source_type}`} />
       </div>
 
-      {/* Name — single source of truth, no duplicate sub-text */}
+      {/* Name */}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
       </div>
 
-      {/* Kind chip + enabled dot */}
+      {/* Kind chip + enabled dot + optional chevron */}
       <div className="flex items-center gap-1.5 shrink-0">
         <span
           className={cn(
@@ -73,7 +186,35 @@ function WorkflowCard({ item }: { item: WorkflowMarketplaceItem }) {
           aria-label={item.enabled ? "Enabled" : "Disabled"}
           data-testid={item.enabled ? "dot-enabled" : "dot-disabled"}
         />
+        {isAdmin && (
+          isExpanded
+            ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+            : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
       </div>
+    </>
+  )
+
+  if (isAdmin) {
+    return (
+      <div className="rounded-xl border border-border/60 bg-card/40 hover:border-border transition-colors flex flex-col overflow-hidden">
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-3 px-3 py-3 cursor-pointer w-full text-left hover:bg-card/60 transition-colors"
+          aria-expanded={isExpanded}
+        >
+          {cardHeader}
+        </button>
+        {isExpanded && runsCache && (
+          <WorkflowRunsSection item={item} runsCache={runsCache} />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-3 hover:bg-card/60 hover:border-border transition-colors flex items-center gap-3">
+      {cardHeader}
     </div>
   )
 }
@@ -82,6 +223,9 @@ export function WorkflowsPanel({ onClose }: { onClose: () => void }) {
   const [workflows, setWorkflows] = useState<WorkflowMarketplaceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterKind>("all")
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const runsCache = useRef<Record<string, StakworkRun[]>>({})
+  const isAdmin = useUserStore((s) => s.isAdmin)
 
   useEffect(() => {
     let cancelled = false
@@ -167,7 +311,16 @@ export function WorkflowsPanel({ onClose }: { onClose: () => void }) {
         ) : (
           <div className="py-2 px-3 flex flex-col gap-2">
             {filtered.map((item) => (
-              <WorkflowCard key={item.ref_id} item={item} />
+              <WorkflowCard
+                key={item.ref_id}
+                item={item}
+                isAdmin={isAdmin}
+                isExpanded={expandedId === item.ref_id}
+                onToggle={() =>
+                  setExpandedId((prev) => (prev === item.ref_id ? null : item.ref_id))
+                }
+                runsCache={runsCache}
+              />
             ))}
           </div>
         )}
