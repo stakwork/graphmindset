@@ -8,6 +8,7 @@ import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
 import { AddNodeModal } from "@/components/modals/add-node-modal"
 import { EditNodeModal } from "@/components/modals/edit-node-modal"
+import { AddEdgeModal } from "@/components/modals/add-edge-modal"
 import { MediaPlayer } from "@/components/player/media-player"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
@@ -57,6 +58,7 @@ export function AppLayout() {
       <AddContentModal />
       <AddNodeModal />
       <EditNodeModal />
+      <AddEdgeModal />
       <BudgetModal />
       <MediaPlayer />
     </>

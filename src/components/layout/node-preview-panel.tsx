@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -787,6 +787,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
   const openModal = useModalStore((s) => s.open)
   const openEdit = useModalStore((s) => s.openEdit)
+  const openAddEdge = useModalStore((s) => s.openAddEdge)
 
   const edges = useGraphStore((s) => s.edges)
 
@@ -1098,6 +1099,15 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               routeHint={routeHint}
               boostCount={boostAmt}
             />
+          )}
+          {(isAdmin || hasIdentity) && (
+            <button
+              onClick={() => openAddEdge(currentNode.ref_id)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Add edge from this node"
+            >
+              <GitMerge className="h-3.5 w-3.5" />
+            </button>
           )}
           {isAdmin && (
             <button
