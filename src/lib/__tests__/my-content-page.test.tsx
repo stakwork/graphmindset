@@ -187,7 +187,7 @@ describe("MyContentPanel", () => {
     })
 
     expect(mockApiGet).toHaveBeenCalledWith(
-      "/v2/content?sort_by=date&limit=100"
+      "/v2/content?sort_by=date&limit=50&skip=0"
     )
   })
 
@@ -491,7 +491,7 @@ describe("MyContentPanel – L402 identity paths", () => {
     })
 
     expect(mockApiGet).toHaveBeenCalledWith(
-      "/v2/content?sort_by=date&limit=100"
+      "/v2/content?sort_by=date&limit=50&skip=0"
     )
     // Must NOT include a pubkey param — boltwall derives identity from sig
     expect(mockApiGet).not.toHaveBeenCalledWith(
@@ -510,7 +510,7 @@ describe("MyContentPanel – L402 identity paths", () => {
     })
 
     expect(mockApiGet).toHaveBeenCalledWith(
-      "/v2/content?sort_by=date&limit=100"
+      "/v2/content?sort_by=date&limit=50&skip=0"
     )
     // Must NOT include a pubkey param
     expect(mockApiGet).not.toHaveBeenCalledWith(
