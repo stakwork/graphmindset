@@ -17,6 +17,7 @@ import type { Graph, GraphEdge, ViewState } from "./types";
 import { edgeKey, isStructuralEdge } from "./types";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { PulseLayer } from "./PulseLayer";
+import { useLabelPlacement } from "./useLabelPlacement";
 import { getSchemaIcon } from "@/lib/schema-icons";
 
 export interface Pulse {
@@ -60,6 +61,10 @@ interface GraphViewProps {
   /** Called when the user clicks the ✕ close button anchored to the selected
    *  node — typically wired to the same handler as the "Reset view" pill. */
   onResetView?: () => void;
+  /** When true (e.g. while the user is dragging/rotating the camera), pointer
+   *  hover is ignored so nodes sweeping under a stationary cursor don't fire
+   *  hover effects. Any existing hover is cleared on the rising edge. */
+  suppressHover?: boolean;
 }
 
 const tmpObj = new THREE.Object3D();
@@ -437,7 +442,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -512,6 +517,18 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   // Labels follow animation (updated at low fps)
   const [labelPos, setLabelPos] = useState(() => new Float32Array(nodeCount * 3));
   const labelAccum = useRef(0);
+
+  // Smart label placement: each visible label registers its DOM node via ref
+  // callback below. useLabelPlacement runs a ~15 Hz greedy de-overlap pass —
+  // it projects every entry to screen, sorts by priority, and writes the
+  // chosen offset back as CSS variables (--lbl-ex / --lbl-ey). Hysteresis is
+  // built in so the chosen slot is sticky across ticks.
+  const labelRegistryRef = useRef<Map<number, HTMLDivElement | null>>(new Map());
+  useLabelPlacement({
+    positionsRef: currentPos,
+    registryRef: labelRegistryRef,
+    enabled: !minimap,
+  });
 
   // Resize buffers when nodeCount grows (streaming support)
   const prevNodeCount = useRef(nodeCount);
@@ -1628,6 +1645,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
 
   const handlePointerOver = (e: ThreeEvent<PointerEvent>) => {
+    // Camera drag/rotate sweeps nodes under a stationary cursor — those
+    // shouldn't count as deliberate hovers.
+    if (suppressHover) return;
     if (e.instanceId === undefined) return;
     if (visibleNodes && !visibleNodes.has(e.instanceId)) return;
     e.stopPropagation();
@@ -1639,6 +1659,16 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     setHovered(null);
     document.body.style.cursor = "auto";
   };
+
+  // Clear any active hover the moment camera interaction starts, so the
+  // highlight on the previously-hovered node doesn't linger through the
+  // gesture.
+  useEffect(() => {
+    if (suppressHover && hovered !== null) {
+      setHovered(null);
+      document.body.style.cursor = "auto";
+    }
+  }, [suppressHover, hovered]);
 
   const edgeOpacity = viewState.mode === "overview" ? 0.08 : 0.3;
 
@@ -1847,6 +1877,20 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                   : 12;
           const labelWeight = isHovered || isSelected || isExpandedProxy || isTopHit ? 700 : 500;
 
+          // Placement priority: hovered > selected > top-hit > expanded-proxy >
+          // search-match > recent > hover-neighbor > high-weight > base. Used
+          // by the label planner to decide which labels keep their default slot
+          // and which get pushed/displaced when boxes collide.
+          const placementPriority = isHovered ? 100
+            : isSelected ? 90
+              : isTopHit ? (topRank === 0 ? 85 : 80)
+                : isExpandedProxy ? 75
+                  : isSearchMatch ? 70
+                    : isRecentNode ? 65
+                      : isHoverNeighbor ? 60
+                        : isHighWeight ? 50
+                          : 10;
+
           const iconColor = node.icon
             ? isHovered
               ? "rgb(255, 51, 51)"
@@ -1886,13 +1930,27 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                   pointerEvents: isExpandedProxy ? "auto" : "none",
                   userSelect: "none",
                   cursor: isExpandedProxy ? "pointer" : undefined,
-                  transform: "translate(-50%, 20px)",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 3,
                 }}
               >
+                <div
+                  ref={(el) => {
+                    const reg = labelRegistryRef.current;
+                    if (el) reg.set(i, el);
+                    else reg.delete(i);
+                  }}
+                  data-priority={placementPriority}
+                  style={{
+                    // Baseline = label centered below the anchor (-50% x, +20 y).
+                    // --lbl-ex / --lbl-ey are written each tick by the placement
+                    // planner to push the label into a non-colliding slot.
+                    transform: "translate(calc(-50% + var(--lbl-ex, 0px)), calc(20px + var(--lbl-ey, 0px)))",
+                    transition: "transform 180ms ease-out",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 3,
+                  }}
+                >
                 <div style={{
                   color: isExpandedProxy ? "rgba(100,220,255,0.95)" : labelColor,
                   fontSize: isExpandedProxy ? 14 : labelSize,
@@ -1985,6 +2043,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                     </div>
                   );
                 })()}
+                </div>
               </Html>
             </group>
           );
