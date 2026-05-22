@@ -16,6 +16,7 @@ import {
   X,
   MessageSquare,
   Cpu,
+  GitMerge,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUserStore } from "@/stores/user-store"
@@ -113,6 +114,7 @@ export function Toolkit({
   const router = useRouter()
   const { isAdmin, budget } = useUserStore()
   const openModal = useModalStore((s) => s.open)
+  const openAddEdge = useModalStore((s) => s.openAddEdge)
   const { pendingCount, setPendingCount } = useReviewStore()
 
   useEffect(() => {
@@ -219,6 +221,11 @@ export function Toolkit({
         <>
           <Divider />
           <ToolkitButton
+            icon={GitMerge}
+            ariaLabel="Add Edge"
+            onClick={() => openAddEdge()}
+          />
+          <ToolkitButton
             icon={Network}
             ariaLabel="Ontology"
             onClick={() => router.push("/ontology")}
@@ -267,6 +274,7 @@ export function ToolkitFAB({
   const router = useRouter()
   const { isAdmin, budget } = useUserStore()
   const openModal = useModalStore((s) => s.open)
+  const openAddEdge = useModalStore((s) => s.openAddEdge)
   const { pendingCount } = useReviewStore()
 
   const formattedBudget =
@@ -342,6 +350,7 @@ export function ToolkitFAB({
               <>
                 <div className="my-1 mx-2 h-px bg-border/60" />
                 {[
+                  { icon: GitMerge, label: "Add Edge", action: () => openAddEdge() },
                   { icon: Network, label: "Ontology", action: () => router.push("/ontology") },
                   {
                     icon: ClipboardList,
