@@ -15,7 +15,33 @@ interface Props {
   hovered?: number | null;
 }
 
-type IndicatorDiv = HTMLDivElement & { __nodeId?: number };
+type IndicatorDiv = HTMLDivElement & {
+  __nodeId?: number;
+  __targetLeft?: number;
+  __targetTop?: number;
+  __currentLeft?: number;
+  __currentTop?: number;
+  // True between the frame the indicator becomes inactive and the frame it
+  // becomes active again — so we can snap-position on first appearance
+  // instead of sliding from wherever it sat last time.
+  __wasHidden?: boolean;
+};
+
+// How fast the indicator chases its target each frame. Higher = snappier,
+// lower = calmer. Tuned to feel weighted but not laggy.
+const POSITION_LERP_RATE = 5;
+
+// Dead zone (px) for target updates. If the freshly-projected clamp position
+// is within this distance of the existing target, we keep the old target —
+// so tiny camera nudges don't continuously re-aim the indicator. The lerp
+// only fires when there's a real change to chase.
+const MIN_TARGET_CHANGE = 3;
+
+// Throttle the projection + de-overlap pass. Camera moves at 60Hz but we
+// only need to recompute indicator targets a few times per second — the lerp
+// below keeps the visual motion smooth in between. Lower = calmer, fewer
+// reshuffles. 0.12s ≈ ~8 ticks/sec.
+const TARGET_UPDATE_INTERVAL = 0.12;
 
 export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = null }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -163,15 +189,69 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
     };
   }, []);
 
-  useFrame(() => {
-    const indicators = indicatorsRef.current;
+  const targetTickAccum = useRef(0);
+  const activeCountRef = useRef(0);
+
+  useFrame((_, delta) => {
+    const indicators = indicatorsRef.current as IndicatorDiv[];
     if (!indicators.length) return;
 
-    for (let i = 0; i < MAX_INDICATORS; i++) {
-      indicators[i].style.display = "none";
+    // Mode flips off → hide everything immediately, regardless of throttle.
+    if (viewState.mode !== "subgraph") {
+      if (activeCountRef.current > 0) {
+        for (let i = 0; i < MAX_INDICATORS; i++) {
+          if (indicators[i].style.display !== "none") {
+            indicators[i].style.display = "none";
+            indicators[i].__wasHidden = true;
+          }
+        }
+        activeCountRef.current = 0;
+      }
+      return;
     }
 
-    if (viewState.mode !== "subgraph") return;
+    targetTickAccum.current += delta;
+    const updateTargets = targetTickAccum.current >= TARGET_UPDATE_INTERVAL;
+
+    if (!updateTargets) {
+      // Lerp-only frame — chase last-computed targets without reprojecting.
+      const count = activeCountRef.current;
+      if (count > 0) {
+        const k = 1 - Math.exp(-POSITION_LERP_RATE * delta);
+        for (let i = 0; i < count; i++) {
+          const el = indicators[i];
+          const tL = el.__targetLeft ?? 0;
+          const tT = el.__targetTop ?? 0;
+          const wasHidden = el.__wasHidden ?? true;
+          let cL: number;
+          let cT: number;
+          if (wasHidden || el.__currentLeft === undefined || el.__currentTop === undefined) {
+            cL = tL;
+            cT = tT;
+          } else {
+            cL = el.__currentLeft + (tL - el.__currentLeft) * k;
+            cT = el.__currentTop + (tT - el.__currentTop) * k;
+          }
+          el.__currentLeft = cL;
+          el.__currentTop = cT;
+          el.__wasHidden = false;
+          el.style.left = `${cL}px`;
+          el.style.top = `${cT}px`;
+        }
+      }
+      return;
+    }
+
+    targetTickAccum.current = 0;
+
+    // Throttled tick: hide everything first; the loop below will re-mark
+    // active indicators as visible.
+    for (let i = 0; i < MAX_INDICATORS; i++) {
+      if (indicators[i].style.display !== "none") {
+        indicators[i].style.display = "none";
+        indicators[i].__wasHidden = true;
+      }
+    }
 
     const w = size.width;
     const h = size.height;
@@ -224,10 +304,35 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
       clampY = Math.max(MARGIN, Math.min(h - MARGIN, clampY));
 
       const el = indicators[count];
-      (el as IndicatorDiv).__nodeId = nodeId;
+      // Indicator pool slots get reassigned to different nodes as the view
+      // changes. When that happens, snap so the lerp doesn't slide from the
+      // old node's position into the new one's.
+      if (el.__nodeId !== nodeId) {
+        el.__wasHidden = true;
+        el.__nodeId = nodeId;
+      }
       el.style.display = "block";
-      el.style.left = `${clampX}px`;
-      el.style.top = `${clampY}px`;
+      // Dead-zone gate: only commit a new target if the newly-projected clamp
+      // is meaningfully different from the existing target (or the indicator
+      // just became active). This keeps the indicator visually still under
+      // slow / tiny camera motion.
+      const prevTx = el.__targetLeft;
+      const prevTy = el.__targetTop;
+      const targetStale = el.__wasHidden
+        || prevTx === undefined
+        || prevTy === undefined
+        || Math.abs(clampX - prevTx) >= MIN_TARGET_CHANGE
+        || Math.abs(clampY - prevTy) >= MIN_TARGET_CHANGE;
+      const targetX = targetStale ? clampX : prevTx!;
+      const targetY = targetStale ? clampY : prevTy!;
+      // Write target position to style so the bbox measurement in the
+      // de-overlap pass below sees the target (not a previous lerped frame).
+      // Browser layout flushes synchronously, but paint happens after the
+      // final lerp write below — so the user never sees this intermediate.
+      el.style.left = `${targetX}px`;
+      el.style.top = `${targetY}px`;
+      el.__targetLeft = targetX;
+      el.__targetTop = targetY;
 
       // Rotate trail to point outward (toward the off-screen node)
       const trailEl = el.children[1] as HTMLElement;
@@ -306,6 +411,124 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
       }
 
       count++;
+    }
+
+    // De-overlap pass: indicators clamped to the same edge can stack on top of
+    // each other (e.g. two left-edge indicators with their relation labels
+    // colliding). Group active indicators by which edge they hug, sort along
+    // the edge tangent, and greedily push later boxes outward until they no
+    // longer overlap their predecessor.
+    if (count > 1) {
+      interface Active {
+        el: IndicatorDiv;
+        cx: number;
+        cy: number;
+        edge: "top" | "bottom" | "left" | "right";
+        t0: number;
+        t1: number;
+      }
+      const groups: Record<Active["edge"], Active[]> = {
+        top: [], bottom: [], left: [], right: [],
+      };
+      for (let i = 0; i < count; i++) {
+        const el = indicators[i];
+        const cx = el.__targetLeft ?? 0;
+        const cy = el.__targetTop ?? 0;
+        const onLeft = cx <= MARGIN + 0.5;
+        const onRight = cx >= w - MARGIN - 0.5;
+        const onTop = cy <= MARGIN + 0.5;
+        const onBottom = cy >= h - MARGIN - 0.5;
+        let edge: Active["edge"];
+        if (onLeft && !onTop && !onBottom) edge = "left";
+        else if (onRight && !onTop && !onBottom) edge = "right";
+        else if (onTop && !onLeft && !onRight) edge = "top";
+        else if (onBottom && !onLeft && !onRight) edge = "bottom";
+        // Corners: stick with the vertical edge so labels (which extend
+        // horizontally) don't get pushed across the canvas.
+        else if (onLeft) edge = "left";
+        else if (onRight) edge = "right";
+        else if (onTop) edge = "top";
+        else edge = "bottom";
+        // The indicator div itself is 0×0 (children are all position:absolute,
+        // so they don't contribute to its content box). Measure the label
+        // child directly and union with the pip's 8px extent around the
+        // anchor — this is the indicator's actual visual footprint.
+        const anchorRect = el.getBoundingClientRect();
+        const labelEl = el.children[2] as HTMLElement;
+        const labelRect = labelEl.getBoundingClientRect();
+        const ax = anchorRect.left;
+        const ay = anchorRect.top;
+        const bboxLeft = Math.min(ax - 4, labelRect.left);
+        const bboxRight = Math.max(ax + 4, labelRect.right);
+        const bboxTop = Math.min(ay - 4, labelRect.top);
+        const bboxBottom = Math.max(ay + 4, labelRect.bottom);
+        const horizontal = edge === "top" || edge === "bottom";
+        const t0 = horizontal ? bboxLeft : bboxTop;
+        const t1 = horizontal ? bboxRight : bboxBottom;
+        groups[edge].push({ el, cx, cy, edge, t0, t1 });
+      }
+
+      const GAP = 4;
+      for (const edge of ["top", "bottom", "left", "right"] as const) {
+        const arr = groups[edge];
+        if (arr.length < 2) continue;
+        arr.sort((a, b) => a.t0 - b.t0);
+        const horizontal = edge === "top" || edge === "bottom";
+        const maxC = horizontal ? w - MARGIN : h - MARGIN;
+        for (let i = 1; i < arr.length; i++) {
+          const prev = arr[i - 1];
+          const curr = arr[i];
+          const need = (prev.t1 + GAP) - curr.t0;
+          if (need <= 0) continue;
+          if (horizontal) {
+            const newCx = Math.min(curr.cx + need, maxC);
+            const delta = newCx - curr.cx;
+            if (delta <= 0) continue;
+            curr.el.style.left = `${newCx}px`;
+            curr.el.__targetLeft = newCx;
+            curr.cx = newCx;
+            curr.t0 += delta;
+            curr.t1 += delta;
+          } else {
+            const newCy = Math.min(curr.cy + need, maxC);
+            const delta = newCy - curr.cy;
+            if (delta <= 0) continue;
+            curr.el.style.top = `${newCy}px`;
+            curr.el.__targetTop = newCy;
+            curr.cy = newCy;
+            curr.t0 += delta;
+            curr.t1 += delta;
+          }
+        }
+      }
+    }
+
+    activeCountRef.current = count;
+
+    // Smooth chase: ease each indicator's *displayed* position toward its
+    // target. Lerp is computed from delta-time so the speed is frame-rate
+    // independent. On first appearance (or after being hidden), the indicator
+    // snaps to its target so it doesn't slide in from wherever it sat last.
+    const k = 1 - Math.exp(-POSITION_LERP_RATE * delta);
+    for (let i = 0; i < count; i++) {
+      const el = indicators[i];
+      const tL = el.__targetLeft ?? 0;
+      const tT = el.__targetTop ?? 0;
+      const wasHidden = el.__wasHidden ?? true;
+      let cL: number;
+      let cT: number;
+      if (wasHidden || el.__currentLeft === undefined || el.__currentTop === undefined) {
+        cL = tL;
+        cT = tT;
+      } else {
+        cL = el.__currentLeft + (tL - el.__currentLeft) * k;
+        cT = el.__currentTop + (tT - el.__currentTop) * k;
+      }
+      el.__currentLeft = cL;
+      el.__currentTop = cT;
+      el.__wasHidden = false;
+      el.style.left = `${cL}px`;
+      el.style.top = `${cT}px`;
     }
   });
 
