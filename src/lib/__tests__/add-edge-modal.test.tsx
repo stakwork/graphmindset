@@ -24,7 +24,7 @@ vi.mock("@/lib/mock-data", () => ({
 // ---------------------------------------------------------------------------
 let mockActiveModal: string | null = null
 let mockSourceRefId: string | null = null
-const mockClose = vi.fn()
+let mockClose = vi.fn()
 
 vi.mock("@/stores/modal-store", () => ({
   useModalStore: (sel: (s: Record<string, unknown>) => unknown) =>
@@ -74,6 +74,7 @@ function closeModal() {
 // ---------------------------------------------------------------------------
 describe("AddEdgeModal", () => {
   beforeEach(() => {
+    mockClose = vi.fn()
     vi.clearAllMocks()
     mockCreateEdge.mockResolvedValue({})
     closeModal()
