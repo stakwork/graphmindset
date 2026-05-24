@@ -28,7 +28,7 @@ import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
-import { formatDateAbsolute } from "@/lib/date-format"
+import { formatDateAbsolute, formatDateRelative } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
 
 const DEEP_RESEARCH_NODE_TYPES = ["Topic"]
@@ -1147,6 +1147,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           {/* Title */}
           <p className="text-sm font-semibold">{title}</p>
 
+          {/* Publish / air date — omitted when no date field is present */}
+          {(props.date != null || props.published_date != null) && (
+            (() => {
+              const rel = formatDateRelative(props.date ?? props.published_date)
+              return rel ? (
+                <p className="text-[11px] font-mono text-muted-foreground -mt-2">{rel}</p>
+              ) : null
+            })()
+          )}
+
           {/* Description (suppressed when a rich widget already renders this field) */}
           {description && !widgetCoversDescription && (
             <p className="text-xs text-muted-foreground">{description}</p>
@@ -1290,24 +1300,18 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               {/* Core properties row */}
               {(() => {
                 const statusBadge = getStatusBadge(fp.status)
-                const dateStr = typeof fp.date_added_to_graph === "string" && fp.date_added_to_graph
-                  ? new Date(fp.date_added_to_graph).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                  : null
                 const sats = typeof fp.boost === "number" && fp.boost > 0
                   ? fp.boost
                   : typeof fp.num_boost === "number" && fp.num_boost > 0
                     ? fp.num_boost
                     : null
-                if (!statusBadge && !dateStr && sats === null) return null
+                if (!statusBadge && sats === null) return null
                 return (
                   <div className="flex items-center gap-2 flex-wrap">
                     {statusBadge && (
                       <span className={`inline-flex items-center rounded-full px-1.5 py-0 h-4 text-[9px] font-medium ${statusBadge.className}`}>
                         {statusBadge.label}
                       </span>
-                    )}
-                    {dateStr && (
-                      <span className="text-[11px] font-mono text-muted-foreground">{dateStr}</span>
                     )}
                     {sats !== null && (
                       <div className="flex items-center gap-1 text-[11px] font-mono text-amber-400">
