@@ -156,6 +156,12 @@ function makeGraphData(node: GraphNode) {
   return { nodes: [node], edges: [] }
 }
 
+// jsdom doesn't implement Element.prototype.scrollTo — stub it so navigation
+// tests that trigger handleNavigate don't throw uncaught exceptions.
+if (typeof Element.prototype.scrollTo !== "function") {
+  Element.prototype.scrollTo = () => undefined
+}
+
 // Reset graph store mocks before each test so history navigation tests don't bleed
 beforeEach(() => {
   mockGraphNodes = []
@@ -399,15 +405,18 @@ describe("NodePreviewPanel – core property rendering", () => {
     })
   })
 
-  it("shows formatted date when date_added_to_graph is present", async () => {
-    const node = makeUnlockedNode({ date_added_to_graph: "2025-04-18" })
-    mockApiGet.mockResolvedValue(makeGraphData(node))
+  it("shows publish date when date property is present", () => {
+    const node: GraphNode = {
+      ...BASE_NODE,
+      properties: { ...BASE_NODE.properties, date: 1745020800 },
+    }
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    expect(screen.getByText(/ago/i)).toBeInTheDocument()
+  })
 
+  it("shows no date when neither date nor published_date is present", () => {
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-
-    await waitFor(() => {
-      expect(screen.getByText("Apr 18, 2025")).toBeInTheDocument()
-    })
+    expect(screen.queryByText(/ago/i)).not.toBeInTheDocument()
   })
 
   it("shows sats counter when boost is a positive number", async () => {
