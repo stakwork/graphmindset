@@ -7,6 +7,7 @@ import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
+import { getLatestNodes } from "@/lib/graph-api"
 import { metroSeries } from "@/data/metro"
 import type { GraphNode, GraphEdge } from "@/lib/graph-api"
 import { FeedCard } from "./feed-card"
@@ -21,6 +22,7 @@ export function FeedView() {
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const setGraphData = useGraphStore((s) => s.setGraphData)
+  const setLoading = useGraphStore((s) => s.setLoading)
   const searchTerm = useAppStore((s) => s.searchTerm)
   const schemas = useSchemaStore((s) => s.schemas)
 
@@ -31,16 +33,56 @@ export function FeedView() {
     setActiveTypes(new Set())
   }, [searchTerm, clearSelection])
 
-  // Seed from the local metro fixture. The platform search/list endpoints
-  // strip mapX/mapZ, so the overlay can't position bullets from API payloads
-  // alone — the fixture is the only source of truth for the schematic.
+  // Seed from the local metro fixture first — the platform search/list
+  // endpoints strip mapX/mapZ, so the overlay can't position bullets from
+  // API payloads alone. Then fetch /v2/nodes/latest and splice in anything
+  // the backend has that the fixture doesn't (deduped by ref_id). Backend
+  // Station rows are dropped — they'd float without positions, and the
+  // fixture is the source of truth for the schematic.
   useEffect(() => {
     if (useGraphStore.getState().nodes.length > 0) return
     if (isMocksEnabled()) {
       setGraphData(MOCK_NODES, MOCK_EDGES)
       return
     }
-    setGraphData(metroSeries.nodes as GraphNode[], metroSeries.edges as GraphEdge[])
+    const fixtureNodes = metroSeries.nodes as GraphNode[]
+    const fixtureEdges = metroSeries.edges as GraphEdge[]
+    setGraphData(fixtureNodes, fixtureEdges)
+
+    let cancelled = false
+    setLoading(true)
+    ;(async () => {
+      try {
+        const result = await getLatestNodes()
+        if (cancelled) return
+        const seenNodeIds = new Set(fixtureNodes.map((n) => n.ref_id))
+        const seenEdgeKeys = new Set(
+          fixtureEdges.map((e) => `${e.source}|${e.target}|${e.edge_type}`),
+        )
+        const extraNodes = (result.nodes ?? []).filter(
+          (n) => n.node_type !== "Station" && !seenNodeIds.has(n.ref_id),
+        )
+        const extraNodeIds = new Set(extraNodes.map((n) => n.ref_id))
+        const extraEdges = (result.edges ?? []).filter((e) => {
+          if (seenEdgeKeys.has(`${e.source}|${e.target}|${e.edge_type}`)) return false
+          // Both endpoints must exist in the visible node set (fixture or extras)
+          // — otherwise the edge dangles. Backend station endpoints get filtered
+          // out here since they were dropped above.
+          const hasSource = seenNodeIds.has(e.source) || extraNodeIds.has(e.source)
+          const hasTarget = seenNodeIds.has(e.target) || extraNodeIds.has(e.target)
+          return hasSource && hasTarget
+        })
+        if (extraNodes.length === 0 && extraEdges.length === 0) return
+        setGraphData([...fixtureNodes, ...extraNodes], [...fixtureEdges, ...extraEdges])
+      } catch (err) {
+        console.error("[feed-view] getLatestNodes failed:", err)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

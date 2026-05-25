@@ -1864,18 +1864,18 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const topTint = topRank === 0
             ? "rgba(255, 215, 80, 0.98)"   // gold for the best hit
             : "rgba(120, 200, 255, 0.95)"; // cool blue for ranks 1-2
-          const labelColor = isHovered ? "rgba(255,255,255,0.95)"
+          const labelColor = isHovered ? "rgba(255,255,255,0.98)"
             : isTopHit ? topTint
-              : isSelected ? "rgba(100,220,255,0.95)"
-                : isHoverNeighbor ? "rgba(200,200,200,0.85)"
+              : isSelected ? "rgba(100,220,255,0.98)"
+                : isHoverNeighbor ? "rgba(210,215,222,0.95)"
                   : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
-                    : "rgba(190,200,210,0.75)";
-          const labelSize = isHovered || isSelected ? 15
-            : isTopHit ? (topRank === 0 ? 17 : 15)
-              : isRecentNode ? 14
-                : isHoverNeighbor ? 13
-                  : 12;
-          const labelWeight = isHovered || isSelected || isExpandedProxy || isTopHit ? 700 : 500;
+                    : "rgba(205,212,222,0.92)";
+          const labelSize = isHovered || isSelected ? 17
+            : isTopHit ? (topRank === 0 ? 19 : 17)
+              : isRecentNode ? 16
+                : isHoverNeighbor ? 15
+                  : 14;
+          const labelWeight = isHovered || isSelected || isExpandedProxy || isTopHit ? 700 : 600;
 
           // Placement priority: hovered > selected > top-hit > expanded-proxy >
           // search-match > recent > hover-neighbor > high-weight > base. Used
@@ -1958,7 +1958,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                   fontWeight: labelWeight,
                   letterSpacing: "0.3px",
                   whiteSpace: "nowrap",
-                  textShadow: "0 0 6px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.7)",
+                  textShadow: "0 0 4px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,0.95), 0 0 18px rgba(0,0,0,0.8)",
                 }}>
                   {isExpandedProxy
                     ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>

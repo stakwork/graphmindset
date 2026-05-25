@@ -31,8 +31,21 @@ import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
 import { formatDateAbsolute, formatDateRelative } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
+import { metroSeries } from "@/data/metro"
 
 const DEEP_RESEARCH_NODE_TYPES = ["Topic"]
+
+// Stations live only in the local fixture — the backend collapses fixture's
+// transfer-platform variants (komsomolskaya_k / _r) into one row, so we can't
+// map fixture station ref_ids 1:1 to backend UUIDs without losing the dual-
+// platform schematic. Short-circuit clicks on station nodes so they render
+// from the fixture instead of 500-ing. All other fixture nodes (Persons,
+// Orgs, etc.) have backend UUIDs applied in metro.ts and hit the API normally.
+const METRO_FIXTURE_STATION_REF_IDS = new Set(
+  (metroSeries.nodes as { ref_id: string; node_type?: string }[])
+    .filter((n) => n.node_type === "Station")
+    .map((n) => n.ref_id),
+)
 
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "owner_reference_id", "node_type", "date_added_to_graph", "status", "project_id",
@@ -843,6 +856,11 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const showThumbnail = !!thumbnail && !isThisNodePlayingHere && !isImageNode
 
   async function handleUnlock() {
+    if (METRO_FIXTURE_STATION_REF_IDS.has(currentNode.ref_id)) {
+      setFullNode(currentNode)
+      setUnlockState("unlocked")
+      return
+    }
     setUnlockState("loading")
     try {
       const unlocked = await unlockNode(currentNode.ref_id)
@@ -911,6 +929,13 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     setUnlockState("loading")
 
     async function probe() {
+      // Fixture-only metro lore — no backend representation, so skip the API
+      // entirely and treat the local node as the unlocked payload.
+      if (METRO_FIXTURE_STATION_REF_IDS.has(currentNode.ref_id)) {
+        setFullNode(currentNode)
+        setUnlockState("unlocked")
+        return
+      }
       if (isMocksEnabled()) {
         await new Promise((r) => setTimeout(r, 300))
         if (controller.signal.aborted) return

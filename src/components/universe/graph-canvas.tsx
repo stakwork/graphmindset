@@ -1211,9 +1211,9 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         <CameraSync camRef={cameraRef} targetRef={camAnim} />
         <EffectComposer>
           <Bloom
-            luminanceThreshold={0.2}
+            luminanceThreshold={0.7}
             luminanceSmoothing={0.9}
-            intensity={0.6}
+            intensity={0.5}
           />
         </EffectComposer>
       </Canvas>

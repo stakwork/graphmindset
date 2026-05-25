@@ -159,7 +159,94 @@ function tunnelEdges(): RawEdge[] {
 const stationNodes = Object.values(stations2087).map(stationNode)
 const tunnels = tunnelEdges()
 
-export const metroSeries = {
+// Map fixture ref_ids to their backend UUIDs. Keeps the inline node/edge
+// definitions readable while letting the runtime data align with the seeded
+// graph so unlock/preview calls hit the right backend records.
+//
+// Stations are intentionally omitted — the backend collapses fixture's
+// transfer-platform variants (komsomolskaya_k / komsomolskaya_r, etc.) into
+// one row per real station. Keeping station ref_ids as fixture slugs
+// preserves the dual-platform schematic; node-preview-panel short-circuits
+// stations to the fixture data so they don't try to fetch.
+const BACKEND_REF_ID_MAP: Record<string, string> = {
+  // Persons
+  Artyom: "e7542bf7-1390-458a-af69-f334d1c59f8c",
+  Anna: "a4f71239-a934-4600-90f4-692b3caa1a8f",
+  Miller: "d3caecc7-941d-40ac-978a-849f9c4ceca4",
+  Khan: "52dd33b9-13a3-4216-aef6-b616e18f8e80",
+  Hunter: "4b5d9f6a-3cb1-4876-a7f5-e1c339ac223c",
+  Pavel: "4cd2d13e-9d0d-4da6-a6ff-5cf7944b6b89",
+  Bourbon: "6375bc51-0173-4ba1-b81a-5a1ece283263",
+  Ulman: "0c041493-6c6f-4c70-93e6-cdf488dab8e7",
+  Sukhoi: "48775912-5cee-4f8e-9927-2ea7cf7018e4",
+  Damir: "dd79822e-2b2e-4d55-a5e0-839c45f90dd2",
+  Tokarev: "a357aa9b-c8ac-4292-99f8-40ef5fefef17",
+  Stepan: "422057e8-fbc1-4000-8226-27026bd58c1a",
+  Krest: "af7fdb5c-2527-4e86-b754-9c5aea526b60",
+  Idiot: "2ec82fc8-5dac-463d-a1e0-f6a8676aded0",
+  Sam: "5e0e0816-21c6-4290-a83a-06b38c863765",
+  Khlebnikov: "edbe69a6-ab4c-48e6-8698-94e948bd00a3",
+  Kirill: "9b913f07-2ffa-488f-878f-2cb135c4a250",
+  Lesnitsky: "e8441af8-ee86-4841-955e-53ff741a4f0c",
+  // Organizations
+  SpartanOrder: "061e560b-05f4-4e88-ba86-d2abf23cd730",
+  RedLine: "948ca7bd-bf56-4bdb-a3ff-06a44c35b82b",
+  FourthReich: "3e37e9be-c66a-4fd0-83af-bf45e192b01f",
+  Hansa: "a933966a-600f-4dd5-a0e2-0a60bc7b2e4a",
+  Polis: "9753580e-2c13-43ff-a391-da9d904ff2ff",
+  AuroraCrew: "00f302c2-cdcc-4f54-99b0-975b401f80f1",
+  GreatWormCult: "2798e9d4-c41d-4189-8d90-7b9b25d48a7e",
+  TaigaWatchmen: "0bb29bd8-1511-4c0b-9f02-971f428a105c",
+  ChildrenOfForest: "8991d537-911d-4437-9c3a-7cfe3552d5c4",
+  CaspianPirates: "7f91e83f-f8ef-4387-8ced-4d85e9e77619",
+  Stalkers: "0b9f640c-2859-45f3-a533-29a98877af26",
+  // Locations
+  MoscowMetro: "e44dad45-8c38-4470-a830-50c2eba36659",
+  D6: "3be86cf6-e108-4bc8-9a49-e8881228a251",
+  Volga: "5978ade2-956c-40fa-a814-d1fe16f86f2b",
+  Caspian: "ac2d3d1d-b322-4771-b9f2-3cf417a272f3",
+  Taiga: "ed75df74-4e5f-4a63-a5e8-16f40494ea1a",
+  Yamantau: "86eaa97b-9254-4e13-a251-af31d82ec86c",
+  Baikal: "2b0679ea-778a-4661-ac5e-b11d6ee94e45",
+  Novosibirsk: "e78548d9-bcb7-413f-bc5c-581da4bd1361",
+  DeadCity: "bb9f9fbf-a033-4b25-bb9f-ecfc60a92b93",
+  Surface: "7581a86a-ce16-4b68-89fc-f87ff87ca55b",
+  // Transports
+  Aurora: "1cad61aa-761b-499b-be0e-551115a9e0e7",
+  Handcar: "86b59186-c58c-475b-970b-f7e6a4be4334",
+  HansaTrain: "3a488abf-2ccc-419e-9507-9d4d5f98a585",
+  CaspianBoat: "888635f3-cb65-4d44-8a1a-983b6ed0aca0",
+  // Creatures
+  Nosalis: "5d074699-4692-436b-bbfe-ca8208325394",
+  Lurker: "64924159-a014-4bea-83c9-d8b0be510a3d",
+  Watcher: "aac06586-0a77-4fc2-9ac6-54faaee8b6c0",
+  Demon: "da67ad65-6ad0-4e16-9de2-2d77d1d83477",
+  Librarian: "1ee142e8-a1c1-4ff4-8ddf-b0d9abdb7e53",
+  DarkOnes: "1f17c4b4-35b2-4710-be9c-3ae3c19f07f2",
+  Shrimp: "803c4b1b-679e-4511-87f1-aa9988aa63a7",
+  Humanimal: "fa79b68d-6e1b-4c3f-af04-43eae18736da",
+  Watchman: "6d9ce4e1-b836-4a7a-943a-f99162d2cf10",
+  MutantBear: "4fcdc414-8600-4d4b-998f-201052cfeede",
+  // Weapons
+  Bastard: "57f5dbf1-7d92-4979-865a-6f49c2e93278",
+  Tikhar: "fdd6ff7f-c851-436b-ac9b-9c5a6afb989e",
+  Helsing: "51f6fef1-e318-4b49-ad8f-3b0c9730f773",
+  Ashot: "61f0a4ac-8562-4e50-87c9-7ed8a3d75cc7",
+  VoltDriver: "06a928c6-add4-4a5c-8ed8-a4390c2b563f",
+  // Items
+  GasMask: "def60281-b0c7-4047-93a9-399251f819a8",
+  Filter: "9dff2b2c-2c30-4f0b-9f14-5935cb20e25f",
+  Charger: "9bf3dbf4-57c8-41eb-b322-a260b0e0b3f7",
+  MGR: "a8353dcb-d156-4961-a6d5-d355f20e6b75",
+  Medkit: "4fa8c19b-5731-4ed3-be2b-446deea91ce3",
+  Workbench: "41d28422-9013-4761-8273-756c19df360b",
+}
+
+function rid(id: string): string {
+  return BACKEND_REF_ID_MAP[id] ?? id
+}
+
+const rawMetroSeries = {
   edges: [
     // --- Family --------------------------------------------------------
     { "edge_type": "STEPSON_OF", "properties": { "date_added_to_graph": "1778230600.0" }, "ref_id": "m-e-25", "source": "Artyom", "target": "Sukhoi", "weight": 1 },
@@ -378,4 +465,16 @@ export const metroSeries = {
     { "date_added_to_graph": 1778230600.0, "node_type": "Item", "properties": { "name": "Medkit", "purpose": "Field first aid" }, "ref_id": "Medkit" },
     { "date_added_to_graph": 1778230600.0, "node_type": "Item", "properties": { "name": "Workbench", "purpose": "Crafting and weapon upgrades" }, "ref_id": "Workbench" },
   ],
+}
+
+// Apply BACKEND_REF_ID_MAP to the raw fixture so consumers see backend UUIDs
+// for any node the seeded graph has. Stations and any unmapped entries fall
+// through unchanged (resolved by rid() identity).
+export const metroSeries = {
+  nodes: rawMetroSeries.nodes.map((n) => ({ ...n, ref_id: rid(n.ref_id) })),
+  edges: rawMetroSeries.edges.map((e) => ({
+    ...e,
+    source: rid(e.source),
+    target: rid(e.target),
+  })),
 }
