@@ -83,6 +83,14 @@ export function MediaPlayer() {
   useEffect(() => {
     const media = getMedia()
     if (!media) return
+    media.currentTime = 0
+    setCurrentTime(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playingNode?.ref_id, isVideo])
+
+  useEffect(() => {
+    const media = getMedia()
+    if (!media) return
     if (isPlaying) media.play().catch(() => setIsPlaying(false))
     else media.pause()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,9 +128,14 @@ export function MediaPlayer() {
 
   const handleLoadedMetadata = useCallback(() => {
     const media = getMedia()
-    if (media) setDuration(media.duration)
+    if (!media) return
+    if (media.currentTime > 0) {
+      media.currentTime = 0
+      setCurrentTime(0)
+    }
+    setDuration(media.duration)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setDuration, isVideo])
+  }, [setDuration, setCurrentTime, isVideo])
 
   const handleSeek = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
