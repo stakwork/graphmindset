@@ -7,6 +7,14 @@ import React from "react"
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
+// node-display mock — controlled per test
+let mockResolveNodeTitle = vi.fn((node: Record<string, unknown>) => node.ref_id as string)
+
+vi.mock("@/lib/node-display", () => ({
+  resolveNodeTitle: (...args: unknown[]) => mockResolveNodeTitle(args[0] as Record<string, unknown>),
+}))
+
+
 const { mockAdminUpdateNode } = vi.hoisted(() => ({
   mockAdminUpdateNode: vi.fn().mockResolvedValue({}),
 }))
@@ -130,6 +138,7 @@ describe("EditNodeModal", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAdminUpdateNode.mockResolvedValue({})
+    mockResolveNodeTitle = vi.fn((node: Record<string, unknown>) => node.ref_id as string)
     closeModal()
   })
 
@@ -365,6 +374,33 @@ describe("EditNodeModal", () => {
 
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
       expect(mockClose).toHaveBeenCalledOnce()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // DialogDescription — resolved title display
+  // -------------------------------------------------------------------------
+  describe("DialogDescription title resolution", () => {
+    it("shows resolved title (from title_key) in the description", () => {
+      mockResolveNodeTitle = vi.fn(() => "Alice")
+      openModal()
+      render(<EditNodeModal />)
+
+      expect(screen.getByText("Alice")).toBeDefined()
+      // Raw ref_id should NOT appear as the description span content
+      const description = screen.getByText(/Update properties for/)
+      expect(description.textContent).toContain("Alice")
+      expect(description.textContent).not.toContain("node-abc")
+    })
+
+    it("falls back to ref_id when no human-readable title exists", () => {
+      // Default mock already returns ref_id
+      mockResolveNodeTitle = vi.fn((node: Record<string, unknown>) => node.ref_id as string)
+      openModal()
+      render(<EditNodeModal />)
+
+      const description = screen.getByText(/Update properties for/)
+      expect(description.textContent).toContain("node-abc")
     })
   })
 })
