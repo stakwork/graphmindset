@@ -38,7 +38,7 @@ export function FeedCard({ node, schemas, selected, onSelect, onHover }: FeedCar
   const avatar = pickString(p, "image_url") || thumb
   const handle = pickString(p, "twitter_handle")
   const type = node.node_type ?? "Unknown"
-  const when = timeAgo(typeof p.date === "number" ? p.date : node.date_added_to_graph)
+  const when = timeAgo(p.date ?? p.published_date)
 
   return (
     <article

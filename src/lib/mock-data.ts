@@ -649,11 +649,11 @@ export const MOCK_EDGES: GraphEdge[] = [
 ]
 
 export const MOCK_SOURCES = [
-  { ref_id: "s1", source: "jack", source_type: "twitter_handle" },
+  { ref_id: "s1", source: "jack", source_type: "twitter_handle", category: "crypto", weight: 0.9 },
   { ref_id: "s2", source: "staborobot", source_type: "twitter_handle" },
-  { ref_id: "s3", source: "https://www.youtube.com/@bitcoinmagazine", source_type: "youtube_channel" },
-  { ref_id: "s4", source: "https://bitcoinist.com/feed/", source_type: "rss" },
-  { ref_id: "s5", source: "https://github.com/nicksparks/sphinx-nav-fiber", source_type: "github_repository" },
+  { ref_id: "s3", source: "https://www.youtube.com/@bitcoinmagazine", source_type: "youtube_channel", category: "crypto", weight: 0.8 },
+  { ref_id: "s4", source: "https://bitcoinist.com/feed/", source_type: "rss", category: "AI", weight: 0.6 },
+  { ref_id: "s5", source: "https://github.com/nicksparks/sphinx-nav-fiber", source_type: "github_repository", category: "AI", weight: 0.5 },
 ]
 
 export const MOCK_CONTENT = {
@@ -752,6 +752,7 @@ export const MOCK_CRON_CONFIGS = [
   { ...baseCronConfig, ref_id: "rc-deduplication", source_type: "deduplication" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", workflow_id: "mock-gm-workflow-id", label: "Deduplication" },
   { ...baseCronConfig, ref_id: "rc-content-review", source_type: "content_review" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Content review" },
   { ...baseCronConfig, ref_id: "rc-topic-review", source_type: "topic_review" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Topic review" },
+  { ...baseCronConfig, ref_id: "rc-orphan-node", source_type: "orphan_node" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Orphan node cleanup" },
 ]
 
 /** @deprecated Use MOCK_CRON_CONFIGS */
@@ -1120,5 +1121,40 @@ export const MOCK_REVIEWS: Review[] = [
     action_verb: "Soft delete",
     icon: "trash-2",
     created_at: new Date(Date.now() - 300_000).toISOString(),
+  },
+  {
+    ref_id: "mock-new-source-1",
+    type: "new_source_candidate",
+    rationale: "This YouTube channel is frequently referenced by existing graph nodes and has not yet been added as a source.",
+    subject_ids: [],
+    subject_nodes: [],
+    action_name: "add_source",
+    action_payload: { source: "https://www.youtube.com/@lexfridman", source_type: "youtube_channel" },
+    status: "pending",
+    fingerprint: "mock-fingerprint-new-source-1",
+    priority: 1,
+    created_at: new Date(Date.now() - 3_600_000).toISOString(),
+    display_label: "Add Youtube Channel: https://www.youtube.com/@lexfridman",
+    accent: "green",
+    action_verb: "Add",
+    icon: "plus-circle",
+  },
+  {
+    ref_id: "mock-new-source-2",
+    type: "new_source_candidate",
+    rationale: "Suggested RSS feed already exists in the radar.",
+    subject_ids: [],
+    subject_nodes: [],
+    action_name: "add_source",
+    action_payload: { source: "https://feeds.transistor.fm/example", source_type: "rss" },
+    status: "failed",
+    error_message: "add_source failed: Source already exists",
+    fingerprint: "mock-fingerprint-new-source-2",
+    priority: 0,
+    created_at: new Date(Date.now() - 7_200_000).toISOString(),
+    display_label: "Add Rss: https://feeds.transistor.fm/example",
+    accent: "green",
+    action_verb: "Add",
+    icon: "plus-circle",
   },
 ]

@@ -27,6 +27,7 @@ import type { CreatorInsightsResponse, NodeInsight } from "@/lib/creator-insight
 import type { GraphNode } from "@/lib/graph-api"
 
 const POLL_INTERVAL_MS = 5000
+const PAGE_SIZE = 50
 
 function sameContent(a: GraphNode[], b: GraphNode[]): boolean {
   if (a === b) return true
@@ -59,6 +60,10 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
   const [activeTab, setActiveTab] = useState<'added' | 'purchased'>('added')
   const [purchasedNodes, setPurchasedNodes] = useState<GraphNode[]>([])
   const [purchasedLoading, setPurchasedLoading] = useState(false)
@@ -70,17 +75,17 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const [isSocketConnected, setIsSocketConnected] = useState(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchFromApi = useCallback(async (): Promise<ContentResponse | null> => {
+  const fetchFromApi = useCallback(async (limit: number, skip: number): Promise<ContentResponse | null> => {
     // Sphinx path: identity is derived from the auto-attached sig+msg by the
     // api wrapper; boltwall verifies and stamps X-Caller-Pubkey downstream.
     // The client never sends pubkey — that prevents enumerating other users.
     if (pubKey) {
-      return api.get<ContentResponse>(`/v2/content?sort_by=date&limit=100`)
+      return api.get<ContentResponse>(`/v2/content?sort_by=date&limit=${limit}&skip=${skip}`)
     }
     // L402 path — api wrapper auto-attaches Authorization header
     const l402 = await getL402()
     if (l402) {
-      return api.get<ContentResponse>(`/v2/content?sort_by=date&limit=100`)
+      return api.get<ContentResponse>(`/v2/content?sort_by=date&limit=${limit}&skip=${skip}`)
     }
     // No identity — return empty payload; panel renders empty state
     return { nodes: [], totalCount: 0, totalProcessing: 0 }
@@ -101,15 +106,19 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
 
     const run = async () => {
       setLoading(true)
+      setHasMore(true)
       try {
         if (mocksEnabled) {
           if (cancelled) return
           setNodes(MOCK_CONTENT.nodes as GraphNode[])
           setTotalProcessing(MOCK_CONTENT.totalProcessing)
+          setHasMore(false)
         } else {
-          const res = await fetchFromApi()
+          const res = await fetchFromApi(PAGE_SIZE, 0)
           if (cancelled) return
           applyResponse(res)
+          const next = res?.nodes ?? []
+          setHasMore(next.length === PAGE_SIZE)
         }
       } catch {
         if (!cancelled) setNodes([])
@@ -124,6 +133,34 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
       cancelled = true
     }
   }, [mocksEnabled, fetchFromApi, applyResponse, myContentRefreshKey])
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    try {
+      const res = await fetchFromApi(PAGE_SIZE, nodes.length)
+      if (res) {
+        const next = res.nodes ?? []
+        setNodes((prev) => [...prev, ...next])
+        setHasMore(next.length === PAGE_SIZE)
+      }
+    } catch {
+      // leave existing state
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [loadingMore, hasMore, nodes.length, fetchFromApi])
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasMore || loadingMore) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) loadMore() },
+      { threshold: 0.1 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, loadingMore, loadMore])
 
   // Fetch purchased nodes when tab switches to 'purchased'
   useEffect(() => {
@@ -228,7 +265,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
 
     pollTimerRef.current = setInterval(async () => {
       try {
-        applyResponse(await fetchFromApi())
+        applyResponse(await fetchFromApi(Math.max(nodes.length, PAGE_SIZE), 0))
       } catch {
         // Leave existing state; next tick will retry.
       }
@@ -240,7 +277,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
         pollTimerRef.current = null
       }
     }
-  }, [hasInProgress, mocksEnabled, hasIdentity, isSocketConnected, fetchFromApi, applyResponse])
+  }, [hasInProgress, mocksEnabled, hasIdentity, isSocketConnected, fetchFromApi, applyResponse, nodes.length])
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
@@ -259,7 +296,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
               </h3>
               {!loading && activeTab === 'added' && (
                 <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
-                  {nodes.length} item{nodes.length !== 1 ? "s" : ""}
+                  {nodes.length}{hasMore ? '+' : ''} item{nodes.length !== 1 ? "s" : ""}
                 </p>
               )}
             </div>
@@ -419,6 +456,11 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                         </div>
                       )
                     })}
+                    {hasMore && (
+                      <div ref={sentinelRef} className="flex justify-center py-3">
+                        {loadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      </div>
+                    )}
                   </div>
                 )}
               </ScrollArea>

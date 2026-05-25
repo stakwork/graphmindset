@@ -164,3 +164,98 @@ describe("SourcesPanel — SourceRow type label", () => {
     }
   )
 })
+
+describe("SourceRow — category badge", () => {
+  beforeEach(() => {
+    mockIsAdmin = false
+    mockLoading = false
+  })
+
+  it("renders category badge when source.category is set", () => {
+    mockSources = [{ ref_id: "r1", source: "jack", source_type: "twitter_handle", category: "crypto" }]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    // category text appears both in the source row badge and the filter chip
+    expect(screen.getAllByText("crypto").length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("does not render a category badge when category is absent", () => {
+    mockSources = [{ ref_id: "r2", source: "staborobot", source_type: "twitter_handle" }]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    expect(screen.queryByText("crypto")).not.toBeInTheDocument()
+  })
+})
+
+describe("SourceRow — pencil icon (admin only)", () => {
+  beforeEach(() => {
+    mockLoading = false
+  })
+
+  it("does not render pencil button when canEdit is false (non-admin)", () => {
+    mockIsAdmin = false
+    mockSources = [{ ref_id: "r3", source: "jack", source_type: "twitter_handle" }]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    expect(screen.queryByLabelText("Edit source metadata")).not.toBeInTheDocument()
+  })
+
+  it("renders pencil button for admins", () => {
+    mockIsAdmin = true
+    mockSources = [{ ref_id: "r4", source: "jack", source_type: "twitter_handle" }]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    expect(screen.getByLabelText("Edit source metadata")).toBeInTheDocument()
+  })
+})
+
+describe("SourcesPanel — filter chips", () => {
+  beforeEach(() => {
+    mockIsAdmin = false
+    mockLoading = false
+  })
+
+  it("hides filter chips when no sources have a category", () => {
+    mockSources = [
+      { ref_id: "r5", source: "a", source_type: "rss" },
+      { ref_id: "r6", source: "b", source_type: "rss" },
+    ]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument()
+  })
+
+  it("renders All chip and distinct category chips when categories exist", () => {
+    mockSources = [
+      { ref_id: "r7", source: "a", source_type: "rss", category: "AI" },
+      { ref_id: "r8", source: "b", source_type: "rss", category: "crypto" },
+      { ref_id: "r9", source: "c", source_type: "rss", category: "AI" },
+    ]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "AI" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "crypto" })).toBeInTheDocument()
+    // AI appears only once as a chip (duplicate categories de-duped)
+    expect(screen.getAllByRole("button", { name: "AI" }).length).toBe(1)
+  })
+
+  it("filters source rows when a category chip is clicked", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event")
+    mockSources = [
+      { ref_id: "r10", source: "aisite.com/feed", source_type: "rss", category: "AI" },
+      { ref_id: "r11", source: "cryptonews.com/feed", source_type: "rss", category: "crypto" },
+    ]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole("button", { name: "AI" }))
+    expect(screen.getByText("aisite.com/feed")).toBeInTheDocument()
+    expect(screen.queryByText("cryptonews.com/feed")).not.toBeInTheDocument()
+  })
+
+  it("resets filter when All chip is clicked", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event")
+    mockSources = [
+      { ref_id: "r12", source: "aisite.com/feed", source_type: "rss", category: "AI" },
+      { ref_id: "r13", source: "cryptonews.com/feed", source_type: "rss", category: "crypto" },
+    ]
+    render(<SourcesPanel onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole("button", { name: "AI" }))
+    await userEvent.click(screen.getByRole("button", { name: "All" }))
+    expect(screen.getByText("aisite.com/feed")).toBeInTheDocument()
+    expect(screen.getByText("cryptonews.com/feed")).toBeInTheDocument()
+  })
+})

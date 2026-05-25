@@ -156,6 +156,12 @@ function makeGraphData(node: GraphNode) {
   return { nodes: [node], edges: [] }
 }
 
+// jsdom doesn't implement Element.prototype.scrollTo — stub it so navigation
+// tests that trigger handleNavigate don't throw uncaught exceptions.
+if (typeof Element.prototype.scrollTo !== "function") {
+  Element.prototype.scrollTo = () => undefined
+}
+
 // Reset graph store mocks before each test so history navigation tests don't bleed
 beforeEach(() => {
   mockGraphNodes = []
@@ -399,15 +405,18 @@ describe("NodePreviewPanel – core property rendering", () => {
     })
   })
 
-  it("shows formatted date when date_added_to_graph is present", async () => {
-    const node = makeUnlockedNode({ date_added_to_graph: "2025-04-18" })
-    mockApiGet.mockResolvedValue(makeGraphData(node))
+  it("shows publish date when date property is present", () => {
+    const node: GraphNode = {
+      ...BASE_NODE,
+      properties: { ...BASE_NODE.properties, date: 1745020800 },
+    }
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    expect(screen.getByText(/ago/i)).toBeInTheDocument()
+  })
 
+  it("shows no date when neither date nor published_date is present", () => {
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-
-    await waitFor(() => {
-      expect(screen.getByText("Apr 18, 2025")).toBeInTheDocument()
-    })
+    expect(screen.queryByText(/ago/i)).not.toBeInTheDocument()
   })
 
   it("shows sats counter when boost is a positive number", async () => {
@@ -935,30 +944,32 @@ describe("NodePreviewPanel – share button", () => {
     })
   })
 
-  it("renders share button in the panel header", async () => {
+  it("renders the ⋯ more-actions button in the panel header", async () => {
     const node: GraphNode = { ref_id: "share-node-1", node_type: "Topic", properties: { name: "Share Test" } }
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
-    const btn = document.querySelector("button[title='Copy share link']")
+    const btn = document.querySelector("button[title='More actions']")
     expect(btn).toBeTruthy()
   })
 
-  it("copies the correct URL to clipboard when share button is clicked", async () => {
+  it("copies the correct URL to clipboard when 'Copy link' is clicked in the menu", async () => {
     const { fireEvent } = await import("@testing-library/react")
     const node: GraphNode = { ref_id: "share-node-2", node_type: "Topic", properties: { name: "Share Test" } }
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
-    const btn = document.querySelector("button[title='Copy share link']") as HTMLElement
-    expect(btn).toBeTruthy()
-    fireEvent.click(btn)
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    expect(trigger).toBeTruthy()
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByText("Copy link"))
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://example.com/?id=share-node-2")
   })
 
-  it("shows 'Copied!' after click and resets to link icon after 2s", async () => {
+  it("shows 'Copied!' on the trigger after copying and resets after 2s", async () => {
     vi.useFakeTimers()
     const { fireEvent, act } = await import("@testing-library/react")
     const node: GraphNode = { ref_id: "share-node-3", node_type: "Topic", properties: { name: "Share Test" } }
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
-    const btn = document.querySelector("button[title='Copy share link']") as HTMLElement
-    await act(async () => { fireEvent.click(btn) })
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fireEvent.click(trigger)
+    await act(async () => { fireEvent.click(screen.getByText("Copy link")) })
     expect(screen.getByText("Copied!")).toBeInTheDocument()
     act(() => { vi.advanceTimersByTime(2000) })
     expect(screen.queryByText("Copied!")).toBeNull()
@@ -973,12 +984,11 @@ describe("NodePreviewPanel – share button", () => {
       mockIsSphinx.mockReturnValue(false)
     })
 
-    it("renders a dropdown trigger instead of a plain share button", async () => {
+    it("renders both 'Copy link' and 'Copy Sphinx link' in the ⋯ dropdown", async () => {
       const { fireEvent } = await import("@testing-library/react")
       const node: GraphNode = { ref_id: "sphinx-node-1", node_type: "Topic", properties: { name: "Sphinx Test" } }
       render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
-      // The trigger button still has the title
-      const trigger = document.querySelector("button[title='Copy share link']")
+      const trigger = document.querySelector("button[title='More actions']")
       expect(trigger).toBeTruthy()
       // Open the dropdown
       fireEvent.click(trigger as HTMLElement)
@@ -990,7 +1000,7 @@ describe("NodePreviewPanel – share button", () => {
       const { fireEvent } = await import("@testing-library/react")
       const node: GraphNode = { ref_id: "sphinx-node-2", node_type: "Topic", properties: { name: "Sphinx Test" } }
       render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
-      const trigger = document.querySelector("button[title='Copy share link']") as HTMLElement
+      const trigger = document.querySelector("button[title='More actions']") as HTMLElement
       fireEvent.click(trigger)
       fireEvent.click(screen.getByText("Copy link"))
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://example.com/?id=sphinx-node-2")
@@ -1000,7 +1010,7 @@ describe("NodePreviewPanel – share button", () => {
       const { fireEvent } = await import("@testing-library/react")
       const node: GraphNode = { ref_id: "sphinx-node-3", node_type: "Topic", properties: { name: "Sphinx Test" } }
       render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
-      const trigger = document.querySelector("button[title='Copy share link']") as HTMLElement
+      const trigger = document.querySelector("button[title='More actions']") as HTMLElement
       fireEvent.click(trigger)
       fireEvent.click(screen.getByText("Copy Sphinx link"))
       const expectedWebUrl = "https://example.com/?id=sphinx-node-3"
@@ -1084,27 +1094,34 @@ describe("NodePreviewPanel – WatchButton", () => {
     mockApiGet.mockResolvedValue(makeGraphData(BASE_NODE))
   })
 
-  it("does NOT render watch button when user has no identity", async () => {
+  it("does NOT render Watch item in dropdown when user has no identity", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "", isAdmin: false }
     mockL402Cookie = ""
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
     await waitFor(() => screen.getByText("Connections"))
-    expect(screen.queryByTitle("Watch node")).toBeNull()
-    expect(screen.queryByTitle("Unwatch node")).toBeNull()
+    // Open the ⋯ menu
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    expect(screen.queryByText("Watch")).toBeNull()
+    expect(screen.queryByText("Unwatch")).toBeNull()
   })
 
-  it("renders watch button (outline) when user has pubKey and node is not watched", async () => {
+  it("renders Watch item in dropdown when user has pubKey and node is not watched", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03testkey", isAdmin: false }
     mockGetWatches.mockResolvedValue({ nodes: [], types: [] })
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-    await waitFor(() => screen.getByTitle("Watch node"))
+    await waitFor(() => screen.getByText("Test Node"))
 
-    const btn = screen.getByTitle("Watch node")
-    expect(btn).toBeTruthy()
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    await waitFor(() => expect(screen.getByText("Watch")).toBeInTheDocument())
   })
 
-  it("renders watch button as filled (Unwatch) when node is in watches list", async () => {
+  it("renders Unwatch item in dropdown when node is in watches list", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03testkey", isAdmin: false }
     mockGetWatches.mockResolvedValue({
       nodes: [{ ref_id: BASE_NODE.ref_id, node_type: "Topic", title: "Test Node" }],
@@ -1112,18 +1129,25 @@ describe("NodePreviewPanel – WatchButton", () => {
     })
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-    await waitFor(() => screen.getByTitle("Unwatch node"))
-    expect(screen.getByTitle("Unwatch node")).toBeTruthy()
+    await waitFor(() => screen.getByText("Test Node"))
+
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    await waitFor(() => expect(screen.getByText("Unwatch")).toBeInTheDocument())
   })
 
-  it("renders watch button when user has L402 token (no pubKey)", async () => {
+  it("renders Watch item in dropdown when user has L402 token (no pubKey)", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "", isAdmin: false }
     mockL402Cookie = "some-l402-token"
     mockGetWatches.mockResolvedValue({ nodes: [], types: [] })
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-    await waitFor(() => screen.getByTitle("Watch node"))
-    expect(screen.getByTitle("Watch node")).toBeTruthy()
+    await waitFor(() => screen.getByText("Test Node"))
+
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    await waitFor(() => expect(screen.getByText("Watch")).toBeInTheDocument())
   })
 
   it("calls watchNode on click when not watched", async () => {
@@ -1132,8 +1156,12 @@ describe("NodePreviewPanel – WatchButton", () => {
     mockGetWatches.mockResolvedValue({ nodes: [], types: [] })
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-    const btn = await waitFor(() => screen.getByTitle("Watch node"))
-    fe.click(btn)
+    await waitFor(() => screen.getByText("Test Node"))
+
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    const watchItem = await waitFor(() => screen.getByText("Watch"))
+    fe.click(watchItem)
 
     await waitFor(() => {
       expect(mockWatchNode).toHaveBeenCalledWith(BASE_NODE.ref_id)
@@ -1149,8 +1177,12 @@ describe("NodePreviewPanel – WatchButton", () => {
     })
 
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
-    const btn = await waitFor(() => screen.getByTitle("Unwatch node"))
-    fe.click(btn)
+    await waitFor(() => screen.getByText("Test Node"))
+
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    const unwatchItem = await waitFor(() => screen.getByText("Unwatch"))
+    fe.click(unwatchItem)
 
     await waitFor(() => {
       expect(mockUnwatchNode).toHaveBeenCalledWith(BASE_NODE.ref_id)
@@ -1264,7 +1296,7 @@ describe("NodePreviewPanel – history navigation", () => {
     await waitFor(() => expect(screen.getByText("Peer Node")).toBeInTheDocument())
 
     // Press back — should go back to base node
-    fe.click(screen.getByRole("button", { name: (_, el) => el?.querySelector("svg") !== null && el?.title !== "Copy share link" && el?.title !== "Close panel" && el?.title !== "Watch node" && el?.title !== "Deep Research this topic" }))
+    fe.click(screen.getByRole("button", { name: (_, el) => el?.querySelector("svg") !== null && el?.title !== "More actions" && el?.title !== "Close panel" && el?.title !== "Deep Research this topic" }))
     // Use ArrowLeft button (first button in header)
     const backBtn = document.querySelector('[class*="flex h-full"] button:first-child') as HTMLElement
     fe.click(backBtn!)
@@ -1318,32 +1350,43 @@ describe("NodePreviewPanel – pencil edit button", () => {
     mockApiGet.mockResolvedValue({})
   })
 
-  it("renders pencil 'Edit node' button for admin users", async () => {
+  it("renders 'Edit node' menu item for admin users", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
 
-    expect(screen.getByTitle("Edit node")).toBeInTheDocument()
+    // Open the ⋯ menu
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    await waitFor(() => expect(screen.getByText("Edit node")).toBeInTheDocument())
   })
 
-  it("does not render pencil button for non-admin users", async () => {
+  it("does not render 'Edit node' menu item for non-admin users", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
 
-    expect(screen.queryByTitle("Edit node")).toBeNull()
+    // Open the ⋯ menu
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    expect(screen.queryByText("Edit node")).toBeNull()
   })
 
-  it("calls openEdit with the current node when pencil is clicked", async () => {
+  it("calls openEdit with the current node when 'Edit node' is clicked", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
 
-    const pencilBtn = screen.getByTitle("Edit node")
-    pencilBtn.click()
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    const editItem = await waitFor(() => screen.getByText("Edit node"))
+    fe.click(editItem)
 
     expect(mockOpenEdit).toHaveBeenCalledOnce()
     expect(mockOpenEdit).toHaveBeenCalledWith(

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Canvas, useFrame } from "@react-three/fiber"
+import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { CameraControls } from "@react-three/drei"
 import { EffectComposer, Bloom } from "@react-three/postprocessing"
 import { Vector3 } from "three"
@@ -442,6 +442,7 @@ function applyLayout(
   graph.originalPositions = snapshot
 }
 
+
 // Matches DEPTH_SHRINK in computeRadialLayout. Click inflation is the
 // inverse: 1/0.45^d makes the ring around a depth-d node land at R1 again.
 const DEPTH_SHRINK = 0.45
@@ -487,7 +488,7 @@ interface CamTarget {
   lookZ: number
 }
 
-function computeCamTarget(graph: Graph, nodeId: number): CamTarget {
+function computeCamTarget(graph: Graph, nodeId: number, currentAzimuth: number): CamTarget {
   const p = graph.nodes[nodeId].position
   const treeKids = graph.childrenOf?.get(nodeId) ?? []
   const kidPts = treeKids.map((nid) => graph.nodes[nid]?.position).filter(Boolean)
@@ -499,10 +500,17 @@ function computeCamTarget(graph: Graph, nodeId: number): CamTarget {
   }
   const fovRad = (50 / 2) * (Math.PI / 180)
   const cameraHeight = Math.max(5, (maxRadius * 1.05) / Math.tan(fovRad))
+  // Tiny in-plane offset so setLookAt's up-vector math (worldUp × forward)
+  // doesn't go degenerate when the camera ends up directly above the node.
+  // Direction follows the user's *current* camera azimuth so the final view
+  // preserves their orbit angle instead of snapping to a canonical +Z bias.
+  const offset = 0.1
+  const ox = Math.sin(currentAzimuth) * offset
+  const oz = Math.cos(currentAzimuth) * offset
   return {
-    posX: p.x,
+    posX: p.x + ox,
     posY: p.y + cameraHeight,
-    posZ: p.z + 0.1,
+    posZ: p.z + oz,
     lookX: p.x,
     lookY: p.y,
     lookZ: p.z,
@@ -516,6 +524,35 @@ const OVERVIEW_CAM: CamTarget = {
 
 function smoothstep(x: number) {
   return x * x * (3 - 2 * x)
+}
+
+// Lives inside the R3F Canvas so it can read state.controls — which only
+// becomes non-null after drei's <CameraControls makeDefault /> has actually
+// mounted and registered itself. A useEffect in the outer component would
+// race the mount and miss the instance entirely.
+function CameraInteractionTracker({
+  onChange,
+}: {
+  onChange: (active: boolean) => void
+}) {
+  const controls = useThree((s) => s.controls) as
+    | (CameraControlsImpl & {
+        addEventListener: (t: string, fn: () => void) => void
+        removeEventListener: (t: string, fn: () => void) => void
+      })
+    | null
+  useEffect(() => {
+    if (!controls) return
+    const onStart = () => onChange(true)
+    const onEnd = () => onChange(false)
+    controls.addEventListener("controlstart", onStart)
+    controls.addEventListener("controlend", onEnd)
+    return () => {
+      controls.removeEventListener("controlstart", onStart)
+      controls.removeEventListener("controlend", onEnd)
+    }
+  }, [controls, onChange])
+  return null
 }
 
 // Drives the camera with GraphView's exact lerp formula so the camera
@@ -772,6 +809,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const [hoveredLine, setHoveredLine] = useState<string | null>(null)
   const [hoveredState, setHoveredState] = useState<StationState | null>(null)
 
+  // True while the user is actively dragging/rotating/dollying the camera.
+  // Suppresses hover firing on whatever nodes happen to sweep under the
+  // (otherwise stationary) cursor during the gesture. Wired via a tracker
+  // component inside the Canvas (see <CameraInteractionTracker/>) because
+  // an outer useEffect races drei's makeDefault registration.
+  const [cameraInteracting, setCameraInteracting] = useState(false)
+  const handleCameraInteractingChange = useCallback((v: boolean) => {
+    setCameraInteracting(v)
+  }, [])
+
   // Debug overlay: world-fixed markers + per-frame camera/anchor crosshairs.
   // Gated entirely behind NEXT_PUBLIC_DEBUG_MARKERS so production builds carry
   // no debug UI. When the env is set, markers default on and a toggle button
@@ -969,7 +1016,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       if (rank === 0) { topIdx = idx; break }
     }
     if (topIdx < 0 || !graph.nodes[topIdx]) return
-    setCamTarget(computeCamTarget(graph, topIdx))
+    setCamTarget(computeCamTarget(graph, topIdx, cameraRef.current?.azimuthAngle ?? 0))
     lastPannedSearchTerm.current = searchTerm
   }, [searchTerm, topMatchRanks, graph, setCamTarget])
 
@@ -1072,8 +1119,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       // Camera dollies to look at selected. Anchor's world position is
       // fixed by rescaleAroundAnchor, so the camera target is constant
       // through the lerp — no drift like when both the camera and the
-      // anchor were moving in opposite directions.
-      setCamTarget(computeCamTarget(graph, nodeId))
+      // anchor were moving in opposite directions. Capture the current
+      // orbit azimuth so the final view preserves it rather than snapping
+      // to a canonical orientation when the camera lands above the node.
+      setCamTarget(computeCamTarget(graph, nodeId, cameraRef.current?.azimuthAngle ?? 0))
 
       // Consume any pending search-pan: if results haven't landed yet, a
       // later payload would otherwise yank the camera off the node the
@@ -1140,6 +1189,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           searchTerm={searchTerm}
           nodeTypeIcons={nodeTypeIcons}
           onResetView={handleReset}
+          suppressHover={cameraInteracting}
           onGraphClick={() => {
             useGraphStore.getState().setSidebarSelectedNode(null)
             useGraphStore.getState().setHoveredNode(null)
@@ -1171,6 +1221,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           truckSpeed={1}
           dollyToCursor
         />
+        <CameraInteractionTracker onChange={handleCameraInteractingChange} />
         <CameraSync camRef={cameraRef} targetRef={camAnim} />
         <EffectComposer>
           <Bloom

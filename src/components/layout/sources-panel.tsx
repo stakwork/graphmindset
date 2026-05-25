@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ExternalLink, Trash2, Loader2, X, Video, GitFork, Rss, AtSign } from "lucide-react"
+import { ExternalLink, Trash2, Loader2, X, Video, GitFork, Rss, AtSign, Pencil } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -54,12 +54,27 @@ function SourceRow({
   source,
   canEdit,
   onDelete,
+  onRefresh,
 }: {
   source: Source
   canEdit: boolean
   onDelete: (id: string) => void
+  onRefresh: () => void
 }) {
   const [deleting, setDeleting] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editCategory, setEditCategory] = useState(source.category ?? "")
+  const [editWeight, setEditWeight] = useState<string>(
+    source.weight != null ? String(source.weight) : ""
+  )
+  const [saving, setSaving] = useState(false)
+
+  // Sync edit fields when editing opens
+  const handleOpenEdit = useCallback(() => {
+    setEditCategory(source.category ?? "")
+    setEditWeight(source.weight != null ? String(source.weight) : "")
+    setEditing(true)
+  }, [source.category, source.weight])
 
   const handleDelete = useCallback(async () => {
     if (!canEdit) return
@@ -73,6 +88,24 @@ function SourceRow({
       setDeleting(false)
     }
   }, [canEdit, source.ref_id, onDelete])
+
+  const handleSave = useCallback(async () => {
+    if (!canEdit) return
+    setSaving(true)
+    try {
+      const weightVal = editWeight !== "" ? parseFloat(editWeight) : null
+      await api.put(`/radar/${source.ref_id}`, {
+        category: editCategory || null,
+        weight: weightVal,
+      })
+      setEditing(false)
+      onRefresh()
+    } catch {
+      console.warn("Failed to save source metadata")
+    } finally {
+      setSaving(false)
+    }
+  }, [canEdit, source.ref_id, editCategory, editWeight, onRefresh])
 
   const displayName = extractNameFromSource(source.source, source.source_type as never)
   const typeLabel = SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type
@@ -91,49 +124,101 @@ function SourceRow({
   const isLink = linkTypes.includes(source.source_type)
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors group overflow-hidden">
-      <SourceIcon type={source.source_type} />
-      <div className="flex-1 min-w-0 overflow-hidden">
-        {isLink ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-foreground hover:text-primary transition-colors block truncate"
+    <div className="px-4 py-2.5 hover:bg-muted/30 transition-colors group overflow-hidden">
+      <div className="flex items-center gap-3">
+        <SourceIcon type={source.source_type} />
+        <div className="flex-1 min-w-0 overflow-hidden">
+          {isLink ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-foreground hover:text-primary transition-colors block truncate"
+            >
+              {displayName}
+            </a>
+          ) : (
+            <span className="text-sm text-foreground block truncate">
+              {displayName}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">{typeLabel}</span>
+          {source.category && (
+            <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0 text-[9px] text-primary mt-0.5">
+              {source.category}
+            </span>
+          )}
+          {source.topics && source.topics.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {source.topics.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0 text-[9px] text-primary"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        {canEdit && (
+          <button
+            onClick={handleOpenEdit}
+            className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-all"
+            aria-label="Edit source metadata"
           >
-            {displayName}
-          </a>
-        ) : (
-          <span className="text-sm text-foreground block truncate">
-            {displayName}
-          </span>
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
         )}
-        <span className="text-[10px] text-muted-foreground">{typeLabel}</span>
-        {source.topics && source.topics.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-0.5">
-            {source.topics.map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0 text-[9px] text-primary"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
+        {canEdit && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </button>
         )}
       </div>
-      {canEdit && (
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-        >
-          {deleting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Trash2 className="h-3.5 w-3.5" />
-          )}
-        </button>
+
+      {editing && (
+        <div className="mt-2 flex flex-col gap-2">
+          <input
+            value={editCategory}
+            onChange={(e) => setEditCategory(e.target.value)}
+            placeholder="Category"
+            className="w-full rounded border border-border/50 bg-muted/50 px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.1}
+            value={editWeight}
+            onChange={(e) => setEditWeight(e.target.value)}
+            placeholder="Weight (0–1)"
+            className="w-full rounded border border-border/50 bg-muted/50 px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-[10px] rounded bg-primary px-2.5 py-1 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="text-[10px] rounded bg-muted px-2.5 py-1 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -143,27 +228,34 @@ export function SourcesPanel({ onClose }: { onClose: () => void }) {
   const { sources, loading, setSources, setLoading, removeSource } =
     useSourcesStore()
   const isAdmin = useUserStore((s) => s.isAdmin)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+
+  const fetchSources = useCallback(async () => {
+    setLoading(true)
+    try {
+      if (isMocksEnabled()) {
+        setSources(MOCK_SOURCES)
+      } else {
+        const res = await api.get<{ data: Source[] }>(
+          "/radar?skip=0&limit=500"
+        )
+        setSources(res.data ?? [])
+      }
+    } catch {
+      setSources([])
+    } finally {
+      setLoading(false)
+    }
+  }, [setSources, setLoading])
 
   useEffect(() => {
-    const fetchSources = async () => {
-      setLoading(true)
-      try {
-        if (isMocksEnabled()) {
-          setSources(MOCK_SOURCES)
-        } else {
-          const res = await api.get<{ data: Source[] }>(
-            "/radar?skip=0&limit=500"
-          )
-          setSources(res.data ?? [])
-        }
-      } catch {
-        setSources([])
-      } finally {
-        setLoading(false)
-      }
-    }
     fetchSources()
-  }, [setSources, setLoading])
+  }, [fetchSources])
+
+  const categories = [...new Set(sources.map((s) => s.category).filter(Boolean))] as string[]
+  const visibleSources = selectedCategory
+    ? sources.filter((s) => s.category === selectedCategory)
+    : sources
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
@@ -211,20 +303,40 @@ export function SourcesPanel({ onClose }: { onClose: () => void }) {
             )}
           </div>
         ) : (
-          <div className="py-1">
-            {sources.map((source, i) => (
-              <div key={source.ref_id}>
-                <SourceRow
-                  source={source}
-                  canEdit={isAdmin}
-                  onDelete={removeSource}
-                />
-                {i < sources.length - 1 && (
-                  <Separator className="bg-sidebar-border/50" />
-                )}
+          <>
+            {categories.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-4 py-2 border-b border-sidebar-border/50">
+                {(["All", ...categories] as string[]).map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat === "All" ? null : cat)}
+                    className={`text-[10px] rounded px-2 py-0.5 border transition-colors ${
+                      (cat === "All" && !selectedCategory) || selectedCategory === cat
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted/50 text-muted-foreground border-border/50 hover:border-primary/40"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+            <div className="py-1">
+              {visibleSources.map((source, i) => (
+                <div key={source.ref_id}>
+                  <SourceRow
+                    source={source}
+                    canEdit={isAdmin}
+                    onDelete={removeSource}
+                    onRefresh={fetchSources}
+                  />
+                  {i < visibleSources.length - 1 && (
+                    <Separator className="bg-sidebar-border/50" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </ScrollArea>
     </div>

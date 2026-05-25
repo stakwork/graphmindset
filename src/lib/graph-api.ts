@@ -195,6 +195,64 @@ export async function uploadImageToNode(
   return response.json()
 }
 
+// Mirrors jarvis ALLOWED_ORIGINAL_TYPES + MAX_IMAGE_UPLOAD_BYTES. Kept in sync
+// manually — change both at once. SVG/HEIC deliberately excluded (XSS surface,
+// missing Pillow codec respectively).
+export const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+] as const
+export const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024
+
+// Single-shot image content upload — multipart POST to /v2/content/image.
+// Backend stages the original bytes in sphinx-swarm/temp, creates the Image
+// node, and triggers the Stakwork workflow that relocates the file to
+// permanent storage. Caller doesn't need to call createNode first.
+//
+// Multipart same as uploadImageToNode — bypasses api.post (which forces
+// application/json) so the browser can set the multipart boundary itself.
+export async function addImageContent(
+  file: File,
+  opts: { name?: string; webhookUrl?: string } = {},
+  signal?: AbortSignal
+): Promise<{
+  status: string
+  nodes: Array<Record<string, unknown>>
+  status_messages: string[]
+  temp_url?: string
+}> {
+  const url = new URL(`${API_URL}/v2/content/image`)
+
+  const signed = await getSignedMessage()
+  if (signed.signature) {
+    url.searchParams.append("sig", signed.signature)
+    url.searchParams.append("msg", signed.message)
+  }
+
+  const headers: Record<string, string> = {}
+  const l402 = await getL402()
+  if (l402) headers.Authorization = l402
+
+  const form = new FormData()
+  form.append("file", file)
+  if (opts.name) form.append("name", opts.name)
+  if (opts.webhookUrl) form.append("webhook_url", opts.webhookUrl)
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form,
+    signal: signal ?? new AbortController().signal,
+  })
+
+  if (!response.ok) {
+    throw response
+  }
+  return response.json()
+}
+
 // Update a node
 export async function updateNode(
   refId: string,
@@ -259,7 +317,7 @@ export async function getStats(signal?: AbortSignal): Promise<StatsResponse> {
 
 // Add content via v2/content
 export async function addContent(
-  data: { source: string; source_type: string; topics?: string[] },
+  data: { source: string; source_type: string; topics?: string[]; category?: string; weight?: number },
   signal?: AbortSignal
 ) {
   return api.post("/radar", data, undefined, signal)
@@ -280,7 +338,7 @@ export const RADAR_SOURCE_TYPES: RadarSourceType[] = [
   "topic",
 ]
 
-export type JanitorSourceType = "deduplication" | "content_review" | "topic_review"
+export type JanitorSourceType = "deduplication" | "content_review" | "topic_review" | "orphan_node"
 
 export type CronKind = "source" | "janitor"
 
