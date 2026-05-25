@@ -18,6 +18,7 @@ import { useUserStore } from "@/stores/user-store"
 import { adminUpdateNode } from "@/lib/graph-api"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SYSTEM_ATTRIBUTES, fieldsForSchema } from "@/lib/node-schema-utils"
+import { resolveNodeTitle } from "@/lib/node-display"
 import {
   computeMappings,
   type ExactMapping,
@@ -377,13 +378,15 @@ export function EditNodeModal() {
   // ----- Render -----
   if (!isOpen || !editingNode) return null
 
+  const displayTitle = resolveNodeTitle(editingNode, schemas)
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
       <DialogContent className="border-border/50 bg-card noise-bg sm:max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <DialogTitle className="font-heading text-lg tracking-wide">Edit Node</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            Update properties for <span className="font-mono text-foreground/80">{editingNode.ref_id}</span>
+            Update properties for <span className="font-mono text-foreground/80">{displayTitle}</span>
           </DialogDescription>
         </DialogHeader>
 
