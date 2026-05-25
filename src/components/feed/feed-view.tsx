@@ -7,8 +7,6 @@ import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
-import { getLatestNodes } from "@/lib/graph-api"
-import { isMetroTheme } from "@/lib/theme"
 import { metroSeries } from "@/data/metro"
 import type { GraphNode, GraphEdge } from "@/lib/graph-api"
 import { FeedCard } from "./feed-card"
@@ -23,7 +21,6 @@ export function FeedView() {
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const setGraphData = useGraphStore((s) => s.setGraphData)
-  const setLoading = useGraphStore((s) => s.setLoading)
   const searchTerm = useAppStore((s) => s.searchTerm)
   const schemas = useSchemaStore((s) => s.schemas)
 
@@ -34,37 +31,16 @@ export function FeedView() {
     setActiveTypes(new Set())
   }, [searchTerm, clearSelection])
 
-  // Mocks mode seeds from fixtures so the Latest feed has content before any search.
-  // Metro theme bypasses the API: the metro dataset lives only in the local
-  // fixture (the platform search/list endpoints return a thin projection
-  // that strips mapX/mapZ, so the overlay can't position bullets from API
-  // payloads alone).
+  // Seed from the local metro fixture. The platform search/list endpoints
+  // strip mapX/mapZ, so the overlay can't position bullets from API payloads
+  // alone — the fixture is the only source of truth for the schematic.
   useEffect(() => {
     if (useGraphStore.getState().nodes.length > 0) return
     if (isMocksEnabled()) {
       setGraphData(MOCK_NODES, MOCK_EDGES)
       return
     }
-    if (isMetroTheme()) {
-      setGraphData(metroSeries.nodes as GraphNode[], metroSeries.edges as GraphEdge[])
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    ;(async () => {
-      try {
-        const result = await getLatestNodes()
-        if (cancelled) return
-        setGraphData(result.nodes ?? [], result.edges ?? [])
-      } catch (err) {
-        console.error("[feed-view] getLatestNodes failed:", err)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    setGraphData(metroSeries.nodes as GraphNode[], metroSeries.edges as GraphEdge[])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

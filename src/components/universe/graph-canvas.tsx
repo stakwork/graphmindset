@@ -24,7 +24,6 @@ import { useAppStore } from "@/stores/app-store"
 import type { SchemaNode } from "@/app/ontology/page"
 import { HoverPreviewCard } from "./hover-preview-card"
 import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
-import { isMetroTheme } from "@/lib/theme"
 import { metroSeries } from "@/data/metro"
 import {
   MetroLinesLayer,
@@ -733,32 +732,26 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const dataVersion = useGraphStore((s) => s.dataVersion)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
-  // The metro overlay is theme-driven, not data-driven. We want the
-  // schematic to stay visible even when search replaces the graph store
-  // with results that don't include Station nodes — so the lines, bullets
-  // and legend always render from the local metro fixture in metro theme,
-  // independent of whatever the current dataset is.
-  const isMetroView = isMetroTheme()
-  const overlayNodes = isMetroView ? (metroSeries.nodes as ApiNode[]) : []
-  const overlayEdges = isMetroView ? (metroSeries.edges as ApiEdge[]) : []
+  // The metro overlay always renders from the local fixture so the
+  // schematic stays visible even when search replaces the graph store
+  // with results that don't include Station nodes.
+  const overlayNodes = metroSeries.nodes as ApiNode[]
+  const overlayEdges = metroSeries.edges as ApiEdge[]
 
-  // In metro theme, the *interactive* station layer (3D spheres + labels +
-  // hover behavior provided by GraphView) also has to persist through
-  // search, not just the schematic bullets. So we splice fixture stations
-  // and TUNNEL_TO edges into whatever the graph store currently has before
-  // running the radial layout. De-dupe by ref_id / edge identity so a
+  // The *interactive* station layer (3D spheres + labels + hover behavior
+  // provided by GraphView) also has to persist through search. Splice fixture
+  // stations and TUNNEL_TO edges into whatever the graph store currently has
+  // before running the radial layout. De-dupe by ref_id / edge identity so a
   // future search that does return a station won't double-render it.
   const effectiveNodes = useMemo(() => {
-    if (!isMetroView) return nodes
     const seen = new Set(nodes.map((n) => n.ref_id))
     const fixtureStations = (metroSeries.nodes as ApiNode[]).filter(
       (n) => n.node_type === "Station" && !seen.has(n.ref_id)
     )
     return fixtureStations.length > 0 ? [...nodes, ...fixtureStations] : nodes
-  }, [isMetroView, nodes])
+  }, [nodes])
 
   const effectiveEdges = useMemo(() => {
-    if (!isMetroView) return edges
     const refIds = new Set(effectiveNodes.map((n) => n.ref_id))
     const seen = new Set(
       edges.map((e) => `${e.source}|${e.target}|${e.edge_type}`)
@@ -779,16 +772,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         refIds.has(e.target)
     )
     return extras.length > 0 ? [...edges, ...extras] : edges
-  }, [isMetroView, edges, effectiveNodes])
+  }, [edges, effectiveNodes])
 
   const { graph, indexMap, refIdToIndex } = useMemo(() => {
     const result = apiToGraph(effectiveNodes, effectiveEdges, schemas)
-    // Force the Y-lift on the lore graph in metro theme even when the
-    // dataset doesn't carry fixed-position nodes (e.g. after a search).
-    // Otherwise search results would drop to y=0 where the schematic sits.
-    applyLayout(result.graph, result.fixedPositions, isMetroView)
+    // Force the Y-lift on the lore graph even when the dataset doesn't carry
+    // fixed-position nodes (e.g. after a search). Otherwise search results
+    // would drop to y=0 where the schematic sits.
+    applyLayout(result.graph, result.fixedPositions, true)
     return result
-  }, [effectiveNodes, effectiveEdges, schemas, isMetroView])
+  }, [effectiveNodes, effectiveEdges, schemas])
 
   // Lowercase type → schema icon name (e.g. "EpisodeIcon"). The pill in
   // GraphView resolves this through schema-icons to a Lucide component.
@@ -886,9 +879,9 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
   // Hovering a legend row spotlights every station in that state — reuses
   // the search-match plumbing in GraphView (highlights members, dims the
-  // rest). Returns null outside the metro view.
+  // rest).
   const stateHoverMatches = useMemo(() => {
-    if (!isMetroView || !hoveredState) return null
+    if (!hoveredState) return null
     const set = new Set<number>()
     for (let i = 0; i < nodes.length; i++) {
       if (nodes[i].node_type !== "Station") continue
@@ -898,11 +891,11 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       if (statusToState(status, p.faction) === hoveredState) set.add(i)
     }
     return set.size > 0 ? set : null
-  }, [nodes, hoveredState, isMetroView])
+  }, [nodes, hoveredState])
 
   // Hovering a metro line spotlights every node tagged with that line.
   const lineHoverMatches = useMemo(() => {
-    if (!isMetroView || !hoveredLine) return null
+    if (!hoveredLine) return null
     const set = new Set<number>()
     for (let i = 0; i < nodes.length; i++) {
       const p = nodes[i].properties as Record<string, unknown> | undefined
@@ -914,14 +907,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       if (lines.includes(hoveredLine)) set.add(i)
     }
     return set.size > 0 ? set : null
-  }, [nodes, hoveredLine, isMetroView])
+  }, [nodes, hoveredLine])
 
   // ref_id → set of metro line colors the node is associated with. Stations
   // contribute their own line property; non-station nodes inherit lines from
   // any station they share an edge with (1-hop). Used to dim unrelated
   // lines/bullets when a node is hovered or selected.
   const nodeToLines = useMemo(() => {
-    if (!isMetroView) return new Map<string, Set<string>>()
     const stationLines = new Map<string, Set<string>>()
     for (const n of nodes) {
       if (n.node_type !== "Station") continue
@@ -958,13 +950,12 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       }
     }
     return map
-  }, [nodes, edges, isMetroView])
+  }, [nodes, edges])
 
   // Lines currently in focus. Hovering a line directly wins; otherwise the
   // active node (hover beats select; canvas beats sidebar) contributes its
   // associated lines. `null` means no dimming — every line at full opacity.
   const activeLines = useMemo<Set<string> | null>(() => {
-    if (!isMetroView) return null
     if (hoveredLine) return new Set([hoveredLine])
     let activeRefId: string | null = null
     if (hoveredCardNode) activeRefId = hoveredCardNode.ref_id
@@ -975,7 +966,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     if (!activeRefId) return null
     return nodeToLines.get(activeRefId) ?? new Set()
   }, [
-    isMetroView,
     hoveredLine,
     hoveredCardNode,
     sidebarHoveredNode,
@@ -1162,21 +1152,17 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         style={{ background: "oklch(0.06 0.02 260)" }}
       >
         <ambientLight intensity={0.3} />
-        {isMetroView && (
-          <>
-            <MetroLinesLayer
-              nodes={overlayNodes}
-              edges={overlayEdges}
-              onLineHover={setHoveredLine}
-              activeLines={activeLines}
-            />
-            <MetroStationBullets
-              nodes={overlayNodes}
-              activeLines={activeLines}
-              activeState={hoveredState}
-            />
-          </>
-        )}
+        <MetroLinesLayer
+          nodes={overlayNodes}
+          edges={overlayEdges}
+          onLineHover={setHoveredLine}
+          activeLines={activeLines}
+        />
+        <MetroStationBullets
+          nodes={overlayNodes}
+          activeLines={activeLines}
+          activeState={hoveredState}
+        />
         <GraphView
           graph={graph}
           viewState={viewState}
@@ -1266,9 +1252,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
 
-      {isMetroView && (
-        <MetroLegend hoveredState={hoveredState} onHoverState={setHoveredState} />
-      )}
+      <MetroLegend hoveredState={hoveredState} onHoverState={setHoveredState} />
     </div>
   )
 }
