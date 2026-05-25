@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Zap, ExternalLink } from "lucide-react"
+import { ExternalLink } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -210,9 +211,9 @@ export function NodeRow({
       )}
       {!hideBoost && !ownerReference && boostAmt > 0 && (
         <div className="shrink-0 flex items-center gap-1 text-[11px] font-mono text-amber-400">
-          <Zap className="h-3 w-3" />
+          <BulletIcon className="h-3 w-3" />
           <span>{boostAmt}</span>
-          <span className="text-muted-foreground">sats</span>
+          <span className="text-muted-foreground">bullets</span>
         </div>
       )}
     </button>

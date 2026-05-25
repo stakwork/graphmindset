@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -1260,8 +1261,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 </>
               )}
               <Button onClick={handleUnlock} size="sm" className="w-full mt-2">
-                <Zap className="h-3.5 w-3.5 mr-1.5" />
-                {price ? `Unlock for ${price} sats` : "Unlock Full Content"}
+                <BulletIcon className="h-3.5 w-3.5 mr-1.5" />
+                {price ? `Unlock for ${price} bullets` : "Unlock Full Content"}
               </Button>
             </div>
           )}
@@ -1276,7 +1277,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
             <div className="space-y-3">
               <p className="text-xs text-destructive">Unlock failed — tap to retry</p>
               <Button onClick={handleUnlock} size="sm" variant="outline" className="w-full">
-                <Zap className="h-3.5 w-3.5 mr-1.5" />
+                <BulletIcon className="h-3.5 w-3.5 mr-1.5" />
                 Retry Unlock
               </Button>
             </div>
@@ -1335,9 +1336,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                     )}
                     {sats !== null && (
                       <div className="flex items-center gap-1 text-[11px] font-mono text-amber-400">
-                        <Zap className="h-3 w-3" />
+                        <BulletIcon className="h-3 w-3" />
                         <span>{sats}</span>
-                        <span className="text-muted-foreground">sats</span>
+                        <span className="text-muted-foreground">bullets</span>
                       </div>
                     )}
                   </div>

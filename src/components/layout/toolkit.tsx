@@ -6,7 +6,6 @@ import {
   Layers,
   Plus,
   Settings,
-  Zap,
   Network,
   BookMarked,
   Tag,
@@ -18,6 +17,7 @@ import {
   Cpu,
   GitMerge,
 } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
@@ -129,7 +129,7 @@ export function Toolkit({
   const formattedBudget =
     budget !== null && budget !== undefined ? formatSatsCompact(budget) : "--"
   const fullBudget =
-    budget !== null && budget !== undefined ? `${budget.toLocaleString()} sats` : "Manage budget"
+    budget !== null && budget !== undefined ? `${budget.toLocaleString()} bullets` : "Manage budget"
 
   const sphinxConnected = typeof window !== "undefined" && isSphinx()
   const weblnAvailable = typeof window !== "undefined" && hasWebLN()
@@ -151,7 +151,7 @@ export function Toolkit({
               onClick={() => openModal("budget")}
               className="group flex flex-col items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-md text-muted-foreground hover:bg-muted/40 transition-colors"
             >
-              <Zap className="h-3.5 w-3.5 text-amber glow-text-amber transition-transform group-hover:scale-110" />
+              <BulletIcon className="h-3.5 w-3.5 text-amber glow-text-amber transition-transform group-hover:scale-110" />
               <span className="font-mono text-[8px] tracking-[0.1em] leading-none text-amber/80 group-hover:text-amber">
                 {formattedBudget}
               </span>
@@ -309,8 +309,8 @@ export function ToolkitFAB({
               onClick={() => { openModal("budget"); setOpen(false) }}
               className="flex items-center gap-2 px-3 py-2 rounded-md text-muted-foreground hover:bg-muted/40"
             >
-              <Zap className="h-4 w-4 text-amber-400" />
-              <span className="text-xs">{formattedBudget} sats</span>
+              <BulletIcon className="h-4 w-4 text-amber-400" />
+              <span className="text-xs">{formattedBudget} bullets</span>
             </button>
             {/* Connection indicator */}
             <div className="flex items-center gap-2 px-3 py-2">

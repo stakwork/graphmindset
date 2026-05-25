@@ -199,7 +199,7 @@ describe("NodePreviewPanel – price display", () => {
     userStoreOverrides = {}
   })
 
-  it("renders 'Unlock for 10 sats' when 402 body has price: 10", async () => {
+  it("renders 'Unlock for 10 bullets' when 402 body has price: 10", async () => {
     mockApiGet.mockRejectedValue(
       new Response(JSON.stringify({ price: 10 }), {
         status: 402,
@@ -210,7 +210,7 @@ describe("NodePreviewPanel – price display", () => {
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock for 10 sats/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Unlock for 10 bullets/i })).toBeInTheDocument()
     })
   })
 
@@ -260,7 +260,7 @@ describe("NodePreviewPanel – price display", () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock for 10 sats/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Unlock for 10 bullets/i })).toBeInTheDocument()
     })
 
     // Switch to second node with price = 25
@@ -274,11 +274,11 @@ describe("NodePreviewPanel – price display", () => {
     rerender(<NodePreviewPanel node={NODE_B} onBack={vi.fn()} schemas={[]} />)
 
     // Stale price from first node should be gone
-    expect(screen.queryByRole("button", { name: /Unlock for 10 sats/i })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Unlock for 10 bullets/i })).toBeNull()
 
     // After second node's 402 resolves, new price appears
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock for 25 sats/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Unlock for 25 bullets/i })).toBeInTheDocument()
     })
   })
 })
@@ -419,7 +419,7 @@ describe("NodePreviewPanel – core property rendering", () => {
     expect(screen.queryByText(/ago/i)).not.toBeInTheDocument()
   })
 
-  it("shows sats counter when boost is a positive number", async () => {
+  it("shows bullets counter when boost is a positive number", async () => {
     const node = makeUnlockedNode({ boost: 50 })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
@@ -427,7 +427,7 @@ describe("NodePreviewPanel – core property rendering", () => {
 
     await waitFor(() => {
       expect(screen.getByText("50")).toBeInTheDocument()
-      expect(screen.getByText("sats")).toBeInTheDocument()
+      expect(screen.getByText("bullets")).toBeInTheDocument()
     })
   })
 
@@ -444,7 +444,7 @@ describe("NodePreviewPanel – core property rendering", () => {
     expect(screen.queryByText("Done")).toBeNull()
     expect(screen.queryByText("Paused")).toBeNull()
     expect(screen.queryByText("Failed")).toBeNull()
-    expect(screen.queryByText("sats")).toBeNull()
+    expect(screen.queryByText("bullets")).toBeNull()
   })
 })
 
@@ -697,7 +697,7 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock for 15 sats/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Unlock for 15 bullets/i })).toBeInTheDocument()
     })
   })
 
@@ -714,10 +714,10 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock for 5 sats/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Unlock for 5 bullets/i })).toBeInTheDocument()
     })
 
-    screen.getByRole("button", { name: /Unlock for 5 sats/i }).click()
+    screen.getByRole("button", { name: /Unlock for 5 bullets/i }).click()
 
     await waitFor(() => {
       expect(mockUnlockNode).toHaveBeenCalledWith("abc")
@@ -737,10 +737,10 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock for 5 sats/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Unlock for 5 bullets/i })).toBeInTheDocument()
     })
 
-    screen.getByRole("button", { name: /Unlock for 5 sats/i }).click()
+    screen.getByRole("button", { name: /Unlock for 5 bullets/i }).click()
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
@@ -761,10 +761,10 @@ describe("NodePreviewPanel – preview=1 probe behaviour", () => {
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Unlock for 10 sats/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Unlock for 10 bullets/i })).toBeInTheDocument()
     })
 
-    screen.getByRole("button", { name: /Unlock for 10 sats/i }).click()
+    screen.getByRole("button", { name: /Unlock for 10 bullets/i }).click()
 
     await waitFor(() => {
       expect(mockOpen).toHaveBeenCalledWith("budget")

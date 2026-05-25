@@ -157,7 +157,7 @@ describe("MyContentPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
     })
-    expect(screen.queryByText("sats")).not.toBeInTheDocument()
+    expect(screen.queryByText("bullets")).not.toBeInTheDocument()
   })
 
   it("renders no boost display when boost is absent", async () => {
@@ -174,7 +174,7 @@ describe("MyContentPanel", () => {
     })
     render(<MyContentPanel onClose={() => {}} />)
     await waitFor(() => {
-      expect(screen.queryByText("sats")).not.toBeInTheDocument()
+      expect(screen.queryByText("bullets")).not.toBeInTheDocument()
     })
   })
 
@@ -191,7 +191,7 @@ describe("MyContentPanel", () => {
     )
   })
 
-  it("hides boost sats display when node has owner_reference_id (contributor)", async () => {
+  it("hides boost bullets display when node has owner_reference_id (contributor)", async () => {
     mockApiGet.mockResolvedValue({
       nodes: [
         {
@@ -213,10 +213,10 @@ describe("MyContentPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
     })
-    expect(screen.queryByText("sats")).not.toBeInTheDocument()
+    expect(screen.queryByText("bullets")).not.toBeInTheDocument()
   })
 
-  it("hides boost sats display when isAdmin is true", async () => {
+  it("hides boost bullets display when isAdmin is true", async () => {
     mockApiGet.mockResolvedValue({
       nodes: [
         {
@@ -238,7 +238,7 @@ describe("MyContentPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument()
     })
-    expect(screen.queryByText("sats")).not.toBeInTheDocument()
+    expect(screen.queryByText("bullets")).not.toBeInTheDocument()
   })
 })
 

@@ -123,7 +123,7 @@ describe("BudgetModal success screen delta", () => {
     cookieStorage.removeItem("l402")
   })
 
-  it("shows +N sats added after amount-picker top-up (Sphinx/WebLN path)", async () => {
+  it("shows +N bullets added after amount-picker top-up (Sphinx/WebLN path)", async () => {
     // Setup: has existing L402 + Sphinx connected
     cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
     mockIsSphinx.mockReturnValue(true)
@@ -149,11 +149,11 @@ describe("BudgetModal success screen delta", () => {
       expect(screen.getByText("Top-up complete")).toBeInTheDocument()
     })
 
-    expect(screen.getByText("+200 sats added")).toBeInTheDocument()
+    expect(screen.getByText("+200 bullets added")).toBeInTheDocument()
     expect(screen.getByText(/270/)).toBeInTheDocument()
   })
 
-  it("shows +N sats added from firstPurchaseAmount after first-purchase QR flow", async () => {
+  it("shows +N bullets added from firstPurchaseAmount after first-purchase QR flow", async () => {
     // Setup: no L402, no Sphinx, no WebLN → first-purchase flow
     mockIsSphinx.mockReturnValue(false)
     mockHasWebLN.mockReturnValue(false)
@@ -178,7 +178,7 @@ describe("BudgetModal success screen delta", () => {
       expect(screen.getByText("Top-up complete")).toBeInTheDocument()
     })
 
-    expect(screen.getByText("+500 sats added")).toBeInTheDocument()
+    expect(screen.getByText("+500 bullets added")).toBeInTheDocument()
   })
 
   beforeEach(() => {
@@ -200,7 +200,7 @@ describe("BudgetModal success screen delta", () => {
     })
 
     // No delta line should be rendered
-    expect(screen.queryByText(/sats added/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/bullets added/)).not.toBeInTheDocument()
     // Total balance still shows
     expect(screen.getByText(/270/)).toBeInTheDocument()
   })
@@ -558,9 +558,9 @@ describe("BudgetModal history view-grant filtering", () => {
     })
 
     // Zero-amount purchase should be filtered out
-    expect(screen.queryByText("-0 sats")).not.toBeInTheDocument()
+    expect(screen.queryByText("-0 bullets")).not.toBeInTheDocument()
     // top_up row should be present
-    expect(screen.getByText("+500 sats")).toBeInTheDocument()
+    expect(screen.getByText("+500 bullets")).toBeInTheDocument()
   })
 
   it("renders non-zero purchase rows in History", async () => {
@@ -578,11 +578,11 @@ describe("BudgetModal history view-grant filtering", () => {
 
     await waitFor(() => {
       // The non-zero purchase row should be visible
-      expect(screen.getByText("-10 sats")).toBeInTheDocument()
+      expect(screen.getByText("-10 bullets")).toBeInTheDocument()
     })
 
     // The zero-amount purchase should NOT appear
-    expect(screen.queryByText("-0 sats")).not.toBeInTheDocument()
+    expect(screen.queryByText("-0 bullets")).not.toBeInTheDocument()
   })
 })
 

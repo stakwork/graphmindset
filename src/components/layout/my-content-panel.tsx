@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Socket } from "socket.io-client"
 import { getSocket } from "@/lib/socket"
 import { X, Loader2, BookMarked, Trash2, ShoppingBag } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -351,8 +352,8 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                   ) : insights && insights.total_unlocks > 0 ? (
                     <div className="flex gap-4">
                       <div>
-                        <p className="font-mono text-sm font-semibold text-foreground">⚡ {insights.total_sats_earned}</p>
-                        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">sats earned</p>
+                        <p className="font-mono text-sm font-semibold text-foreground inline-flex items-center gap-1.5"><BulletIcon className="h-3.5 w-3.5 text-amber" />{insights.total_sats_earned}</p>
+                        <p className="text-[9px] text-muted-foreground uppercase tracking-wide">bullets earned</p>
                       </div>
                       <div>
                         <p className="font-mono text-sm font-semibold text-foreground">🔓 {insights.total_unlocks}</p>

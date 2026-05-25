@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Zap, Copy, Check, Loader2, ArrowLeft, History, Key, RefreshCw, ArrowUpRight, Clock } from "lucide-react"
+import { Copy, Check, Loader2, ArrowLeft, History, Key, RefreshCw, ArrowUpRight, Clock } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import { QRCodeSVG } from "qrcode.react"
 import {
   Dialog,
@@ -336,7 +337,7 @@ export function BudgetModal() {
   // Pay with selected amount — same flow for Sphinx, WebLN, and manual
   const handlePay = useCallback(async () => {
     if (!amount || amount < 1 || amount > 10000) {
-      setError("Enter an amount between 1 and 10,000 sats.")
+      setError("Enter an amount between 1 and 10,000 bullets.")
       return
     }
 
@@ -491,10 +492,10 @@ export function BudgetModal() {
                       {formattedBudget}
                     </span>
                     <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                      sats
+                      bullets
                     </span>
                   </div>
-                  <Zap className="h-10 w-10 text-amber glow-text-amber" strokeWidth={1.5} />
+                  <BulletIcon className="h-10 w-10 text-amber glow-text-amber" strokeWidth={1.5} />
                 </div>
               </div>
 
@@ -511,7 +512,7 @@ export function BudgetModal() {
                   {loading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Zap className="h-4 w-4" />
+                    <BulletIcon className="h-4 w-4" />
                   )}
                   <span className="text-sm font-medium">
                     {loading ? "Processing..." : "Top Up"}
@@ -555,10 +556,10 @@ export function BudgetModal() {
                 <>
                   <div className="rounded-md border border-amber/30 bg-amber/5 p-3 space-y-2.5">
                     <div className="flex items-start gap-2">
-                      <Zap className="h-4 w-4 text-amber shrink-0 mt-0.5" />
+                      <BulletIcon className="h-4 w-4 text-amber shrink-0 mt-0.5" />
                       <div className="flex-1 space-y-0.5">
                         <p className="text-xs font-medium text-foreground">
-                          Pending invoice for {pendingChallenge.amount.toLocaleString()} sats
+                          Pending invoice for {pendingChallenge.amount.toLocaleString()} bullets
                         </p>
                         <p className="text-[11px] text-muted-foreground">
                           You started a top-up earlier. Pay this invoice or generate a new one below.
@@ -573,7 +574,7 @@ export function BudgetModal() {
                       {loading ? (
                         <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <Zap className="mr-2 h-3.5 w-3.5" />
+                        <BulletIcon className="mr-2 h-3.5 w-3.5" />
                       )}
                       {loading ? "Checking..." : "Pay Pending Invoice"}
                     </Button>
@@ -598,7 +599,7 @@ export function BudgetModal() {
                     }`}
                   >
                     <span className="block text-lg font-heading font-bold">{preset}</span>
-                    <span className="block text-[10px] font-mono uppercase tracking-wider opacity-60">sats</span>
+                    <span className="block text-[10px] font-mono uppercase tracking-wider opacity-60">bullets</span>
                   </button>
                 ))}
               </div>
@@ -615,7 +616,7 @@ export function BudgetModal() {
                   placeholder="Custom amount"
                   className="h-10 w-full rounded-md border border-border/50 bg-muted/30 px-3 pr-12 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:border-primary/40 focus:outline-none"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground/50">sats</span>
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground/50">bullets</span>
               </div>
 
               {error && <p className="text-xs text-destructive text-center">{error}</p>}
@@ -628,7 +629,7 @@ export function BudgetModal() {
                 {loading ? (
                   <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Zap className="mr-2 h-3.5 w-3.5" />
+                  <BulletIcon className="mr-2 h-3.5 w-3.5" />
                 )}
                 {loading ? "Generating Invoice..." : "Generate Invoice"}
               </Button>
@@ -724,7 +725,7 @@ export function BudgetModal() {
                       {preset}
                     </span>
                     <span className="block text-[10px] font-mono uppercase tracking-wider opacity-60">
-                      sats
+                      bullets
                     </span>
                   </button>
                 ))}
@@ -743,7 +744,7 @@ export function BudgetModal() {
                   className="h-10 w-full rounded-md border border-border/50 bg-muted/30 px-3 pr-12 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:border-primary/40 focus:outline-none"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground/50">
-                  sats
+                  bullets
                 </span>
               </div>
 
@@ -759,7 +760,7 @@ export function BudgetModal() {
                 {loading ? (
                   <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Zap className="mr-2 h-3.5 w-3.5" />
+                  <BulletIcon className="mr-2 h-3.5 w-3.5" />
                 )}
                 {loading
                   ? "Processing..."
@@ -880,7 +881,7 @@ export function BudgetModal() {
                         tx.refunded ? 'text-muted-foreground' :
                         tx.type === 'credit' ? 'text-emerald-400' : 'text-muted-foreground'
                       }`}>
-                        {tx.refunded ? '—' : `${tx.type === 'credit' ? '+' : '-'}${tx.amount} sats`}
+                        {tx.refunded ? '—' : `${tx.type === 'credit' ? '+' : '-'}${tx.amount} bullets`}
                       </span>
                     </div>
                   ))}
@@ -973,13 +974,13 @@ export function BudgetModal() {
                   </p>
                   {successDelta !== null && (
                     <p className="text-sm font-mono text-emerald-400">
-                      +{successDelta.toLocaleString()} sats added
+                      +{successDelta.toLocaleString()} bullets added
                     </p>
                   )}
                   <p className="mt-1 text-2xl font-heading font-bold text-foreground">
                     {formattedBudget}
                     <span className="ml-1.5 text-xs font-mono text-muted-foreground uppercase">
-                      sats
+                      bullets
                     </span>
                   </p>
                 </div>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { Zap } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { isMocksEnabled } from "@/lib/mock-data"
@@ -97,7 +97,7 @@ export function BoostButton({
           className
         )}
       >
-        <Zap
+        <BulletIcon
           className={cn(
             "h-3 w-3 transition-transform",
             flash && "scale-125",
@@ -108,7 +108,7 @@ export function BoostButton({
           {count > 0 ? count : DEFAULT_BOOST_AMOUNT}
         </span>
         <span className="text-[10px]">
-          {count > 0 ? "sats" : "boost"}
+          {count > 0 ? "bullets" : "boost"}
         </span>
       </button>
       {error && (

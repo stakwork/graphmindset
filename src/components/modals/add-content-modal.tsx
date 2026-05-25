@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Loader2, CheckCircle2, LinkIcon, Zap, X, RefreshCw } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import {
   Dialog,
   DialogContent,
@@ -499,17 +500,17 @@ export function AddContentModal() {
               <Separator className="bg-border/30" />
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Zap className="h-3 w-3 text-amber" />
+                  <BulletIcon className="h-3 w-3 text-amber" />
                   <span>Cost</span>
                 </div>
                 <span className="font-mono text-foreground">
-                  {price} sats
+                  {price} bullets
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Budget</span>
                 <span className="font-mono text-foreground">
-                  {formattedBudget} sats
+                  {formattedBudget} bullets
                 </span>
               </div>
             </>
@@ -528,7 +529,7 @@ export function AddContentModal() {
           {/* Anon-loss disclosure */}
           {!pubKey && (
             <p className="text-xs text-muted-foreground mt-2">
-              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your sats.
+              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your bullets.
             </p>
           )}
 
@@ -571,7 +572,9 @@ export function AddContentModal() {
                 </>
               ) : (
                 <>
-                  {(price && price > 0) || cacheStatus === "hit-completed" ? (
+                  {price && price > 0 ? (
+                    <BulletIcon className="mr-1.5 h-3.5 w-3.5" />
+                  ) : cacheStatus === "hit-completed" ? (
                     <Zap className="mr-1.5 h-3.5 w-3.5" />
                   ) : null}
                   {submitLabel}

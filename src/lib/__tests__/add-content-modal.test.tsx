@@ -205,7 +205,7 @@ describe("AddContentModal — preview probe", () => {
     await waitFor(() => {
       expect(screen.getByText("Pay & Unlock")).toBeInTheDocument()
     })
-    expect(screen.getByText(/10 sats/)).toBeInTheDocument()
+    expect(screen.getByText(/10 bullets/)).toBeInTheDocument()
   })
 
   it("fallback (network error): modal stays open with Pay & Unlock button", async () => {

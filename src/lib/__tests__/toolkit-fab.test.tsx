@@ -181,13 +181,13 @@ describe("ToolkitFAB", () => {
     expect(screen.getByText("Reviews (5)")).toBeInTheDocument()
   })
 
-  it("budget sats display shows formatted value", async () => {
+  it("budget bullets display shows formatted value", async () => {
     userState.budget = 2500
     const { ToolkitFAB } = await import("@/components/layout/toolkit")
     render(<ToolkitFAB {...defaultProps} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
-    expect(screen.getByText("2.5k sats")).toBeInTheDocument()
+    expect(screen.getByText("2.5k bullets")).toBeInTheDocument()
   })
 })
 

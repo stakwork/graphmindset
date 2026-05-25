@@ -464,14 +464,14 @@ export function AddNodeModal() {
           {/* Anon-loss disclosure */}
           {!pubKey && (
             <p className="text-xs text-muted-foreground mt-2">
-              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your sats.
+              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your bullets.
             </p>
           )}
 
           {/* Price + Submit */}
           <div className="flex items-center justify-between pt-1">
             {price !== null && price > 0 ? (
-              <span className="text-xs text-muted-foreground font-mono">{price} sats</span>
+              <span className="text-xs text-muted-foreground font-mono">{price} bullets</span>
             ) : (
               <span />
             )}
@@ -492,7 +492,7 @@ export function AddNodeModal() {
                           const verb = selectedSchema
                             ? `Add ${selectedSchema.type}`
                             : "Add"
-                          return price && price > 0 ? `${verb} · ${price} sats` : verb
+                          return price && price > 0 ? `${verb} · ${price} bullets` : verb
                         })()}
             </Button>
           </div>
