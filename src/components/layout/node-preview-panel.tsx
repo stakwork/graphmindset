@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -12,7 +12,7 @@ import { api } from "@/lib/api"
 import { payL402 } from "@/lib/sphinx"
 import { isSphinx } from "@/lib/sphinx/detect"
 import { buildSphinxDeepLink } from "@/lib/sphinx/deep-link"
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { unlockNode } from "@/lib/unlock-node"
 import { isMocksEnabled, MOCK_FULL_NODES } from "@/lib/mock-data"
@@ -659,6 +659,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollContentRef = useRef<HTMLDivElement>(null)
+  const boostRef = useRef<HTMLSpanElement>(null)
   const [watched, setWatched] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
 
@@ -1030,94 +1031,113 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
           {displayNodeType(nodeType)}
         </Badge>
         <div className="ml-auto flex items-center gap-1.5">
-          {isSphinx() ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                  className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
-                  title="Copy share link"
-                >
-                  {copied ? (
-                    <span className="text-[10px] text-green-500">Copied!</span>
-                  ) : (
-                    <Link className="h-3.5 w-3.5" />
-                  )}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleCopyLink}>Copy link</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleCopySphinxLink}>Copy Sphinx link</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <button
-              onClick={handleCopyLink}
-              className="text-muted-foreground hover:text-foreground transition-colors text-xs flex items-center gap-1"
-              title="Copy share link"
+          {/* Hidden BoostButton — clicked programmatically from the dropdown */}
+          {ownerReference && !hideBoost && (
+            <span className="hidden" ref={boostRef}>
+              <BoostButton
+                refId={currentNode.ref_id}
+                ownerReference={ownerReference}
+                pubkey={pubkey}
+                routeHint={routeHint}
+                boostCount={boostAmt}
+              />
+            </span>
+          )}
+
+          {/* ⋯ overflow menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 text-xs"
+              title="More actions"
             >
               {copied ? (
                 <span className="text-[10px] text-green-500">Copied!</span>
               ) : (
-                <Link className="h-3.5 w-3.5" />
+                <MoreHorizontal className="h-4 w-4" />
               )}
-            </button>
-          )}
-          {hasIdentity && (
-            <button
-              onClick={async () => {
-                if (watchLoading) return
-                const next = !watched
-                setWatched(next)
-                setWatchLoading(true)
-                try {
-                  if (next) {
-                    await watchNode(currentNode.ref_id)
-                  } else {
-                    await unwatchNode(currentNode.ref_id)
-                  }
-                } catch {
-                  setWatched(!next)
-                } finally {
-                  setWatchLoading(false)
-                }
-              }}
-              className="transition-colors"
-              title={watched ? "Unwatch node" : "Watch node"}
-              disabled={watchLoading}
-            >
-              <Heart
-                className={cn(
-                  "h-3.5 w-3.5 transition-colors",
-                  watched ? "fill-red-400 text-red-400" : "text-muted-foreground hover:text-foreground"
-                )}
-              />
-            </button>
-          )}
-          {ownerReference && !hideBoost && (
-            <BoostButton
-              refId={currentNode.ref_id}
-              ownerReference={ownerReference}
-              pubkey={pubkey}
-              routeHint={routeHint}
-              boostCount={boostAmt}
-            />
-          )}
-          {(isAdmin || hasIdentity) && (
-            <button
-              onClick={() => openAddEdge(currentNode.ref_id)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Add edge from this node"
-            >
-              <GitMerge className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={() => openEdit(currentNode)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Edit node"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {/* Share — always visible */}
+              {isSphinx() ? (
+                <>
+                  <DropdownMenuItem onClick={handleCopyLink}>
+                    <Link className="h-3.5 w-3.5 mr-1.5" />
+                    Copy link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleCopySphinxLink}>
+                    <Link className="h-3.5 w-3.5 mr-1.5" />
+                    Copy Sphinx link
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <DropdownMenuItem onClick={handleCopyLink}>
+                  <Link className="h-3.5 w-3.5 mr-1.5" />
+                  Copy link
+                </DropdownMenuItem>
+              )}
+
+              {/* Watch */}
+              {hasIdentity && (
+                <DropdownMenuItem
+                  onClick={async () => {
+                    if (watchLoading) return
+                    const next = !watched
+                    setWatched(next)
+                    setWatchLoading(true)
+                    try {
+                      if (next) {
+                        await watchNode(currentNode.ref_id)
+                      } else {
+                        await unwatchNode(currentNode.ref_id)
+                      }
+                    } catch {
+                      setWatched(!next)
+                    } finally {
+                      setWatchLoading(false)
+                    }
+                  }}
+                  disabled={watchLoading}
+                >
+                  <Heart
+                    className={cn(
+                      "h-3.5 w-3.5 mr-1.5 transition-colors",
+                      watched ? "fill-red-400 text-red-400" : ""
+                    )}
+                  />
+                  {watched ? "Unwatch" : "Watch"}
+                </DropdownMenuItem>
+              )}
+
+              {/* Boost */}
+              {ownerReference && !hideBoost && (
+                <DropdownMenuItem onClick={() => boostRef.current?.querySelector("button")?.click()}>
+                  <Zap className="h-3.5 w-3.5 mr-1.5" />
+                  Boost
+                </DropdownMenuItem>
+              )}
+
+              {/* Separator between public actions and power-user/admin actions */}
+              {(isAdmin || hasIdentity) && <DropdownMenuSeparator />}
+
+              {/* Add Edge */}
+              {(isAdmin || hasIdentity) && (
+                <DropdownMenuItem onClick={() => openAddEdge(currentNode.ref_id)}>
+                  <GitMerge className="h-3.5 w-3.5 mr-1.5" />
+                  Add Edge
+                </DropdownMenuItem>
+              )}
+
+              {/* Edit node */}
+              {isAdmin && (
+                <DropdownMenuItem onClick={() => openEdit(currentNode)}>
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Edit node
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Close — always pinned */}
           <button
             onClick={onBack}
             className="text-muted-foreground hover:text-foreground transition-colors"
