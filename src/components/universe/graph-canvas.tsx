@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { CameraControls } from "@react-three/drei"
+import { CameraControls, Html } from "@react-three/drei"
 import { EffectComposer, Bloom } from "@react-three/postprocessing"
 import { Vector3 } from "three"
 import * as THREE from "three"
@@ -23,6 +23,7 @@ import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import type { SchemaNode } from "@/app/ontology/page"
 import { HoverPreviewCard } from "./hover-preview-card"
+import { CaseView } from "@/components/case-view"
 import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { metroSeries } from "@/data/metro"
 import {
@@ -521,6 +522,17 @@ const OVERVIEW_CAM: CamTarget = {
   lookX: 0, lookY: 0, lookZ: 0,
 }
 
+// World-units distance from camera to the selected node at which continuous
+// zoom flips into the 2D case view. Post-click rest distance is ~46 units
+// (cameraHeight from computeCamTarget); the trigger is well below that so
+// settling after a click doesn't accidentally fire it.
+const CASE_VIEW_TRIGGER_DISTANCE = 8
+
+// Camera billboard-scale for selected nodes (from graph-viz-kit depth visuals).
+// Used to estimate the apparent on-screen radius at handoff so the 2D canvas
+// can mount with cam.scale matching that radius — pixel-continuous handoff.
+const SELECTED_NODE_BILLBOARD_SCALE = 0.6
+
 function smoothstep(x: number) {
   return x * x * (3 - 2 * x)
 }
@@ -594,6 +606,131 @@ function CameraSync({
     )
   })
   return null
+}
+
+// Watches camera-to-target distance for the selected node. When the user
+// keeps dollying past CASE_VIEW_TRIGGER_DISTANCE the case view opens —
+// continuous zoom IS the navigation. Also renders the discoverability button
+// near the selected node so users who don't know about the gesture have an
+// explicit affordance. Both paths call the same onOpen callback.
+function CaseViewTrigger({
+  graph,
+  selectedNodeId,
+  selectedApiNode,
+  onOpen,
+  disabled,
+  camAnim,
+}: {
+  graph: Graph
+  selectedNodeId: number | null
+  selectedApiNode: ApiNode | null
+  onOpen: (node: ApiNode, apparentRadius: number) => void
+  disabled: boolean
+  camAnim: React.RefObject<{ progress: number }>
+}) {
+  const camera = useThree((s) => s.camera)
+  const size = useThree((s) => s.size)
+  const firedRef = useRef(false)
+
+  useFrame(() => {
+    if (selectedNodeId === null || !selectedApiNode) {
+      firedRef.current = false
+      return
+    }
+    const node = graph.nodes[selectedNodeId]
+    if (!node) return
+    const p = node.position
+    const dx = camera.position.x - p.x
+    const dy = camera.position.y - p.y
+    const dz = camera.position.z - p.z
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    // Re-arm once the camera pulls back past 1.5× the threshold. Hysteresis
+    // keeps the trigger from flapping near the boundary and prevents
+    // immediate re-fire after the user closes the case view (camera is
+    // still close to the node until handleCloseCaseView dollies it back).
+    if (dist > CASE_VIEW_TRIGGER_DISTANCE * 1.5) firedRef.current = false
+    if (disabled) return
+    // Skip the click-to-select lerp. computeCamTarget can land the rest
+    // position below the trigger threshold (Math.max(5, …) for leaf nodes)
+    // and the lerp would falsely fire mid-flight. Wait until the user is in
+    // control before considering the gesture intentional.
+    if (camAnim.current.progress < 1) return
+    if (dist < CASE_VIEW_TRIGGER_DISTANCE && !firedRef.current) {
+      firedRef.current = true
+      const fovRad = (50 / 2) * (Math.PI / 180)
+      const apparent =
+        (SELECTED_NODE_BILLBOARD_SCALE * size.height) /
+        (2 * dist * Math.tan(fovRad))
+      onOpen(selectedApiNode, apparent)
+    }
+  })
+
+  if (disabled || selectedNodeId === null || !selectedApiNode) return null
+  const node = graph.nodes[selectedNodeId]
+  if (!node) return null
+  const p = node.position
+  return (
+    <Html
+      position={[p.x, p.y, p.z]}
+      center
+      style={{ pointerEvents: "none" }}
+      zIndexRange={[20, 0]}
+    >
+      <div style={{ position: "relative", width: 0, height: 0 }}>
+        <button
+          onClick={() => {
+            const dx = camera.position.x - p.x
+            const dy = camera.position.y - p.y
+            const dz = camera.position.z - p.z
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1
+            const fovRad = (50 / 2) * (Math.PI / 180)
+            const apparent =
+              (SELECTED_NODE_BILLBOARD_SCALE * size.height) /
+              (2 * dist * Math.tan(fovRad))
+            onOpen(selectedApiNode, apparent)
+          }}
+          title="Open case view"
+          style={{
+            position: "absolute",
+            top: -68,
+            left: -22,
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            border: "1.5px solid rgba(77, 217, 232, 0.5)",
+            background: "rgba(10, 10, 20, 0.85)",
+            backdropFilter: "blur(12px)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "auto",
+            boxShadow: "0 0 20px rgba(77, 217, 232, 0.2)",
+            color: "#4dd9e8",
+            fontSize: 18,
+            lineHeight: 1,
+          }}
+        >
+          ⤢
+        </button>
+        <div
+          style={{
+            position: "absolute",
+            top: -22,
+            left: -22,
+            whiteSpace: "nowrap",
+            fontSize: 10,
+            fontFamily: "'JetBrains Mono', monospace",
+            color: "rgba(77, 217, 232, 0.75)",
+            textShadow: "0 0 8px rgba(0, 0, 0, 0.9)",
+            pointerEvents: "none",
+          }}
+        >
+          zoom in
+        </div>
+      </div>
+    </Html>
+  )
 }
 
 // Debug overlay — fixed world reference + per-frame crosshairs for camera and
@@ -794,6 +931,14 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   }, [schemas])
 
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
+  // Case view overlay state. node = which node is the center of the case
+  // view; apparentRadius = the on-screen pixel radius the node had in 3D at
+  // the handoff frame, so the 2D canvas can mount with cam.scale tuned to
+  // match — pixel-continuous handoff. null means no case view active.
+  const [caseView, setCaseView] = useState<{
+    node: ApiNode
+    apparentRadius: number
+  } | null>(null)
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   // Metro overlay focus state — driven by hovering the lines (3D) or the
@@ -862,7 +1007,38 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     // eslint-disable-next-line react-hooks/set-state-in-effect -- paired with an imperative camera reset; remount would drop GL state
     setViewState({ mode: "overview" })
     setCamTarget(OVERVIEW_CAM)
+    setCaseView(null)
   }, [dataVersion, setCamTarget])
+
+  const selectedApiNode = useMemo<ApiNode | null>(() => {
+    if (viewState.mode !== "subgraph") return null
+    const refId = indexMap.get(viewState.selectedNodeId)
+    if (!refId) return null
+    return nodes.find((n) => n.ref_id === refId) ?? null
+  }, [viewState, indexMap, nodes])
+
+  const handleOpenCaseView = useCallback(
+    (node: ApiNode, apparentRadius: number) => {
+      setCaseView({ node, apparentRadius })
+    },
+    [],
+  )
+
+  const handleCloseCaseView = useCallback(() => {
+    setCaseView(null)
+    // Pull camera back to the selected node's rest distance so the trigger
+    // re-arms and the user has room to maneuver. Without this they'd land
+    // right at the threshold and the next mouse-wheel tick would re-fire.
+    if (viewState.mode === "subgraph") {
+      setCamTarget(
+        computeCamTarget(
+          graph,
+          viewState.selectedNodeId,
+          cameraRef.current?.azimuthAngle ?? 0,
+        ),
+      )
+    }
+  }, [viewState, graph, setCamTarget])
 
   const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
@@ -1200,6 +1376,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           viewState={viewState}
           onNodeClick={handleNodeClick}
         />
+        <CaseViewTrigger
+          graph={graph}
+          selectedNodeId={
+            viewState.mode === "subgraph" ? viewState.selectedNodeId : null
+          }
+          selectedApiNode={selectedApiNode}
+          onOpen={handleOpenCaseView}
+          disabled={caseView !== null}
+          camAnim={camAnim}
+        />
         <CameraControls
           ref={cameraRef}
           makeDefault
@@ -1253,6 +1439,17 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
 
       <MetroLegend hoveredState={hoveredState} onHoverState={setHoveredState} />
+
+      {caseView && (
+        <div className="absolute inset-0 z-50">
+          <CaseView
+            initialNode={caseView.node}
+            schemas={schemas}
+            initialApparentRadius={caseView.apparentRadius}
+            onExit={handleCloseCaseView}
+          />
+        </div>
+      )}
     </div>
   )
 }
