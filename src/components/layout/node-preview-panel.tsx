@@ -1168,7 +1168,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
               {/* Edit node */}
               {isAdmin && (
-                <DropdownMenuItem onClick={() => openEdit(currentNode)}>
+                <DropdownMenuItem onClick={() => openEdit(fullNode ?? currentNode)}>
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Edit node
                 </DropdownMenuItem>

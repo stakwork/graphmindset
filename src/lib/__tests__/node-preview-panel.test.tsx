@@ -1379,7 +1379,7 @@ describe("NodePreviewPanel – pencil edit button", () => {
     expect(screen.queryByText("Edit node")).toBeNull()
   })
 
-  it("calls openEdit with the current node when 'Edit node' is clicked", async () => {
+  it("falls back to currentNode when fullNode is not loaded", async () => {
     const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
     render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
@@ -1394,6 +1394,30 @@ describe("NodePreviewPanel – pencil edit button", () => {
     expect(mockOpenEdit).toHaveBeenCalledOnce()
     expect(mockOpenEdit).toHaveBeenCalledWith(
       expect.objectContaining({ ref_id: BASE_NODE.ref_id })
+    )
+  })
+
+  it("calls openEdit with fullNode when it is available", async () => {
+    const { fireEvent: fe } = await import("@testing-library/react")
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+    mockApiGet.mockResolvedValue(
+      makeGraphData({ ...BASE_NODE, properties: { name: "Test Node", description: "Full description" } })
+    )
+    render(<NodePreviewPanel node={BASE_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => expect(screen.getByText("Test Node")).toBeInTheDocument())
+
+    const trigger = document.querySelector("button[title='More actions']") as HTMLElement
+    fe.click(trigger)
+    const editItem = await waitFor(() => screen.getByText("Edit node"))
+    fe.click(editItem)
+
+    expect(mockOpenEdit).toHaveBeenCalledOnce()
+    expect(mockOpenEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ref_id: BASE_NODE.ref_id,
+        properties: expect.objectContaining({ description: "Full description" }),
+      })
     )
   })
 })
