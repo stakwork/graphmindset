@@ -7,6 +7,7 @@ import { displayNodeType } from "@/lib/utils"
 import { resolveNodeTitle } from "@/lib/node-display"
 import { searchNodes, type GraphNode } from "@/lib/graph-api"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useSchemaStore } from "@/stores/schema-store"
 
 interface NodeSearchInputProps {
   value: GraphNode | null
@@ -26,6 +27,7 @@ export function NodeSearchInput({
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
   const [fetched, setFetched] = useState(false)
+  const schemas = useSchemaStore((s) => s.schemas)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -109,7 +111,7 @@ export function NodeSearchInput({
 
   // Selected state
   if (value !== null) {
-    const title = resolveNodeTitle(value, [])
+    const title = resolveNodeTitle(value, schemas)
     const typeLabel = displayNodeType(value.node_type)
 
     return (
@@ -164,7 +166,7 @@ export function NodeSearchInput({
             <div className="px-3 py-2 text-sm text-muted-foreground">No nodes found</div>
           ) : (
             results.map((node) => {
-              const title = resolveNodeTitle(node, [])
+              const title = resolveNodeTitle(node, schemas)
               const typeLabel = displayNodeType(node.node_type)
               const truncatedId =
                 node.ref_id.length > 12 ? node.ref_id.slice(0, 12) + "…" : node.ref_id
