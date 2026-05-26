@@ -1121,7 +1121,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
               {/* Add Edge */}
               {(isAdmin || hasIdentity) && (
-                <DropdownMenuItem onClick={() => openAddEdge(currentNode.ref_id)}>
+                <DropdownMenuItem onClick={() => openAddEdge(currentNode)}>
                   <GitMerge className="h-3.5 w-3.5 mr-1.5" />
                   Add Edge
                 </DropdownMenuItem>
