@@ -7,7 +7,7 @@ import { useAppStore } from "@/stores/app-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
-import { searchNodes } from "@/lib/graph-api"
+import { searchNodes, getLatestNodes } from "@/lib/graph-api"
 import { payL402 } from "@/lib/sphinx"
 import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 
@@ -90,12 +90,25 @@ export function SearchBar() {
     [value, setSearchTerm, closeAllPanels, clearSelection, setGraphData, setLoading, refreshBalance, openModal]
   )
 
-  const handleClear = useCallback(() => {
+  const handleClear = useCallback(async () => {
     abortRef.current?.abort()
     setValue("")
     setSearchTerm("")
-    setGraphData([], [])
-  }, [setSearchTerm, setGraphData])
+    clearSelection()
+    setLoading(true)
+    try {
+      if (isMocksEnabled()) {
+        setGraphData(MOCK_NODES, MOCK_EDGES)
+      } else {
+        const result = await getLatestNodes()
+        setGraphData(result.nodes ?? [], result.edges ?? [])
+      }
+    } catch {
+      setGraphData([], []) // silent fallback
+    } finally {
+      setLoading(false)
+    }
+  }, [setSearchTerm, setGraphData, setLoading, clearSelection])
 
   return (
     <form onSubmit={handleSubmit} className="relative w-full max-w-xl group">
