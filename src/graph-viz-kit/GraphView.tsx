@@ -143,8 +143,8 @@ const glowFragmentShader = /* glsl */ `
 
     float centerDot = 1.0 - smoothstep(0.06, 0.15, r);
     float ringDist = abs(r - 0.55);
-    float ring = smoothstep(0.035, 0.0, ringDist);
-    float ringGlow = exp(-ringDist * ringDist * 60.0) * 0.45;
+    float ring = smoothstep(0.11, 0.0, ringDist);
+    float ringGlow = exp(-ringDist * ringDist * 30.0) * 0.6;
     float outerGlow = exp(-2.5 * max(r - 0.55, 0.0)) * 0.2;
     float innerFill = (1.0 - smoothstep(0.0, 0.55, r)) * 0.04;
 
