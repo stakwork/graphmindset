@@ -11,37 +11,38 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { SelectCustom } from "@/components/ui/select-custom"
+import { NodeSearchInput } from "@/components/ui/node-search-input"
 import { useModalStore } from "@/stores/modal-store"
 import { useSchemaStore } from "@/stores/schema-store"
-import { createEdge } from "@/lib/graph-api"
+import { createEdge, type GraphNode } from "@/lib/graph-api"
 
 type Status = "idle" | "submitting" | "success" | "error"
 
 export function AddEdgeModal() {
   const activeModal = useModalStore((s) => s.activeModal)
-  const sourceRefId = useModalStore((s) => s.sourceRefId)
+  const storeSourceNode = useModalStore((s) => s.sourceNode)
   const close = useModalStore((s) => s.close)
 
   const schemaEdges = useSchemaStore((s) => s.edges)
 
-  const [sourceVal, setSourceVal] = useState("")
-  const [targetVal, setTargetVal] = useState("")
+  const [selectedSource, setSelectedSource] = useState<GraphNode | null>(null)
+  const [selectedTarget, setSelectedTarget] = useState<GraphNode | null>(null)
   const [edgeType, setEdgeType] = useState("")
   const [status, setStatus] = useState<Status>("idle")
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const isOpen = activeModal === "addEdge"
 
-  // Sync sourceVal when modal opens with a pre-filled sourceRefId
+  // Sync selectedSource when modal opens with a pre-filled sourceNode
   useEffect(() => {
     if (isOpen) {
-      setSourceVal(sourceRefId ?? "")
-      setTargetVal("")
+      setSelectedSource(storeSourceNode ?? null)
+      setSelectedTarget(null)
       setEdgeType("")
       setStatus("idle")
       setErrorMsg(null)
     }
-  }, [isOpen, sourceRefId])
+  }, [isOpen, storeSourceNode])
 
   // Derive unique edge types excluding CHILD_OF, computed once when modal opens
   const edgeTypeOptions = useMemo(() => {
@@ -57,8 +58,8 @@ export function AddEdgeModal() {
   }, [schemaEdges])
 
   const handleClose = useCallback(() => {
-    setSourceVal("")
-    setTargetVal("")
+    setSelectedSource(null)
+    setSelectedTarget(null)
     setEdgeType("")
     setStatus("idle")
     setErrorMsg(null)
@@ -69,7 +70,7 @@ export function AddEdgeModal() {
     async (e: React.FormEvent) => {
       e.preventDefault()
 
-      if (!sourceVal.trim() || !targetVal.trim() || !edgeType) {
+      if (!selectedSource || !selectedTarget || !edgeType) {
         setErrorMsg("All three fields are required.")
         return
       }
@@ -79,8 +80,8 @@ export function AddEdgeModal() {
 
       try {
         await createEdge({
-          source: sourceVal.trim(),
-          target: targetVal.trim(),
+          source: selectedSource.ref_id,
+          target: selectedTarget.ref_id,
           edge_type: edgeType,
         })
         setStatus("success")
@@ -97,7 +98,7 @@ export function AddEdgeModal() {
         }
       }
     },
-    [sourceVal, targetVal, edgeType, handleClose]
+    [selectedSource, selectedTarget, edgeType, handleClose]
   )
 
   const busy = status === "submitting" || status === "success"
@@ -115,33 +116,29 @@ export function AddEdgeModal() {
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="relative z-10 space-y-4 pt-2">
-          {/* Source ref_id */}
+          {/* Source node */}
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
-              Source ref_id <span className="text-destructive">*</span>
+              Source node <span className="text-destructive">*</span>
             </label>
-            <input
-              type="text"
-              value={sourceVal}
-              onChange={(e) => { setSourceVal(e.target.value); setErrorMsg(null) }}
-              placeholder="Source node ref_id"
+            <NodeSearchInput
+              value={selectedSource}
+              onChange={(node) => { setSelectedSource(node); setErrorMsg(null) }}
+              placeholder="Search source node…"
               disabled={busy}
-              className="h-10 w-full rounded-md border border-border/50 bg-muted/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none disabled:opacity-50"
             />
           </div>
 
-          {/* Target ref_id */}
+          {/* Target node */}
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
-              Target ref_id <span className="text-destructive">*</span>
+              Target node <span className="text-destructive">*</span>
             </label>
-            <input
-              type="text"
-              value={targetVal}
-              onChange={(e) => { setTargetVal(e.target.value); setErrorMsg(null) }}
-              placeholder="Target node ref_id"
+            <NodeSearchInput
+              value={selectedTarget}
+              onChange={(node) => { setSelectedTarget(node); setErrorMsg(null) }}
+              placeholder="Search target node…"
               disabled={busy}
-              className="h-10 w-full rounded-md border border-border/50 bg-muted/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none disabled:opacity-50"
             />
           </div>
 
