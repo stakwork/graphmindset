@@ -2,17 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import React from "react"
+import type { GraphNode } from "@/lib/graph-api"
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockCreateEdge } = vi.hoisted(() => ({
+const { mockCreateEdge, mockSearchNodes } = vi.hoisted(() => ({
   mockCreateEdge: vi.fn().mockResolvedValue({}),
+  mockSearchNodes: vi.fn().mockResolvedValue({ nodes: [] }),
 }))
 
 vi.mock("@/lib/graph-api", () => ({
   createEdge: (...args: unknown[]) => mockCreateEdge(...args),
+  searchNodes: (...args: unknown[]) => mockSearchNodes(...args),
 }))
 
 vi.mock("@/lib/mock-data", () => ({
@@ -20,17 +23,32 @@ vi.mock("@/lib/mock-data", () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Fixture nodes
+// ---------------------------------------------------------------------------
+const FIXTURE_SOURCE: GraphNode = {
+  ref_id: "node-source-ref",
+  node_type: "Topic",
+  properties: { name: "Source Topic" },
+}
+
+const FIXTURE_TARGET: GraphNode = {
+  ref_id: "node-target-ref",
+  node_type: "Person",
+  properties: { name: "Target Person" },
+}
+
+// ---------------------------------------------------------------------------
 // Modal store — per-selector mock
 // ---------------------------------------------------------------------------
 let mockActiveModal: string | null = null
-let mockSourceRefId: string | null = null
+let mockSourceNode: GraphNode | null = null
 let mockClose = vi.fn()
 
 vi.mock("@/stores/modal-store", () => ({
   useModalStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel({
       activeModal: mockActiveModal,
-      sourceRefId: mockSourceRefId,
+      sourceNode: mockSourceNode,
       close: mockClose,
     }),
 }))
@@ -59,14 +77,28 @@ import { AddEdgeModal } from "@/components/modals/add-edge-modal"
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function openModal(sourceRefId: string | null = null) {
+function openModal(sourceNode: GraphNode | null = null) {
   mockActiveModal = "addEdge"
-  mockSourceRefId = sourceRefId
+  mockSourceNode = sourceNode
 }
 
 function closeModal() {
   mockActiveModal = null
-  mockSourceRefId = null
+  mockSourceNode = null
+}
+
+/** Type a query into a NodeSearchInput, wait for the dropdown result, and click it */
+async function selectNode(placeholder: string, node: GraphNode) {
+  mockSearchNodes.mockResolvedValue({ nodes: [node] })
+  const input = screen.getByPlaceholderText(placeholder)
+  await userEvent.type(input, node.properties?.name as string)
+  await waitFor(() => {
+    // result row should appear — match by ref_id truncation or name
+    expect(screen.getAllByText(node.properties?.name as string).length).toBeGreaterThan(0)
+  })
+  // Click the result row (last occurrence is the dropdown item)
+  const rows = screen.getAllByText(node.properties?.name as string)
+  await userEvent.click(rows[rows.length - 1])
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +109,7 @@ describe("AddEdgeModal", () => {
     mockClose = vi.fn()
     vi.clearAllMocks()
     mockCreateEdge.mockResolvedValue({})
+    mockSearchNodes.mockResolvedValue({ nodes: [] })
     closeModal()
   })
 
@@ -92,27 +125,28 @@ describe("AddEdgeModal", () => {
     expect(screen.getByRole("heading", { name: "Add Edge" })).toBeDefined()
   })
 
-  it("renders with empty source and target fields when opened from toolbar (no sourceRefId)", () => {
+  it("renders with empty source and target NodeSearchInput fields when opened from toolbar", () => {
     openModal(null)
     render(<AddEdgeModal />)
-    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[]
-    // both source and target start empty
-    for (const input of inputs) {
-      expect(input.value).toBe("")
-    }
+    const sourceInput = screen.getByPlaceholderText("Search source node…") as HTMLInputElement
+    const targetInput = screen.getByPlaceholderText("Search target node…") as HTMLInputElement
+    expect(sourceInput.value).toBe("")
+    expect(targetInput.value).toBe("")
   })
 
-  it("pre-fills source ref_id when sourceRefId is set in the modal store", () => {
-    openModal("node-ref-123")
+  it("pre-fills source field with node display name when sourceNode is set in the modal store", () => {
+    openModal(FIXTURE_SOURCE)
     render(<AddEdgeModal />)
-    const sourceInput = screen.getByPlaceholderText("Source node ref_id") as HTMLInputElement
-    expect(sourceInput.value).toBe("node-ref-123")
+    // Selected state renders the node title, not a raw ref_id
+    expect(screen.getByText("Source Topic")).toBeDefined()
+    // Target should still be an empty search input
+    expect(screen.getByPlaceholderText("Search target node…")).toBeDefined()
   })
 
-  it("target ref_id is always empty on open even when sourceRefId is set", () => {
-    openModal("node-ref-123")
+  it("target field is always empty on open even when sourceNode is set", () => {
+    openModal(FIXTURE_SOURCE)
     render(<AddEdgeModal />)
-    const targetInput = screen.getByPlaceholderText("Target node ref_id") as HTMLInputElement
+    const targetInput = screen.getByPlaceholderText("Search target node…") as HTMLInputElement
     expect(targetInput.value).toBe("")
   })
 
@@ -123,7 +157,6 @@ describe("AddEdgeModal", () => {
     it("excludes CHILD_OF from options", async () => {
       openModal()
       render(<AddEdgeModal />)
-      // Open the dropdown
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       expect(screen.queryByText("CHILD_OF")).toBeNull()
@@ -134,7 +167,7 @@ describe("AddEdgeModal", () => {
       render(<AddEdgeModal />)
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
-      expect(screen.getAllByText("HAS_TOPIC").length).toBeGreaterThan(0) // only one option despite duplicate in schema
+      expect(screen.getAllByText("HAS_TOPIC").length).toBeGreaterThan(0)
       expect(screen.getAllByText("AUTHORED_BY").length).toBeGreaterThan(0)
       expect(screen.getAllByText("RELATED_TO").length).toBeGreaterThan(0)
     })
@@ -144,25 +177,25 @@ describe("AddEdgeModal", () => {
   // Validation
   // -------------------------------------------------------------------------
   describe("Validation", () => {
-    it("shows an error when source is empty on submit", async () => {
-      openModal()
+    it("shows an error when source is not selected on submit", async () => {
+      openModal(null)
       render(<AddEdgeModal />)
-      const targetInput = screen.getByPlaceholderText("Target node ref_id")
-      await userEvent.type(targetInput, "target-ref")
-      // select edge type
+      // Select target only
+      await selectNode("Search target node…", FIXTURE_TARGET)
+      // Select edge type
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       await userEvent.click(screen.getByText("HAS_TOPIC"))
-      // submit without source
+      // Submit without source
       await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
       expect(screen.getByText("All three fields are required.")).toBeDefined()
       expect(mockCreateEdge).not.toHaveBeenCalled()
     })
 
-    it("shows an error when target is empty on submit", async () => {
-      openModal("source-ref")
+    it("shows an error when target is not selected on submit", async () => {
+      openModal(FIXTURE_SOURCE)
       render(<AddEdgeModal />)
-      // select edge type
+      // Select edge type
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       await userEvent.click(screen.getByText("HAS_TOPIC"))
@@ -172,10 +205,10 @@ describe("AddEdgeModal", () => {
     })
 
     it("shows an error when edge type is not selected on submit", async () => {
-      openModal()
+      openModal(null)
       render(<AddEdgeModal />)
-      await userEvent.type(screen.getByPlaceholderText("Source node ref_id"), "source-ref")
-      await userEvent.type(screen.getByPlaceholderText("Target node ref_id"), "target-ref")
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
       await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
       expect(screen.getByText("All three fields are required.")).toBeDefined()
       expect(mockCreateEdge).not.toHaveBeenCalled()
@@ -186,29 +219,46 @@ describe("AddEdgeModal", () => {
   // Submission
   // -------------------------------------------------------------------------
   describe("Submission", () => {
-    it("calls createEdge with trimmed values on valid submit", async () => {
-      openModal()
+    it("calls createEdge with ref_id values from selected nodes on valid submit", async () => {
+      openModal(null)
       render(<AddEdgeModal />)
-      await userEvent.type(screen.getByPlaceholderText("Source node ref_id"), "  source-ref  ")
-      await userEvent.type(screen.getByPlaceholderText("Target node ref_id"), "  target-ref  ")
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       await userEvent.click(screen.getByText("HAS_TOPIC"))
       await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
       await waitFor(() => {
         expect(mockCreateEdge).toHaveBeenCalledWith({
-          source: "source-ref",
-          target: "target-ref",
+          source: "node-source-ref",
+          target: "node-target-ref",
+          edge_type: "HAS_TOPIC",
+        })
+      })
+    })
+
+    it("calls createEdge with pre-filled source node ref_id and selected target", async () => {
+      openModal(FIXTURE_SOURCE)
+      render(<AddEdgeModal />)
+      await selectNode("Search target node…", FIXTURE_TARGET)
+      const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
+      await userEvent.click(trigger)
+      await userEvent.click(screen.getByText("HAS_TOPIC"))
+      await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
+      await waitFor(() => {
+        expect(mockCreateEdge).toHaveBeenCalledWith({
+          source: "node-source-ref",
+          target: "node-target-ref",
           edge_type: "HAS_TOPIC",
         })
       })
     })
 
     it("shows success state after createEdge resolves", async () => {
-      openModal()
+      openModal(null)
       render(<AddEdgeModal />)
-      await userEvent.type(screen.getByPlaceholderText("Source node ref_id"), "source-ref")
-      await userEvent.type(screen.getByPlaceholderText("Target node ref_id"), "target-ref")
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       await userEvent.click(screen.getByText("HAS_TOPIC"))
@@ -219,10 +269,10 @@ describe("AddEdgeModal", () => {
     })
 
     it("calls close after success auto-close timeout", async () => {
-      openModal()
+      openModal(null)
       render(<AddEdgeModal />)
-      await userEvent.type(screen.getByPlaceholderText("Source node ref_id"), "source-ref")
-      await userEvent.type(screen.getByPlaceholderText("Target node ref_id"), "target-ref")
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       await userEvent.click(screen.getByText("HAS_TOPIC"))
@@ -233,10 +283,10 @@ describe("AddEdgeModal", () => {
 
     it("shows inline error and keeps modal open when createEdge rejects", async () => {
       mockCreateEdge.mockRejectedValueOnce(new Error("Duplicate edge"))
-      openModal()
+      openModal(null)
       render(<AddEdgeModal />)
-      await userEvent.type(screen.getByPlaceholderText("Source node ref_id"), "source-ref")
-      await userEvent.type(screen.getByPlaceholderText("Target node ref_id"), "target-ref")
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       await userEvent.click(screen.getByText("HAS_TOPIC"))
@@ -257,22 +307,20 @@ describe("AddEdgeModal", () => {
     it("calls close() when the dialog is dismissed via onOpenChange", async () => {
       openModal()
       const { rerender } = render(<AddEdgeModal />)
-      // Simulate dialog close (onOpenChange(false)) by changing activeModal
+      // Simulate dialog close by changing activeModal
       mockActiveModal = null
       rerender(<AddEdgeModal />)
-      // The dialog is now closed — close was not called by the component
-      // but the Dialog's onOpenChange path should invoke handleClose
-      // We test close is callable; full integration tested via button
       expect(screen.queryByText("Add Edge")).toBeNull()
     })
 
     it("resets all field values and clears errors after close and reopen", async () => {
       mockCreateEdge.mockRejectedValueOnce(new Error("bad"))
-      openModal()
+      openModal(null)
       const { rerender } = render(<AddEdgeModal />)
+
       // Fill and submit to trigger error
-      await userEvent.type(screen.getByPlaceholderText("Source node ref_id"), "s")
-      await userEvent.type(screen.getByPlaceholderText("Target node ref_id"), "t")
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
       const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
       await userEvent.click(trigger)
       await userEvent.click(screen.getByText("HAS_TOPIC"))
@@ -281,17 +329,17 @@ describe("AddEdgeModal", () => {
 
       // Close modal
       mockActiveModal = null
-      mockSourceRefId = null
+      mockSourceNode = null
       rerender(<AddEdgeModal />)
 
       // Reopen fresh
       mockActiveModal = "addEdge"
-      mockSourceRefId = null
+      mockSourceNode = null
       rerender(<AddEdgeModal />)
 
-      // Fields should be reset
-      expect((screen.getByPlaceholderText("Source node ref_id") as HTMLInputElement).value).toBe("")
-      expect((screen.getByPlaceholderText("Target node ref_id") as HTMLInputElement).value).toBe("")
+      // Fields should be reset — empty search inputs visible
+      expect(screen.getByPlaceholderText("Search source node…")).toBeDefined()
+      expect(screen.getByPlaceholderText("Search target node…")).toBeDefined()
       expect(screen.queryByText("bad")).toBeNull()
     })
   })
