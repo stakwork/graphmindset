@@ -26,13 +26,16 @@ vi.mock("@/lib/api", () => ({
 }))
 
 // --- mock graph-api deep research helpers ---
-const { mockTriggerDeepResearch, mockGetLatestStakworkRun } = vi.hoisted(() => ({
+const { mockTriggerDeepResearch, mockGetLatestStakworkRun, mockGetNode } = vi.hoisted(() => ({
   mockTriggerDeepResearch: vi.fn(),
   mockGetLatestStakworkRun: vi.fn(),
+  mockGetNode: vi.fn().mockResolvedValue(null),
 }))
 vi.mock("@/lib/graph-api", () => ({
   triggerDeepResearch: (...args: unknown[]) => mockTriggerDeepResearch(...args),
   getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
+  getNode: (...args: unknown[]) => mockGetNode(...args),
+  isGraphData: (v: unknown) => v != null && typeof v === "object" && "nodes" in v && "edges" in v,
 }))
 
 vi.mock("@/lib/sphinx/payment", () => ({
@@ -1582,5 +1585,59 @@ describe("NodePreviewPanel – Deep Research button", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe("NodePreviewPanel – Tweet with connected Episode video", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockGraphNodes = []
+    mockGraphEdges = []
+  })
+
+  const TWEET_NODE: GraphNode = {
+    ref_id: "tweet-video-1",
+    node_type: "Tweet",
+    properties: {
+      name: "Jack Dorsey",
+      twitter_handle: "jack",
+      text: "Bitcoin is freedom.",
+      tweet_id: "999",
+    },
+  }
+
+  const EPISODE_NODE: GN = {
+    ref_id: "tweet-video-1-episode",
+    node_type: "Episode",
+    properties: {
+      name: "Jack Dorsey on Bitcoin — embedded video",
+      media_url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    },
+  }
+
+  it("renders MediaCard play button when tweet has a connected Episode with media_url", async () => {
+    mockGraphNodes = [EPISODE_NODE]
+    mockGraphEdges = [{ source: "tweet-video-1", target: "tweet-video-1-episode", edge_type: "HAS_EPISODE" }]
+    mockApiGet.mockResolvedValue({ nodes: [TWEET_NODE], edges: [] })
+
+    render(<NodePreviewPanel node={TWEET_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /play/i })).toBeInTheDocument()
+    })
+  })
+
+  it("does not render a media player when tweet has no connected Episode", async () => {
+    mockGraphNodes = []
+    mockGraphEdges = []
+    mockApiGet.mockResolvedValue({ nodes: [TWEET_NODE], edges: [] })
+
+    render(<NodePreviewPanel node={TWEET_NODE} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Bitcoin is freedom.")).toBeInTheDocument()
+    })
+    expect(screen.queryByRole("button", { name: /play/i })).toBeNull()
   })
 })

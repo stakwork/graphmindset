@@ -338,8 +338,18 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
           impression_count: 2_140_000,
         },
       },
+      {
+        ref_id: "n2-episode",
+        node_type: "Episode",
+        properties: {
+          name: "Jack Dorsey on Bitcoin — embedded video",
+          media_url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        },
+      },
     ],
-    edges: [],
+    edges: [
+      { source: "n2", target: "n2-episode", edge_type: "HAS_EPISODE" },
+    ],
   },
   n3: {
     nodes: [
