@@ -869,11 +869,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const dataVersion = useGraphStore((s) => s.dataVersion)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
+  // Metro overlay is opt-in via NEXT_PUBLIC_METRO_OVERLAY=1. When off, no
+  // fixture data is spliced into the graph and the schematic layers don't
+  // render — useful when pointing at a non-metro backend dataset.
+  const metroEnabled = process.env.NEXT_PUBLIC_METRO_OVERLAY === "1"
+
   // The metro overlay always renders from the local fixture so the
   // schematic stays visible even when search replaces the graph store
   // with results that don't include Station nodes.
-  const overlayNodes = metroSeries.nodes as ApiNode[]
-  const overlayEdges = metroSeries.edges as ApiEdge[]
+  const overlayNodes = metroEnabled ? (metroSeries.nodes as ApiNode[]) : []
+  const overlayEdges = metroEnabled ? (metroSeries.edges as ApiEdge[]) : []
 
   // The *interactive* station layer (3D spheres + labels + hover behavior
   // provided by GraphView) also has to persist through search. Splice fixture
@@ -881,14 +886,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // before running the radial layout. De-dupe by ref_id / edge identity so a
   // future search that does return a station won't double-render it.
   const effectiveNodes = useMemo(() => {
+    if (!metroEnabled) return nodes
     const seen = new Set(nodes.map((n) => n.ref_id))
     const fixtureStations = (metroSeries.nodes as ApiNode[]).filter(
       (n) => n.node_type === "Station" && !seen.has(n.ref_id)
     )
     return fixtureStations.length > 0 ? [...nodes, ...fixtureStations] : nodes
-  }, [nodes])
+  }, [nodes, metroEnabled])
 
   const effectiveEdges = useMemo(() => {
+    if (!metroEnabled) return edges
     const refIds = new Set(effectiveNodes.map((n) => n.ref_id))
     const seen = new Set(
       edges.map((e) => `${e.source}|${e.target}|${e.edge_type}`)
@@ -909,7 +916,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         refIds.has(e.target)
     )
     return extras.length > 0 ? [...edges, ...extras] : edges
-  }, [edges, effectiveNodes])
+  }, [edges, effectiveNodes, metroEnabled])
 
   const { graph, indexMap, refIdToIndex } = useMemo(() => {
     const result = apiToGraph(effectiveNodes, effectiveEdges, schemas)
@@ -1328,17 +1335,21 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         style={{ background: "oklch(0.06 0.02 260)" }}
       >
         <ambientLight intensity={0.3} />
-        <MetroLinesLayer
-          nodes={overlayNodes}
-          edges={overlayEdges}
-          onLineHover={setHoveredLine}
-          activeLines={activeLines}
-        />
-        <MetroStationBullets
-          nodes={overlayNodes}
-          activeLines={activeLines}
-          activeState={hoveredState}
-        />
+        {metroEnabled && (
+          <>
+            <MetroLinesLayer
+              nodes={overlayNodes}
+              edges={overlayEdges}
+              onLineHover={setHoveredLine}
+              activeLines={activeLines}
+            />
+            <MetroStationBullets
+              nodes={overlayNodes}
+              activeLines={activeLines}
+              activeState={hoveredState}
+            />
+          </>
+        )}
         <GraphView
           graph={graph}
           viewState={viewState}
@@ -1438,10 +1449,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
 
-      <MetroLegend hoveredState={hoveredState} onHoverState={setHoveredState} />
+      {metroEnabled && (
+        <MetroLegend hoveredState={hoveredState} onHoverState={setHoveredState} />
+      )}
 
       {caseView && (
-        <div className="absolute inset-0 z-50">
+        // z-index has to outrank the react-three Html portals from the
+        // graph library, which default to 16777271. Otherwise 3D node
+        // labels bleed through the case view both during the fade and
+        // once it's fully opaque.
+        <div className="absolute inset-0" style={{ zIndex: 16777300 }}>
           <CaseView
             initialNode={caseView.node}
             schemas={schemas}

@@ -5,8 +5,9 @@ export const LOD = {
   MIN_VISIBLE: 2,    // below this: skip entirely
   GLYPH_MIN: 6,      // below this: single dot
   LABEL_VISIBLE: 12, // when leaf label appears
+  CARD_VISIBLE: 16,  // when the inline content card replaces the circle
   LEAF_DETAIL: 30,   // when type/region subtitle appears
-  LEAF_DEEP: 60,     // when full property card appears
+  LEAF_DEEP: 60,     // (legacy) old offset sidecar threshold
 }
 
 export const C = {
@@ -45,22 +46,24 @@ export const TYPE_HUES: Record<string, string> = {
 }
 
 // Per-type visual radius (world units). Bigger means more prominent. Selected
-// gets multiplied by SELECTED_SCALE in the layout pass.
+// gets multiplied by SELECTED_SCALE in the layout pass. Sized so the inline
+// content card (drawNodeCard) has room at rest scale without neighbors
+// colliding on the ring.
 export const KIND_RADIUS: Record<string, number> = {
-  Person: 18,
-  Organization: 22,
-  Location: 20,
-  Station: 16,
-  Weapon: 14,
-  Item: 14,
-  Transport: 16,
-  Creature: 16,
-  Episode: 22,
-  Chapter: 18,
-  Clip: 14,
-  Topic: 20,
-  Tweet: 14,
+  Person: 30,
+  Organization: 34,
+  Location: 32,
+  Station: 28,
+  Weapon: 26,
+  Item: 26,
+  Transport: 28,
+  Creature: 28,
+  Episode: 34,
+  Chapter: 30,
+  Clip: 26,
+  Topic: 32,
+  Tweet: 26,
 }
 
-export const DEFAULT_KIND_RADIUS = 16
+export const DEFAULT_KIND_RADIUS = 28
 export const SELECTED_SCALE = 1.35

@@ -39,15 +39,22 @@ export function FeedView() {
   // the backend has that the fixture doesn't (deduped by ref_id). Backend
   // Station rows are dropped — they'd float without positions, and the
   // fixture is the source of truth for the schematic.
+  //
+  // Metro fixture seeding is opt-in via NEXT_PUBLIC_METRO_OVERLAY=1. When
+  // off, we only load whatever NEXT_PUBLIC_API_URL returns.
   useEffect(() => {
     if (useGraphStore.getState().nodes.length > 0) return
     if (isMocksEnabled()) {
       setGraphData(MOCK_NODES, MOCK_EDGES)
       return
     }
-    const fixtureNodes = metroSeries.nodes as GraphNode[]
-    const fixtureEdges = metroSeries.edges as GraphEdge[]
-    setGraphData(fixtureNodes, fixtureEdges)
+
+    const metroEnabled = process.env.NEXT_PUBLIC_METRO_OVERLAY === "1"
+    const fixtureNodes = metroEnabled ? (metroSeries.nodes as GraphNode[]) : []
+    const fixtureEdges = metroEnabled ? (metroSeries.edges as GraphEdge[]) : []
+    if (metroEnabled) {
+      setGraphData(fixtureNodes, fixtureEdges)
+    }
 
     let cancelled = false
     setLoading(true)
@@ -60,7 +67,9 @@ export function FeedView() {
           fixtureEdges.map((e) => `${e.source}|${e.target}|${e.edge_type}`),
         )
         const extraNodes = (result.nodes ?? []).filter(
-          (n) => n.node_type !== "Station" && !seenNodeIds.has(n.ref_id),
+          (n) =>
+            (metroEnabled ? n.node_type !== "Station" : true) &&
+            !seenNodeIds.has(n.ref_id),
         )
         const extraNodeIds = new Set(extraNodes.map((n) => n.ref_id))
         const extraEdges = (result.edges ?? []).filter((e) => {
@@ -72,7 +81,10 @@ export function FeedView() {
           const hasTarget = seenNodeIds.has(e.target) || extraNodeIds.has(e.target)
           return hasSource && hasTarget
         })
-        if (extraNodes.length === 0 && extraEdges.length === 0) return
+        if (extraNodes.length === 0 && extraEdges.length === 0) {
+          if (!metroEnabled) setGraphData([], [])
+          return
+        }
         setGraphData([...fixtureNodes, ...extraNodes], [...fixtureEdges, ...extraEdges])
       } catch (err) {
         console.error("[feed-view] getLatestNodes failed:", err)

@@ -13,6 +13,7 @@ import {
   drawDot,
   drawLeafGlyph,
   drawEdge,
+  getNodeCardBounds,
 } from "./draw"
 import type { SigDataset, SigEntity } from "./types"
 
@@ -60,6 +61,16 @@ export interface CaseViewProps {
   onExit: () => void
 }
 
+// Duration of the cross-fade between the 3D canvas and the 2D case view, in
+// ms. Used both on open (after data arrives) and on close (before onExit).
+const FADE_MS = 300
+// Duration of the post-landing zoom-out: the selected node lands at the same
+// pixel size it had in 3D, then eases out to REST_SCALE so neighbors come
+// into view. Tuned to feel like a continuation of the camera dolly, not a
+// separate animation.
+const REST_SCALE_ANIM_MS = 600
+const REST_SCALE = 1.0
+
 export function CaseView({
   initialNode,
   schemas,
@@ -69,6 +80,10 @@ export function CaseView({
   const [currentRefId, setCurrentRefId] = useState(initialNode.ref_id)
   const [data, setData] = useState<SigDataset | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Drives the outer-div CSS opacity transition. Stays 0 until data lands,
+  // then ramps to 1 (open). Flips back to 0 on close, and after the
+  // transition completes we call the parent's onExit to actually unmount.
+  const [visible, setVisible] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const bgRef = useRef<HTMLCanvasElement>(null)
   const edgeRef = useRef<HTMLCanvasElement>(null)
@@ -116,6 +131,11 @@ export function CaseView({
     onNeighborClick: null as null | ((e: SigEntity) => void),
     onExitZoom: null as null | (() => void),
     exitFired: false,
+    // While the auto-fit animation is running, the cam.scale is being
+    // driven programmatically. Suppress the zoom-out-to-exit trigger so
+    // high-degree centers (which fit at low scale) don't bounce the user
+    // back to 3D the moment they open the case view.
+    autoFitInProgress: false,
   })
 
   useEffect(() => {
@@ -135,31 +155,102 @@ export function CaseView({
     }
   }, [data, initialApparentRadius])
 
+  // Fade in once data is ready — keeps the case view transparent (so the 3D
+  // scene shows through) during the fetch, eliminating the "loading…" flash.
+  // Errors also flip visible so the failure message isn't hidden by opacity:0.
+  useEffect(() => {
+    if (!data && !loadError) return
+    // rAF lets the browser commit the opacity:0 initial frame before
+    // flipping to 1, so the CSS transition actually animates.
+    const id = requestAnimationFrame(() => setVisible(true))
+    return () => cancelAnimationFrame(id)
+  }, [data, loadError])
+
+  // After landing pixel-continuous on the selected node, ease cam.scale to
+  // a "fit" zoom — derived from the layout's world bounding box so the
+  // outermost ring sits comfortably inside the viewport with margin.
+  // Auto-fit suppresses the zoom-out-to-exit trigger so high-degree
+  // centers (which fit at low scale) don't bounce the user back to 3D the
+  // moment they open the case view.
+  useEffect(() => {
+    if (!data) return
+    const S = stateRef.current
+    if (S.w === 0 || S.h === 0) return
+    const start = S.cam.scale
+    const bb = data.worldBBox
+    const worldW = Math.max(bb.maxX - bb.minX, 1)
+    const worldH = Math.max(bb.maxY - bb.minY, 1)
+    const margin = 80
+    const fitScale = Math.min(
+      (S.w - margin * 2) / worldW,
+      (S.h - margin * 2) / worldH,
+    )
+    // Clamp above the exit threshold so the animation can't bounce us back
+    // to 3D mid-fit. Clamp below 2× rest scale so low-degree centers don't
+    // zoom in absurdly.
+    const target = Math.max(
+      EXIT_ZOOM_THRESHOLD * 1.5,
+      Math.min(fitScale, Math.max(start, REST_SCALE * 2)),
+    )
+    const startTime = performance.now()
+    let raf = 0
+    S.autoFitInProgress = true
+    function tick() {
+      const t = Math.min(1, (performance.now() - startTime) / REST_SCALE_ANIM_MS)
+      const eased = 1 - Math.pow(1 - t, 3)
+      S.cam.scale = start + (target - start) * eased
+      if (t < 1) {
+        raf = requestAnimationFrame(tick)
+      } else {
+        S.autoFitInProgress = false
+      }
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      S.autoFitInProgress = false
+    }
+  }, [data])
+
+  // Triggers the fade-out, then calls the parent's onExit once the
+  // transition has finished playing. Replaces direct onExit() everywhere so
+  // every close path (Esc / X button / zoom-out trigger) animates.
+  const requestExit = useCallback(() => {
+    setVisible(false)
+    setTimeout(onExit, FADE_MS)
+  }, [onExit])
+
   // Esc + close button exit
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onExit()
+      if (e.key === "Escape") requestExit()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [onExit])
+  }, [requestExit])
 
-  // Hit-test in screen space against current visible entities
+  // Hit-test in screen space. At high LOD the node renders as a content
+  // card (drawNodeCard), so the test uses its rectangular bounds;
+  // otherwise it falls back to the circular radius the glyph occupies.
   const hitTest = useCallback((sx: number, sy: number): SigEntity | null => {
     const S = stateRef.current
     if (!S.data) return null
-    let hit: SigEntity | null = null
     for (const e of S.data.flat) {
       const sc = worldToScreen(e.x, e.y, S.cam, S.w, S.h)
-      const r = e.r * S.cam.scale + 6
-      const dx = sx - sc.x
-      const dy = sy - sc.y
-      if (dx * dx + dy * dy <= r * r) {
-        hit = e
-        break
+      const appR = e.r * S.cam.scale
+      if (appR > LOD.CARD_VISIBLE) {
+        const b = getNodeCardBounds(e, sc, appR)
+        if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) {
+          return e
+        }
+      } else {
+        const r = appR + 6
+        const dx = sx - sc.x
+        const dy = sy - sc.y
+        if (dx * dx + dy * dy <= r * r) return e
       }
     }
-    return hit
+    return null
   }, [])
 
   const handleNeighborClick = useCallback((e: SigEntity) => {
@@ -169,8 +260,8 @@ export function CaseView({
 
   useEffect(() => {
     stateRef.current.onNeighborClick = handleNeighborClick
-    stateRef.current.onExitZoom = onExit
-  }, [handleNeighborClick, onExit])
+    stateRef.current.onExitZoom = requestExit
+  }, [handleNeighborClick, requestExit])
 
   // Render loop + input handling
   useEffect(() => {
@@ -227,11 +318,44 @@ export function CaseView({
     function drawEdges() {
       clear(edgeCtx!, S.w, S.h)
       if (!S.data) return
-      for (const e of S.data.edges) {
+      const selectedId = S.data.selectedId
+      // 1) Only draw edges that touch the selected node — sibling-to-sibling
+      //    edges from the API turn the case board into a hairball.
+      const drawable = S.data.edges.filter(
+        (e) => e.fromId === selectedId || e.toId === selectedId,
+      )
+      // 2) Label dedup: show each edge-type label at most once, on the
+      //    edge whose midpoint is closest to screen-center.
+      const showLabelsAtAll = S.cam.scale > 0.4
+      const labelEdgeId = new Set<string>()
+      if (showLabelsAtAll) {
+        const byType = new Map<string, typeof drawable>()
+        for (const e of drawable) {
+          const arr = byType.get(e.label ?? "") ?? []
+          arr.push(e)
+          byType.set(e.label ?? "", arr)
+        }
+        for (const [, arr] of byType) {
+          let bestId = arr[0].id
+          let bestDx = Infinity
+          for (const e of arr) {
+            const ax = (e.from.x - S.cam.x) * S.cam.scale + S.w / 2
+            const bx = (e.to.x - S.cam.x) * S.cam.scale + S.w / 2
+            const mx = (ax + bx) / 2
+            const dx = Math.abs(mx - S.w / 2)
+            if (dx < bestDx) {
+              bestDx = dx
+              bestId = e.id
+            }
+          }
+          labelEdgeId.add(bestId)
+        }
+      }
+      for (const e of drawable) {
         const a = worldToScreen(e.from.x, e.from.y, S.cam, S.w, S.h)
         const b = worldToScreen(e.to.x, e.to.y, S.cam, S.w, S.h)
-        const showLabel = S.cam.scale > 0.4
-        drawEdge(edgeCtx!, a, b, 1, showLabel ? e.label : undefined)
+        const label = labelEdgeId.has(e.id) ? e.label : undefined
+        drawEdge(edgeCtx!, a, b, 1, label)
       }
     }
 
@@ -263,11 +387,14 @@ export function CaseView({
       drawBackground()
       drawEdges()
       drawNodes()
-      // Exit-on-zoom-out: once the selected entity becomes too small, trigger
-      // a clean 2D→3D handoff. Guard with exitFired so we don't fire twice if
-      // the animation takes a few frames.
+      // Exit-on-zoom-out: once the user pulls the camera back past the
+      // threshold, trigger a clean 2D→3D handoff. Suppressed while the
+      // auto-fit animation is driving cam.scale — otherwise high-degree
+      // centers would auto-fit through the threshold and bounce out
+      // before the user has even seen the layout.
       if (
         !S.exitFired &&
+        !S.autoFitInProgress &&
         S.data &&
         S.cam.scale < EXIT_ZOOM_THRESHOLD &&
         S.onExitZoom
@@ -356,7 +483,11 @@ export function CaseView({
     <div
       ref={stageRef}
       className="relative h-full w-full overflow-hidden"
-      style={{ background: C.bg0 }}
+      style={{
+        background: C.bg0,
+        opacity: visible ? 1 : 0,
+        transition: `opacity ${FADE_MS}ms ease-out`,
+      }}
     >
       <canvas
         ref={bgRef}
@@ -395,7 +526,7 @@ export function CaseView({
       </div>
 
       <button
-        onClick={onExit}
+        onClick={requestExit}
         title="Close (Esc)"
         className="absolute right-4 top-4 flex items-center justify-center rounded-md text-sm transition-colors"
         style={{
