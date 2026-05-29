@@ -6,7 +6,7 @@ import { CameraControls, Html } from "@react-three/drei"
 import { EffectComposer, Bloom } from "@react-three/postprocessing"
 import { Vector3 } from "three"
 import * as THREE from "three"
-import type CameraControlsImpl from "camera-controls"
+import CameraControlsImpl from "camera-controls"
 import {
   buildGraph,
   computeRadialLayout,
@@ -23,7 +23,12 @@ import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import type { SchemaNode } from "@/app/ontology/page"
 import { HoverPreviewCard } from "./hover-preview-card"
-import { CaseView } from "@/components/case-view"
+import {
+  NodeMorph,
+  CaseBoardAnimator,
+  useCaseBoardStore,
+  computeCaseBoardLayout,
+} from "@/components/case-board"
 import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { metroSeries } from "@/data/metro"
 import {
@@ -528,11 +533,6 @@ const OVERVIEW_CAM: CamTarget = {
 // settling after a click doesn't accidentally fire it.
 const CASE_VIEW_TRIGGER_DISTANCE = 8
 
-// Camera billboard-scale for selected nodes (from graph-viz-kit depth visuals).
-// Used to estimate the apparent on-screen radius at handoff so the 2D canvas
-// can mount with cam.scale matching that radius — pixel-continuous handoff.
-const SELECTED_NODE_BILLBOARD_SCALE = 0.6
-
 function smoothstep(x: number) {
   return x * x * (3 - 2 * x)
 }
@@ -624,12 +624,11 @@ function CaseViewTrigger({
   graph: Graph
   selectedNodeId: number | null
   selectedApiNode: ApiNode | null
-  onOpen: (node: ApiNode, apparentRadius: number) => void
+  onOpen: (node: ApiNode) => void
   disabled: boolean
   camAnim: React.RefObject<{ progress: number }>
 }) {
   const camera = useThree((s) => s.camera)
-  const size = useThree((s) => s.size)
   const firedRef = useRef(false)
 
   useFrame(() => {
@@ -657,11 +656,7 @@ function CaseViewTrigger({
     if (camAnim.current.progress < 1) return
     if (dist < CASE_VIEW_TRIGGER_DISTANCE && !firedRef.current) {
       firedRef.current = true
-      const fovRad = (50 / 2) * (Math.PI / 180)
-      const apparent =
-        (SELECTED_NODE_BILLBOARD_SCALE * size.height) /
-        (2 * dist * Math.tan(fovRad))
-      onOpen(selectedApiNode, apparent)
+      onOpen(selectedApiNode)
     }
   })
 
@@ -678,17 +673,7 @@ function CaseViewTrigger({
     >
       <div style={{ position: "relative", width: 0, height: 0 }}>
         <button
-          onClick={() => {
-            const dx = camera.position.x - p.x
-            const dy = camera.position.y - p.y
-            const dz = camera.position.z - p.z
-            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1
-            const fovRad = (50 / 2) * (Math.PI / 180)
-            const apparent =
-              (SELECTED_NODE_BILLBOARD_SCALE * size.height) /
-              (2 * dist * Math.tan(fovRad))
-            onOpen(selectedApiNode, apparent)
-          }}
+          onClick={() => onOpen(selectedApiNode)}
           title="Open case view"
           style={{
             position: "absolute",
@@ -855,6 +840,403 @@ function DebugMarkers({
   )
 }
 
+// Camera placement for the case-board view, expressed as an offset from the
+// focal node. The same vector is used by CaseBoardAnimator (to setLookAt the
+// camera) and by CaseBoardMorphLayer (to compute the plane the neighbor ring
+// sits in). Keep them in sync so cards face the camera at full morph.
+export const CASE_BOARD_CAM_OFFSET = new Vector3(28, 14, 11.2)
+// World-units multiplier for the normalized force-layout positions. The
+// farthest neighbor ends up at SPREAD units from the focal — tune so the
+// network fills the viewport at the resting camera distance.
+const CASE_BOARD_SPREAD = 12
+
+// Peak opacity of the cream backdrop. Below 1 lets a hint of the 3D scene
+// bleed through so the board reads as "on top of the world" rather than a
+// hard cut. Lower = more visible 3D ghost; 1 = fully opaque cream.
+export const CASE_BOARD_BACKDROP_OPACITY = 0.92
+
+// Z-index layering for the case-board overlays. drei's <Html /> defaults to
+// zIndexRange [16777271, 0] for its label portals, so anything that has to
+// occlude or sit above GraphView's labels needs values past 16.77M.
+export const CASE_BOARD_Z = {
+  backdrop: 16777300, // cream paper above 3D labels
+  connectors: 16777350, // SVG between cream + cards
+  cardFar: 16777400,
+  cardNear: 16777500,
+  button: 16778000,
+}
+
+// World→screen projection shared between the in-Canvas emitter and the
+// out-of-Canvas connectors SVG. Mutable ref so the SVG can update path d
+// attributes via its own rAF without re-rendering React 60fps. One entry
+// per visible node (focal + neighbors); the SVG looks each end up by refId
+// when drawing per-edge connectors.
+export type ProjectionsRef = {
+  positions: Map<string, { x: number; y: number }>
+}
+
+// Inside Canvas: each frame, project every visible (focal + neighbor)
+// interpolated world position to screen coords and write into the shared
+// ref. Renders nothing — purely a side-effect bridge to the SVG outside
+// the Canvas.
+function ProjectionEmitter({
+  projectionsRef,
+  items,
+  morphProgress,
+}: {
+  projectionsRef: React.RefObject<ProjectionsRef>
+  items: { id: string; origin: [number, number, number]; target: [number, number, number] }[]
+  morphProgress: number
+}) {
+  const camera = useThree((s) => s.camera)
+  const size = useThree((s) => s.size)
+  useFrame(() => {
+    const r = projectionsRef.current
+    if (!r) return
+    const t = Math.max(0, Math.min(1, morphProgress))
+    const next = new Map<string, { x: number; y: number }>()
+    for (const item of items) {
+      const wx = item.origin[0] + (item.target[0] - item.origin[0]) * t
+      const wy = item.origin[1] + (item.target[1] - item.origin[1]) * t
+      const wz = item.origin[2] + (item.target[2] - item.origin[2]) * t
+      const v = new Vector3(wx, wy, wz).project(camera)
+      next.set(item.id, {
+        x: (v.x + 1) * 0.5 * size.width,
+        y: (-v.y + 1) * 0.5 * size.height,
+      })
+    }
+    r.positions = next
+  })
+  return null
+}
+
+// Renders the in-3D case board. The focal node + 1-hop neighbors get laid
+// out via a force-directed sim in the plane perpendicular to the case-
+// board camera direction — neighbors that share edges cluster naturally
+// instead of all hanging off a perfect star. Mounts the camera animator
+// + projection emitter alongside the cards.
+function CaseBoardMorphLayer({
+  graph,
+  refIdToIndex,
+  nodes,
+  edges,
+  selectedRefId,
+  morphProgress,
+  cameraRef,
+  projectionsRef,
+  cardPortalRef,
+  visibleEdges,
+  neighborRefIds,
+}: {
+  graph: Graph
+  refIdToIndex: Map<string, number>
+  nodes: ApiNode[]
+  edges: ApiEdge[]
+  selectedRefId: string
+  morphProgress: number
+  cameraRef: React.RefObject<CameraControlsImpl | null>
+  projectionsRef: React.RefObject<ProjectionsRef>
+  cardPortalRef: React.RefObject<HTMLDivElement | null>
+  visibleEdges: { a: string; b: string; label: string }[]
+  neighborRefIds: string[]
+}) {
+  const selectedIdx = refIdToIndex.get(selectedRefId)
+  const selectedNode = nodes.find((n) => n.ref_id === selectedRefId) ?? null
+  const focalWorld = useMemo<[number, number, number] | null>(() => {
+    if (selectedIdx === undefined) return null
+    const p = graph.nodes[selectedIdx]?.position
+    if (!p) return null
+    return [p.x, p.y, p.z]
+  }, [graph, selectedIdx])
+
+  // Force-directed 2D layout for the case-board. Focal anchored at origin;
+  // edges between neighbors pull related nodes together, repulsion spreads
+  // everything out. Seeded by the focal refId so re-opens are stable.
+  const layout2d = useMemo(() => {
+    if (!focalWorld) return new Map<string, { x: number; y: number }>()
+    return computeCaseBoardLayout({
+      nodes: [selectedRefId, ...neighborRefIds],
+      edges: visibleEdges.map((e) => ({ a: e.a, b: e.b })),
+      anchorId: selectedRefId,
+      seed: selectedRefId,
+    })
+  }, [focalWorld, selectedRefId, neighborRefIds, visibleEdges])
+
+  // Map normalized 2D layout into world-space targets on the plane
+  // perpendicular to the case-board camera direction. Multiplied by
+  // CASE_BOARD_SPREAD so the laid-out network fills the viewport at the
+  // resting camera distance.
+  const neighborTargets = useMemo(() => {
+    if (!focalWorld) {
+      return [] as {
+        node: ApiNode
+        origin: [number, number, number]
+        target: [number, number, number]
+      }[]
+    }
+    const focal = new Vector3(focalWorld[0], focalWorld[1], focalWorld[2])
+    const camPos = focal.clone().add(CASE_BOARD_CAM_OFFSET)
+    const forward = focal.clone().sub(camPos).normalize()
+    const worldUp = new Vector3(0, 1, 0)
+    const right = new Vector3().crossVectors(worldUp, forward).normalize()
+    const up = new Vector3().crossVectors(forward, right).normalize()
+    const entries: {
+      node: ApiNode
+      origin: [number, number, number]
+      target: [number, number, number]
+    }[] = []
+    for (const refId of neighborRefIds) {
+      const idx = refIdToIndex.get(refId)
+      if (idx === undefined) continue
+      const apiNode = nodes.find((n) => n.ref_id === refId)
+      if (!apiNode) continue
+      const p = graph.nodes[idx]?.position
+      if (!p) continue
+      const layoutPos = layout2d.get(refId) ?? { x: 0, y: 0 }
+      const offset = right
+        .clone()
+        .multiplyScalar(layoutPos.x * CASE_BOARD_SPREAD)
+        .add(up.clone().multiplyScalar(layoutPos.y * CASE_BOARD_SPREAD))
+      const target = focal.clone().add(offset)
+      entries.push({
+        node: apiNode,
+        origin: [p.x, p.y, p.z],
+        target: [target.x, target.y, target.z],
+      })
+    }
+    return entries
+  }, [focalWorld, neighborRefIds, refIdToIndex, nodes, graph, layout2d])
+
+  // All projection inputs in one list — focal first, then each neighbor.
+  // The SVG looks up positions by refId when drawing per-edge connectors,
+  // so we need both endpoints in the map.
+  const projectionInput = useMemo(() => {
+    if (!focalWorld) return []
+    const list: { id: string; origin: [number, number, number]; target: [number, number, number] }[] = [
+      { id: selectedRefId, origin: focalWorld, target: focalWorld },
+    ]
+    for (const e of neighborTargets) {
+      list.push({ id: e.node.ref_id, origin: e.origin, target: e.target })
+    }
+    return list
+  }, [focalWorld, selectedRefId, neighborTargets])
+
+  return (
+    <>
+      <CaseBoardAnimator focalWorld={focalWorld} cameraRef={cameraRef} />
+      <ProjectionEmitter
+        projectionsRef={projectionsRef}
+        items={projectionInput}
+        morphProgress={morphProgress}
+      />
+      {selectedNode && focalWorld && (
+        <NodeMorph
+          node={selectedNode}
+          originPosition={focalWorld}
+          targetPosition={focalWorld}
+          variant="selected"
+          morphProgress={morphProgress}
+          portal={cardPortalRef}
+        />
+      )}
+      {neighborTargets.map(({ node, origin, target }) => (
+        <NodeMorph
+          key={node.ref_id}
+          node={node}
+          originPosition={origin}
+          targetPosition={target}
+          variant="neighbor"
+          morphProgress={morphProgress}
+          onClick={() => useCaseBoardStore.getState().open(node.ref_id)}
+          portal={cardPortalRef}
+        />
+      ))}
+    </>
+  )
+}
+
+// SVG overlay that hosts the connector graphics — dashed lines, endpoint
+// dots, mid-edge "linked to" pills. Each frame, an in-Canvas projection
+// emitter writes focal + neighbor screen coords to a shared ref; this
+// component's own rAF reads that ref and updates the SVG element attrs
+// imperatively (no React re-renders during pan/zoom/morph).
+const CONNECTOR_COLOR = "#4a90e2"
+const CONNECTOR_COLOR_DIM = "rgba(74, 144, 226, 0.55)"
+const CONNECTOR_LABEL_BG = "#0a0e15"
+const CONNECTOR_LABEL_TEXT = "rgba(180, 210, 240, 0.85)"
+
+function CaseBoardConnectorsSvg({
+  projectionsRef,
+  edges,
+  morphProgress,
+}: {
+  projectionsRef: React.RefObject<ProjectionsRef>
+  // One per visible-pair edge. id is a stable key (e.g. `${a}|${b}|${label}`)
+  // so React can keep DOM stable across renders. a/b are refIds.
+  edges: { id: string; a: string; b: string; label: string }[]
+  morphProgress: number
+}) {
+  // One ref per dynamic element per edge id: path, two endpoint circles,
+  // label group, label rect.
+  const pathRefs = useRef<Map<string, SVGPathElement>>(new Map())
+  const dotARefs = useRef<Map<string, SVGCircleElement>>(new Map())
+  const dotBRefs = useRef<Map<string, SVGCircleElement>>(new Map())
+  const labelGRefs = useRef<Map<string, SVGGElement>>(new Map())
+  const labelRectRefs = useRef<Map<string, SVGRectElement>>(new Map())
+  const labelTextRefs = useRef<Map<string, SVGTextElement>>(new Map())
+
+  useEffect(() => {
+    let raf = 0
+    function tick() {
+      const positions = projectionsRef.current?.positions
+      if (positions) {
+        for (const e of edges) {
+          const pa = positions.get(e.a)
+          const pb = positions.get(e.b)
+          if (!pa || !pb) continue
+          const dx = pb.x - pa.x
+          const dy = pb.y - pa.y
+          const len = Math.sqrt(dx * dx + dy * dy) || 1
+          // Subtle perpendicular bow so connectors that share endpoints
+          // don't overlap. Sign by edge id hash so adjacent edges bow
+          // opposite directions.
+          let hash = 0
+          for (let i = 0; i < e.id.length; i++) hash = (hash * 31 + e.id.charCodeAt(i)) | 0
+          const sign = hash & 1 ? 1 : -1
+          const bow = Math.max(4, Math.min(22, len * 0.06)) * sign
+          const mx = (pa.x + pb.x) / 2 - (dy / len) * bow
+          const my = (pa.y + pb.y) / 2 + (dx / len) * bow
+
+          const path = pathRefs.current.get(e.id)
+          if (path) {
+            path.setAttribute(
+              "d",
+              `M ${pa.x.toFixed(1)} ${pa.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${pb.x.toFixed(1)} ${pb.y.toFixed(1)}`,
+            )
+          }
+          const da = dotARefs.current.get(e.id)
+          if (da) {
+            da.setAttribute("cx", pa.x.toFixed(1))
+            da.setAttribute("cy", pa.y.toFixed(1))
+          }
+          const db = dotBRefs.current.get(e.id)
+          if (db) {
+            db.setAttribute("cx", pb.x.toFixed(1))
+            db.setAttribute("cy", pb.y.toFixed(1))
+          }
+          const labelG = labelGRefs.current.get(e.id)
+          if (labelG) {
+            const lx = (pa.x + 2 * mx + pb.x) / 4
+            const ly = (pa.y + 2 * my + pb.y) / 4
+            labelG.setAttribute("transform", `translate(${lx.toFixed(1)}, ${ly.toFixed(1)})`)
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [projectionsRef, edges])
+
+  return (
+    <svg
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        pointerEvents: "none",
+        opacity: morphProgress,
+        zIndex: CASE_BOARD_Z.connectors,
+      }}
+    >
+      {edges.map((e) => {
+        // Width of the label pill grows with text length so long edge
+        // types ("ANTAGONIST_OF") don't truncate.
+        const label = (e.label || "linked to").toLowerCase()
+        const pillW = Math.max(48, label.length * 6 + 16)
+        return (
+          <g key={e.id}>
+            <path
+              ref={(el) => {
+                if (el) pathRefs.current.set(e.id, el)
+                else pathRefs.current.delete(e.id)
+              }}
+              stroke={CONNECTOR_COLOR_DIM}
+              strokeWidth={1.3}
+              strokeDasharray="6 5"
+              fill="none"
+              strokeLinecap="round"
+            />
+            <circle
+              ref={(el) => {
+                if (el) dotARefs.current.set(e.id, el)
+                else dotARefs.current.delete(e.id)
+              }}
+              r={4}
+              fill={CONNECTOR_COLOR}
+              stroke={CARD_BG_FOR_DOT}
+              strokeWidth={1.5}
+            />
+            <circle
+              ref={(el) => {
+                if (el) dotBRefs.current.set(e.id, el)
+                else dotBRefs.current.delete(e.id)
+              }}
+              r={4}
+              fill={CONNECTOR_COLOR}
+              stroke={CARD_BG_FOR_DOT}
+              strokeWidth={1.5}
+            />
+            <g
+              ref={(el) => {
+                if (el) labelGRefs.current.set(e.id, el)
+                else labelGRefs.current.delete(e.id)
+              }}
+            >
+              <rect
+                ref={(el) => {
+                  if (el) labelRectRefs.current.set(e.id, el)
+                  else labelRectRefs.current.delete(e.id)
+                }}
+                x={-pillW / 2}
+                y={-9}
+                width={pillW}
+                height={18}
+                rx={9}
+                fill={CONNECTOR_LABEL_BG}
+                stroke={CONNECTOR_COLOR_DIM}
+                strokeWidth={0.75}
+              />
+              <text
+                ref={(el) => {
+                  if (el) labelTextRefs.current.set(e.id, el)
+                  else labelTextRefs.current.delete(e.id)
+                }}
+                x={0}
+                y={1}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill={CONNECTOR_LABEL_TEXT}
+                fontSize={9}
+                fontFamily='"Space Grotesk", system-ui, sans-serif'
+                letterSpacing={0.5}
+              >
+                {label}
+              </text>
+            </g>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+// Small dark border around endpoint dots so they read as distinct chips
+// rather than blending into the dashed line. Matches the case-board's
+// dark backdrop.
+const CARD_BG_FOR_DOT = "#0a0e15"
+
 interface GraphCanvasProps {
   nodes: ApiNode[]
   edges: ApiEdge[]
@@ -938,14 +1320,178 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   }, [schemas])
 
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
-  // Case view overlay state. node = which node is the center of the case
-  // view; apparentRadius = the on-screen pixel radius the node had in 3D at
-  // the handoff frame, so the 2D canvas can mount with cam.scale tuned to
-  // match — pixel-continuous handoff. null means no case view active.
-  const [caseView, setCaseView] = useState<{
-    node: ApiNode
-    apparentRadius: number
+
+  // In-3D case board state — subscribed via the case-board store. Open is
+  // triggered by either the close-up zoom (CaseViewTrigger) or the manual
+  // "open case board" button. The whole transition stays in the 3D scene:
+  // cards appear as Html overlays at node world positions, camera tilts to
+  // a front-of-node view, morphProgress drives card opacity + scale-in.
+  const morphSelectedRefId = useCaseBoardStore((s) => s.selectedRefId)
+  const morphProgress = useCaseBoardStore((s) => s.morphProgress)
+  const morphTarget = useCaseBoardStore((s) => s.morphTarget)
+  const morphOpen = morphTarget > 0.001 || morphProgress > 0.001
+
+  // Shared between the in-Canvas ProjectionEmitter (writer) and the
+  // out-of-Canvas CaseBoardConnectorsSvg (reader). Holds the most recent
+  // world→screen projection of the focal + each neighbor's interpolated
+  // position. Mutable ref so the SVG can repaint via its own rAF without
+  // touching React state per frame.
+  const projectionsRef = useRef<ProjectionsRef>({ positions: new Map() })
+
+  // Board pan + zoom — applied as a CSS transform on the layer that hosts
+  // the Html cards + SVG connectors. Lives entirely in DOM so the 3D
+  // camera stays locked and the underlying scene doesn't move at all.
+  const boardLayerRef = useRef<HTMLDivElement>(null)
+  const [boardPan, setBoardPan] = useState({ x: 0, y: 0 })
+  const [boardZoom, setBoardZoom] = useState(1)
+  // Mirror pan/zoom in refs so the wheel handler (which can fire faster than
+  // React commits, especially on trackpads) always reads the latest values
+  // instead of stale closure state.
+  const boardPanRef = useRef({ x: 0, y: 0 })
+  const boardZoomRef = useRef(1)
+  const setBoard = useCallback(
+    (pan: { x: number; y: number }, zoom: number) => {
+      boardPanRef.current = pan
+      boardZoomRef.current = zoom
+      setBoardPan(pan)
+      setBoardZoom(zoom)
+    },
+    [],
+  )
+  const dragStateRef = useRef<{
+    startX: number
+    startY: number
+    startPanX: number
+    startPanY: number
+    moved: boolean
   } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+
+  // Snap pan/zoom back to identity whenever the morph closes so the next
+  // open always starts centered. Without this, the board would remember
+  // the pan/zoom from the last session.
+  useEffect(() => {
+    if (!morphOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset on external (store) close path; this is the boundary between morphOpen subscription and local board state
+      setBoard({ x: 0, y: 0 }, 1)
+    }
+  }, [morphOpen, setBoard])
+
+  const handleBoardMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      // Only start a pan gesture on left button. Right-click / middle stay
+      // available for browser context menu / future tools.
+      if (e.button !== 0) return
+      dragStateRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startPanX: boardPanRef.current.x,
+        startPanY: boardPanRef.current.y,
+        moved: false,
+      }
+    },
+    [],
+  )
+
+  const handleBoardMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const drag = dragStateRef.current
+      if (!drag) return
+      const dx = e.clientX - drag.startX
+      const dy = e.clientY - drag.startY
+      // 3px threshold so a clean click on a card doesn't register as a
+      // micro-drag and consume the click event.
+      if (!drag.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return
+      if (!drag.moved) {
+        drag.moved = true
+        setIsDragging(true)
+      }
+      setBoard(
+        { x: drag.startPanX + dx, y: drag.startPanY + dy },
+        boardZoomRef.current,
+      )
+    },
+    [setBoard],
+  )
+
+  const handleBoardMouseUp = useCallback(() => {
+    dragStateRef.current = null
+    setIsDragging(false)
+  }, [])
+
+  const handleBoardWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      // Miro-style zoom: the step scales with the actual wheel delta (so a
+      // trackpad's many small events stay gentle and a mouse notch is one
+      // smooth bump), and the zoom anchors on the cursor instead of the
+      // viewport center.
+      e.stopPropagation()
+      // Normalize across deltaMode: pixels (0), lines (1), pages (2).
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1
+      const delta = e.deltaY * unit
+      const factor = Math.exp(-delta * 0.0015)
+
+      const z = boardZoomRef.current
+      const next = Math.max(0.25, Math.min(4, z * factor))
+      // Clamping can shrink the effective factor — recompute it so the
+      // cursor-anchor math stays exact at the zoom limits.
+      const applied = next / z
+
+      const rect = e.currentTarget.getBoundingClientRect()
+      const cx = e.clientX - rect.left - rect.width / 2
+      const cy = e.clientY - rect.top - rect.height / 2
+      // Keep the content point under the cursor fixed: pan' = c - f·(c - pan).
+      const p = boardPanRef.current
+      setBoard(
+        {
+          x: cx - applied * (cx - p.x),
+          y: cy - applied * (cy - p.y),
+        },
+        next,
+      )
+    },
+    [setBoard],
+  )
+
+  // 1-hop neighbor ref_ids of the morph-selected node. Hoisted out of
+  // CaseBoardMorphLayer so the connectors SVG (sibling, not child) can
+  // share the same set without duplicating the edge scan.
+  const morphNeighborIds = useMemo(() => {
+    if (!morphSelectedRefId) return []
+    const out: string[] = []
+    const seen = new Set<string>([morphSelectedRefId])
+    for (const e of effectiveEdges) {
+      let nb: string | null = null
+      if (e.source === morphSelectedRefId) nb = e.target
+      else if (e.target === morphSelectedRefId) nb = e.source
+      if (nb && !seen.has(nb)) {
+        seen.add(nb)
+        out.push(nb)
+      }
+    }
+    return out
+  }, [morphSelectedRefId, effectiveEdges])
+
+  // Edges to render on the case board: every edge whose both endpoints
+  // are part of the visible set (focal + 1-hop neighbors). Includes
+  // neighbor-to-neighbor edges so the board reads as a network instead of
+  // a star. De-duped by canonical key.
+  const morphVisibleEdges = useMemo(() => {
+    if (!morphSelectedRefId) return []
+    const visible = new Set<string>([morphSelectedRefId, ...morphNeighborIds])
+    const out: { id: string; a: string; b: string; label: string }[] = []
+    const seen = new Set<string>()
+    for (const e of effectiveEdges) {
+      if (!visible.has(e.source) || !visible.has(e.target)) continue
+      const lo = e.source < e.target ? e.source : e.target
+      const hi = e.source < e.target ? e.target : e.source
+      const key = `${lo}|${hi}|${e.edge_type}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({ id: key, a: e.source, b: e.target, label: e.edge_type })
+    }
+    return out
+  }, [morphSelectedRefId, morphNeighborIds, effectiveEdges])
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   // Metro overlay focus state — driven by hovering the lines (3D) or the
@@ -1014,7 +1560,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     // eslint-disable-next-line react-hooks/set-state-in-effect -- paired with an imperative camera reset; remount would drop GL state
     setViewState({ mode: "overview" })
     setCamTarget(OVERVIEW_CAM)
-    setCaseView(null)
+    useCaseBoardStore.getState().close()
   }, [dataVersion, setCamTarget])
 
   const selectedApiNode = useMemo<ApiNode | null>(() => {
@@ -1024,18 +1570,22 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return nodes.find((n) => n.ref_id === refId) ?? null
   }, [viewState, indexMap, nodes])
 
+  // Opens the in-3D case board (morph + camera tilt + Html cards) on the
+  // node the user has been zooming into. apparentRadius is unused now —
+  // kept in the trigger's signature for back-compat, but the morph doesn't
+  // need it since cards are sized in screen-space via distanceFactor.
   const handleOpenCaseView = useCallback(
-    (node: ApiNode, apparentRadius: number) => {
-      setCaseView({ node, apparentRadius })
+    (node: ApiNode) => {
+      useCaseBoardStore.getState().open(node.ref_id)
     },
     [],
   )
 
-  const handleCloseCaseView = useCallback(() => {
-    setCaseView(null)
-    // Pull camera back to the selected node's rest distance so the trigger
-    // re-arms and the user has room to maneuver. Without this they'd land
-    // right at the threshold and the next mouse-wheel tick would re-fire.
+  // Closes the in-3D case board: drops morph state and pulls the camera back
+  // to the selected node's rest distance so the trigger re-arms and the user
+  // has room to maneuver before the next dolly-in.
+  const handleCloseCaseBoard = useCallback(() => {
+    useCaseBoardStore.getState().close()
     if (viewState.mode === "subgraph") {
       setCamTarget(
         computeCamTarget(
@@ -1316,13 +1866,49 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     useGraphStore.getState().setHoveredNode(null)
   }, [graph, setCamTarget])
 
+  // Lock CameraControls into a 2D-feeling pan + zoom mode while the case
+  // board is open: drag = truck (parallel to view plane), wheel = dolly,
+  // rotate disabled. Reverts to the default 3D orbit controls on close.
+  useEffect(() => {
+    const cc = cameraRef.current
+    if (!cc) return
+    if (morphOpen) {
+      // 3D camera fully locked while the board is up. Pan + zoom for the
+      // board happen on a separate DOM layer (BoardPanZoom below) so they
+      // don't move the underlying 3D scene at all — true Miro-style
+      // independent whiteboard.
+      cc.mouseButtons.left = CameraControlsImpl.ACTION.NONE
+      cc.mouseButtons.right = CameraControlsImpl.ACTION.NONE
+      cc.mouseButtons.middle = CameraControlsImpl.ACTION.NONE
+      cc.mouseButtons.wheel = CameraControlsImpl.ACTION.NONE
+      cc.touches.one = CameraControlsImpl.ACTION.NONE
+      cc.touches.two = CameraControlsImpl.ACTION.NONE
+      cc.touches.three = CameraControlsImpl.ACTION.NONE
+    } else {
+      cc.mouseButtons.left = CameraControlsImpl.ACTION.ROTATE
+      cc.mouseButtons.right = CameraControlsImpl.ACTION.TRUCK
+      cc.mouseButtons.middle = CameraControlsImpl.ACTION.DOLLY
+      cc.mouseButtons.wheel = CameraControlsImpl.ACTION.DOLLY
+      cc.touches.one = CameraControlsImpl.ACTION.TOUCH_ROTATE
+      cc.touches.two = CameraControlsImpl.ACTION.TOUCH_DOLLY_TRUCK
+      cc.touches.three = CameraControlsImpl.ACTION.TOUCH_TRUCK
+    }
+  }, [morphOpen])
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && viewState.mode === "subgraph") handleReset()
+      if (e.key !== "Escape") return
+      // Two-stage Esc: while the case board is open it closes the board
+      // first (keeping the subgraph view); a second Esc resets to overview.
+      if (morphOpen) {
+        handleCloseCaseBoard()
+        return
+      }
+      if (viewState.mode === "subgraph") handleReset()
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [viewState.mode, handleReset])
+  }, [viewState.mode, handleReset, morphOpen, handleCloseCaseBoard])
 
   return (
     <div
@@ -1332,7 +1918,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     >
       <Canvas
         camera={{ position: [0, 80, 0.1], fov: 50 }}
-        style={{ background: "oklch(0.06 0.02 260)" }}
+        style={{ background: "#05080c" }}
       >
         <ambientLight intensity={0.3} />
         {metroEnabled && (
@@ -1394,9 +1980,24 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           }
           selectedApiNode={selectedApiNode}
           onOpen={handleOpenCaseView}
-          disabled={caseView !== null}
+          disabled={morphOpen}
           camAnim={camAnim}
         />
+        {morphOpen && morphSelectedRefId && (
+          <CaseBoardMorphLayer
+            graph={graph}
+            refIdToIndex={refIdToIndex}
+            nodes={effectiveNodes}
+            edges={effectiveEdges}
+            selectedRefId={morphSelectedRefId}
+            morphProgress={morphProgress}
+            cameraRef={cameraRef}
+            projectionsRef={projectionsRef}
+            cardPortalRef={boardLayerRef}
+            visibleEdges={morphVisibleEdges}
+            neighborRefIds={morphNeighborIds}
+          />
+        )}
         <CameraControls
           ref={cameraRef}
           makeDefault
@@ -1447,26 +2048,104 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         </div>
       )}
 
+      {/* Cream whiteboard backdrop — fades in to cover the 3D scene. Must
+          outrank drei's default Html zIndexRange (~16.77M) so GraphView's
+          node + edge labels disappear behind it, not bleed through. The
+          case-board cards + SVG sit above this layer. */}
+      {morphOpen && (
+        <div
+          className="absolute inset-0"
+          style={{
+            // Same hue family as the 3D scene bg (#05080c) plus a subtle
+            // radial-gradient dot grid every 24px. Reads as graph paper /
+            // case-board surface without being noisy.
+            background: `
+              radial-gradient(circle at center, rgba(180,200,220,0.06) 1px, transparent 1.4px) 0 0 / 24px 24px,
+              #0a0e15
+            `,
+            // Cap below 1 so a faint ghost of the 3D scene shows through.
+            opacity: morphProgress * CASE_BOARD_BACKDROP_OPACITY,
+            zIndex: CASE_BOARD_Z.backdrop,
+            pointerEvents: "none",
+          }}
+        />
+      )}
+      {/* Persistent layer that hosts the case-board cards (Html portals
+          from NodeMorph) and the SVG connectors. Stays mounted so the
+          drei portal ref is always populated; only takes pointer events
+          + applies pan/zoom transform when the morph is open. Translate +
+          scale happen here so the 3D camera underneath stays still. */}
+      <div
+        ref={boardLayerRef}
+        onMouseDown={morphOpen ? handleBoardMouseDown : undefined}
+        onMouseMove={morphOpen ? handleBoardMouseMove : undefined}
+        onMouseUp={morphOpen ? handleBoardMouseUp : undefined}
+        onMouseLeave={morphOpen ? handleBoardMouseUp : undefined}
+        onWheel={morphOpen ? handleBoardWheel : undefined}
+        style={{
+          position: "absolute",
+          inset: 0,
+          // Always above the cream backdrop so cards + connectors render
+          // on top; inert when the morph isn't open.
+          zIndex: CASE_BOARD_Z.cardFar,
+          pointerEvents: morphOpen ? "auto" : "none",
+          cursor: morphOpen ? (isDragging ? "grabbing" : "grab") : "default",
+          transform: morphOpen
+            ? `translate(${boardPan.x}px, ${boardPan.y}px) scale(${boardZoom})`
+            : undefined,
+          transformOrigin: "center center",
+          // No transform transition: zoom is cursor-anchored and applied
+          // per wheel event, so a lagging transition would make the anchor
+          // point visibly drift. Smoothness comes from the delta-scaled
+          // exponential step instead.
+          transition: "none",
+        }}
+      >
+        {morphOpen && (
+          <CaseBoardConnectorsSvg
+            projectionsRef={projectionsRef}
+            edges={morphVisibleEdges}
+            morphProgress={morphProgress}
+          />
+        )}
+      </div>
+      {morphOpen && (
+        <button
+          onClick={handleCloseCaseBoard}
+          title="Close case board (Esc)"
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            border: "1px solid rgba(180,195,210,0.2)",
+            background: "rgba(15,20,28,0.85)",
+            color: "#e6edf3",
+            backdropFilter: "blur(8px)",
+            fontSize: 18,
+            lineHeight: 1,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+            opacity: morphProgress,
+            transition: "opacity 200ms",
+            zIndex: CASE_BOARD_Z.button,
+          }}
+        >
+          ✕
+        </button>
+      )}
+
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
 
       {metroEnabled && (
         <MetroLegend hoveredState={hoveredState} onHoverState={setHoveredState} />
       )}
 
-      {caseView && (
-        // z-index has to outrank the react-three Html portals from the
-        // graph library, which default to 16777271. Otherwise 3D node
-        // labels bleed through the case view both during the fade and
-        // once it's fully opaque.
-        <div className="absolute inset-0" style={{ zIndex: 16777300 }}>
-          <CaseView
-            initialNode={caseView.node}
-            schemas={schemas}
-            initialApparentRadius={caseView.apparentRadius}
-            onExit={handleCloseCaseView}
-          />
-        </div>
-      )}
     </div>
   )
 }

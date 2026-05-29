@@ -58,23 +58,33 @@ export interface CaseViewProps {
   // We initialize cam.scale so the same node has the same on-screen radius
   // here — the user's eye doesn't lose it.
   initialApparentRadius?: number
+  // Fired when the 2D overlay flips from hidden to visible (data has landed
+  // and the fade-in is starting). Parent uses this to start fading the 3D
+  // canvas out — synchronized so there's no blank gap during a slow fetch.
+  onShown?: () => void
+  // Fired when requestExit starts (user pressed Esc / hit close / zoomed out).
+  // Parent uses this to start fading the 3D canvas back in, in lockstep with
+  // the 2D fade-out.
+  onWillHide?: () => void
   onExit: () => void
 }
 
 // Duration of the cross-fade between the 3D canvas and the 2D case view, in
 // ms. Used both on open (after data arrives) and on close (before onExit).
 const FADE_MS = 300
-// Duration of the post-landing zoom-out: the selected node lands at the same
-// pixel size it had in 3D, then eases out to REST_SCALE so neighbors come
-// into view. Tuned to feel like a continuation of the camera dolly, not a
-// separate animation.
-const REST_SCALE_ANIM_MS = 600
+// Per-entity entry animation duration. Focal card visually shrinks from
+// handoff size to rest; neighbors + edges fade in alpha after a short delay
+// so the eye locks on the focal first and the rest "draws in" around it.
+const ENTRY_MS = 600
+const NEIGHBOR_DELAY_MS = 120
 const REST_SCALE = 1.0
 
 export function CaseView({
   initialNode,
   schemas,
   initialApparentRadius,
+  onShown,
+  onWillHide,
   onExit,
 }: CaseViewProps) {
   const [currentRefId, setCurrentRefId] = useState(initialNode.ref_id)
@@ -131,94 +141,87 @@ export function CaseView({
     onNeighborClick: null as null | ((e: SigEntity) => void),
     onExitZoom: null as null | (() => void),
     exitFired: false,
-    // While the auto-fit animation is running, the cam.scale is being
-    // driven programmatically. Suppress the zoom-out-to-exit trigger so
-    // high-degree centers (which fit at low scale) don't bounce the user
-    // back to 3D the moment they open the case view.
-    autoFitInProgress: false,
+    // Entry animation. openedAt is the value of S.t when data landed; the
+    // focal card eases its visual scale from focalScaleStart down to 1 over
+    // ENTRY_MS, and neighbors/edges fade in alpha 0→1 after NEIGHBOR_DELAY_MS.
+    openedAt: 0,
+    focalScaleStart: 1,
   })
 
   useEffect(() => {
     stateRef.current.data = data
-    if (data) {
-      // Re-center camera on the new selected node. If an initial apparent
-      // radius was provided (the 3D→2D handoff), pick cam.scale so the
-      // selected entity has that same apparent radius on this canvas.
-      stateRef.current.cam.x = data.selected.x
-      stateRef.current.cam.y = data.selected.y
-      if (initialApparentRadius && initialApparentRadius > 0) {
-        stateRef.current.cam.scale = initialApparentRadius / data.selected.r
-      } else {
-        stateRef.current.cam.scale = INITIAL_SCALE
-      }
-      stateRef.current.exitFired = false
+    if (!data) return
+    const S = stateRef.current
+    S.cam.x = data.selected.x
+    S.cam.y = data.selected.y
+
+    // Pick cam.scale so the 1-hop subgraph fits comfortably in the viewport
+    // immediately — no separate auto-fit beat after the fade. If the canvas
+    // hasn't been measured yet (S.w === 0), fall back to REST_SCALE; the
+    // focal-card visual transform will still run, just without the precise
+    // fit clamping.
+    let restScale: number
+    if (S.w > 0 && S.h > 0) {
+      const bb = data.worldBBox
+      const worldW = Math.max(bb.maxX - bb.minX, 1)
+      const worldH = Math.max(bb.maxY - bb.minY, 1)
+      const margin = 80
+      const fitScale = Math.min(
+        (S.w - margin * 2) / worldW,
+        (S.h - margin * 2) / worldH,
+      )
+      // Clamp above the exit threshold so the trigger can't fire mid-entry,
+      // and below 2× rest scale so low-degree centers don't zoom in absurdly.
+      restScale = Math.max(
+        EXIT_ZOOM_THRESHOLD * 1.5,
+        Math.min(fitScale, REST_SCALE * 2),
+      )
+    } else {
+      restScale = REST_SCALE
     }
+
+    // Handoff scale = the cam.scale that would have matched the 3D sphere's
+    // pixel radius. We don't *use* it as cam.scale (that'd zoom the whole
+    // world); instead the focal card gets a visual transform of
+    // handoff/rest, so it draws at the handoff pixel size while the rest of
+    // the world is already at rest scale. The transform eases to 1 over
+    // ENTRY_MS — only the focal card morphs, neighbors stay put.
+    const handoffScale =
+      initialApparentRadius && initialApparentRadius > 0
+        ? initialApparentRadius / data.selected.r
+        : restScale
+
+    S.cam.scale = restScale
+    S.focalScaleStart = handoffScale / restScale
+    S.openedAt = S.t
+    S.exitFired = false
   }, [data, initialApparentRadius])
 
   // Fade in once data is ready — keeps the case view transparent (so the 3D
   // scene shows through) during the fetch, eliminating the "loading…" flash.
   // Errors also flip visible so the failure message isn't hidden by opacity:0.
+  // Notifies the parent via onShown so it can start fading the 3D canvas out
+  // in sync with this fade-in (otherwise a slow fetch leaves a blank gap).
   useEffect(() => {
     if (!data && !loadError) return
     // rAF lets the browser commit the opacity:0 initial frame before
     // flipping to 1, so the CSS transition actually animates.
-    const id = requestAnimationFrame(() => setVisible(true))
+    const id = requestAnimationFrame(() => {
+      setVisible(true)
+      onShown?.()
+    })
     return () => cancelAnimationFrame(id)
-  }, [data, loadError])
-
-  // After landing pixel-continuous on the selected node, ease cam.scale to
-  // a "fit" zoom — derived from the layout's world bounding box so the
-  // outermost ring sits comfortably inside the viewport with margin.
-  // Auto-fit suppresses the zoom-out-to-exit trigger so high-degree
-  // centers (which fit at low scale) don't bounce the user back to 3D the
-  // moment they open the case view.
-  useEffect(() => {
-    if (!data) return
-    const S = stateRef.current
-    if (S.w === 0 || S.h === 0) return
-    const start = S.cam.scale
-    const bb = data.worldBBox
-    const worldW = Math.max(bb.maxX - bb.minX, 1)
-    const worldH = Math.max(bb.maxY - bb.minY, 1)
-    const margin = 80
-    const fitScale = Math.min(
-      (S.w - margin * 2) / worldW,
-      (S.h - margin * 2) / worldH,
-    )
-    // Clamp above the exit threshold so the animation can't bounce us back
-    // to 3D mid-fit. Clamp below 2× rest scale so low-degree centers don't
-    // zoom in absurdly.
-    const target = Math.max(
-      EXIT_ZOOM_THRESHOLD * 1.5,
-      Math.min(fitScale, Math.max(start, REST_SCALE * 2)),
-    )
-    const startTime = performance.now()
-    let raf = 0
-    S.autoFitInProgress = true
-    function tick() {
-      const t = Math.min(1, (performance.now() - startTime) / REST_SCALE_ANIM_MS)
-      const eased = 1 - Math.pow(1 - t, 3)
-      S.cam.scale = start + (target - start) * eased
-      if (t < 1) {
-        raf = requestAnimationFrame(tick)
-      } else {
-        S.autoFitInProgress = false
-      }
-    }
-    raf = requestAnimationFrame(tick)
-    return () => {
-      cancelAnimationFrame(raf)
-      S.autoFitInProgress = false
-    }
-  }, [data])
+  }, [data, loadError, onShown])
 
   // Triggers the fade-out, then calls the parent's onExit once the
   // transition has finished playing. Replaces direct onExit() everywhere so
-  // every close path (Esc / X button / zoom-out trigger) animates.
+  // every close path (Esc / X button / zoom-out trigger) animates. Fires
+  // onWillHide so the parent can start fading the 3D canvas back in.
   const requestExit = useCallback(() => {
     setVisible(false)
+    onWillHide?.()
     setTimeout(onExit, FADE_MS)
-  }, [onExit])
+  }, [onExit, onWillHide])
 
   // Esc + close button exit
   useEffect(() => {
@@ -232,10 +235,18 @@ export function CaseView({
   // Hit-test in screen space. At high LOD the node renders as a content
   // card (drawNodeCard), so the test uses its rectangular bounds;
   // otherwise it falls back to the circular radius the glyph occupies.
+  // Neighbors that haven't faded in past ~50% are skipped so the user
+  // can't click an entity they can barely see.
   const hitTest = useCallback((sx: number, sy: number): SigEntity | null => {
     const S = stateRef.current
     if (!S.data) return null
+    const entryElapsed = S.t - S.openedAt
+    const neighborT = Math.min(
+      1,
+      Math.max(0, (entryElapsed - NEIGHBOR_DELAY_MS) / (ENTRY_MS - NEIGHBOR_DELAY_MS)),
+    )
     for (const e of S.data.flat) {
+      if (!e.isSelected && neighborT < 0.5) continue
       const sc = worldToScreen(e.x, e.y, S.cam, S.w, S.h)
       const appR = e.r * S.cam.scale
       if (appR > LOD.CARD_VISIBLE) {
@@ -315,9 +326,37 @@ export function CaseView({
       bgCtx!.stroke()
     }
 
+    // Cubic-out easing — fast at the start, settles smoothly. Same curve
+    // for focal scale and neighbor alpha so the two motions feel coordinated.
+    function easeOutCubic(t: number) {
+      return 1 - Math.pow(1 - t, 3)
+    }
+
+    // Returns the entry-animation progress for neighbors and edges (alpha 0→1
+    // after a short delay so the focal card "lands" first).
+    function entryNeighborAlpha() {
+      const elapsed = S.t - S.openedAt
+      const t = Math.min(
+        1,
+        Math.max(0, (elapsed - NEIGHBOR_DELAY_MS) / (ENTRY_MS - NEIGHBOR_DELAY_MS)),
+      )
+      return easeOutCubic(t)
+    }
+
+    // Returns the entry-animation focal-card visual scale (handoff size →
+    // rest size over ENTRY_MS).
+    function entryFocalScale() {
+      const elapsed = S.t - S.openedAt
+      const t = Math.min(1, Math.max(0, elapsed / ENTRY_MS))
+      const eased = easeOutCubic(t)
+      return S.focalScaleStart + (1 - S.focalScaleStart) * eased
+    }
+
     function drawEdges() {
       clear(edgeCtx!, S.w, S.h)
       if (!S.data) return
+      const alpha = entryNeighborAlpha()
+      if (alpha <= 0.005) return
       const selectedId = S.data.selectedId
       // 1) Only draw edges that touch the selected node — sibling-to-sibling
       //    edges from the API turn the case board into a hairball.
@@ -351,17 +390,22 @@ export function CaseView({
           labelEdgeId.add(bestId)
         }
       }
+      edgeCtx!.save()
+      edgeCtx!.globalAlpha = alpha
       for (const e of drawable) {
         const a = worldToScreen(e.from.x, e.from.y, S.cam, S.w, S.h)
         const b = worldToScreen(e.to.x, e.to.y, S.cam, S.w, S.h)
         const label = labelEdgeId.has(e.id) ? e.label : undefined
         drawEdge(edgeCtx!, a, b, 1, label)
       }
+      edgeCtx!.restore()
     }
 
     function drawNodes() {
       clear(nodeCtx!, S.w, S.h)
       if (!S.data) return
+      const focalScale = entryFocalScale()
+      const neighborAlpha = entryNeighborAlpha()
       for (const e of S.data.flat) {
         const sc = worldToScreen(e.x, e.y, S.cam, S.w, S.h)
         const appR = e.r * S.cam.scale
@@ -369,16 +413,34 @@ export function CaseView({
         if (sc.x < -margin || sc.x > S.w + margin) continue
         if (sc.y < -margin || sc.y > S.h + margin) continue
         if (appR < LOD.MIN_VISIBLE) continue
+
+        // The focal card draws at rest-state appR; the visual scale transform
+        // (centered on the card itself) is what makes it grow/shrink without
+        // re-layouting card geometry. Neighbors fade in alpha; selected node
+        // stays at alpha 1 throughout so the user's eye locks on it.
+        const isFocal = e.isSelected
+        if (!isFocal && neighborAlpha <= 0.005) continue
+
+        nodeCtx!.save()
+        if (isFocal && Math.abs(focalScale - 1) > 0.001) {
+          nodeCtx!.translate(sc.x, sc.y)
+          nodeCtx!.scale(focalScale, focalScale)
+          nodeCtx!.translate(-sc.x, -sc.y)
+        }
+        if (!isFocal) {
+          nodeCtx!.globalAlpha = neighborAlpha
+        }
         if (appR < LOD.GLYPH_MIN) {
           drawDot(nodeCtx!, sc, e.color, 1)
-          continue
+        } else {
+          drawLeafGlyph(nodeCtx!, e, sc, appR, {
+            selected: e.isSelected,
+            hover: S.hover === e,
+            dim: 1,
+            t: S.t,
+          })
         }
-        drawLeafGlyph(nodeCtx!, e, sc, appR, {
-          selected: e.isSelected,
-          hover: S.hover === e,
-          dim: 1,
-          t: S.t,
-        })
+        nodeCtx!.restore()
       }
     }
 
@@ -388,13 +450,11 @@ export function CaseView({
       drawEdges()
       drawNodes()
       // Exit-on-zoom-out: once the user pulls the camera back past the
-      // threshold, trigger a clean 2D→3D handoff. Suppressed while the
-      // auto-fit animation is driving cam.scale — otherwise high-degree
-      // centers would auto-fit through the threshold and bounce out
-      // before the user has even seen the layout.
+      // threshold, trigger a clean 2D→3D handoff. The initial cam.scale is
+      // always clamped above EXIT_ZOOM_THRESHOLD * 1.5 in the data-landed
+      // effect, so this can only fire from intentional user dolly.
       if (
         !S.exitFired &&
-        !S.autoFitInProgress &&
         S.data &&
         S.cam.scale < EXIT_ZOOM_THRESHOLD &&
         S.onExitZoom
