@@ -3,7 +3,6 @@
 import { useEffect } from "react"
 import { LeftPane } from "./left-pane"
 import { GraphPane } from "@/components/universe/graph-pane"
-import { SettingsModal } from "@/components/modals/settings-modal"
 import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
 import { AddNodeModal } from "@/components/modals/add-node-modal"
@@ -54,7 +53,6 @@ export function AppLayout() {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      <SettingsModal />
       <AddContentModal />
       <AddNodeModal />
       <EditNodeModal />

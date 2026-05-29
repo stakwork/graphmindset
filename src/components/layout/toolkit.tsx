@@ -239,7 +239,7 @@ export function Toolkit({
           <ToolkitButton
             icon={Settings}
             ariaLabel="Settings"
-            onClick={() => openModal("settings")}
+            onClick={() => router.push("/settings")}
           />
         </>
       )}
@@ -357,7 +357,7 @@ export function ToolkitFAB({
                     label: `Reviews${pendingCount > 0 ? ` (${pendingCount})` : ""}`,
                     action: () => router.push("/admin/reviews"),
                   },
-                  { icon: Settings, label: "Settings", action: () => openModal("settings") },
+                  { icon: Settings, label: "Settings", action: () => router.push("/settings") },
                 ].map(({ icon: Icon, label, action }) => (
                   <button
                     key={label}

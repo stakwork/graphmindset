@@ -3,7 +3,7 @@
 import { create } from "zustand"
 import type { GraphNode } from "@/lib/graph-api"
 
-type ModalId = "settings" | "addContent" | "budget" | "addNode" | "editNode" | "addEdge" | null
+type ModalId = "addContent" | "budget" | "addNode" | "editNode" | "addEdge" | null
 
 interface ModalState {
   activeModal: ModalId
