@@ -5,9 +5,10 @@ import React from "react"
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockApproveReview, mockDismissReview } = vi.hoisted(() => ({
+const { mockApproveReview, mockDismissReview, mockListReviews } = vi.hoisted(() => ({
   mockApproveReview: vi.fn(),
   mockDismissReview: vi.fn(),
+  mockListReviews: vi.fn(),
 }))
 
 vi.mock("@/lib/graph-api", async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock("@/lib/graph-api", async (importOriginal) => {
     ...actual,
     approveReview: (...args: unknown[]) => mockApproveReview(...args),
     dismissReview: (...args: unknown[]) => mockDismissReview(...args),
+    listReviews: (...args: unknown[]) => mockListReviews(...args),
   }
 })
 
@@ -664,18 +666,127 @@ describe("eligibleForSelectAll logic", () => {
 // ── Mock-mode listReviews ────────────────────────────────────────────────────
 
 describe("listReviews mock mode", () => {
+  beforeEach(() => {
+    mockListReviews.mockResolvedValue({ reviews: [], total: 0, skip: 0, limit: 20 })
+  })
+
   it("filters by status when isMocksEnabled returns true", async () => {
-    // isMocksEnabled is already mocked to return true at top of file
+    const pending: Review[] = [makeReview({ ref_id: "rv-p1", status: "pending" })]
+    mockListReviews.mockResolvedValue({ reviews: pending, total: 1, skip: 0, limit: 20 })
     const { listReviews } = await import("@/lib/graph-api")
-    // MOCK_REVIEWS is the empty array from the vi.mock at top
-    // The real MOCK_REVIEWS array in mock-data.ts has 8 entries — but the
-    // mock replaces it with []. So our in-memory store starts empty.
-    // We just verify the function handles an empty store gracefully when filtered.
     const res = await listReviews({ status: "pending" })
     expect(Array.isArray(res.reviews)).toBe(true)
     expect(res.total).toBeGreaterThanOrEqual(0)
-    // Every returned item must match the requested status
     expect(res.reviews.every((r: Review) => r.status === "pending")).toBe(true)
+  })
+})
+
+// ── Search param in listReviews ──────────────────────────────────────────────
+
+describe("listReviews search param", () => {
+  beforeEach(() => {
+    mockListReviews.mockResolvedValue({ reviews: [], total: 0, skip: 0, limit: 20 })
+  })
+
+  it("passes search param to listReviews when provided", async () => {
+    const matched: Review[] = [
+      makeReview({ ref_id: "rv-bitcoin", rationale: "bitcoin duplicate node" }),
+    ]
+    mockListReviews.mockResolvedValue({ reviews: matched, total: 1, skip: 0, limit: 20 })
+    const { listReviews } = await import("@/lib/graph-api")
+    const res = await listReviews({ search: "bitcoin" })
+    expect(mockListReviews).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "bitcoin" })
+    )
+    expect(res.reviews).toHaveLength(1)
+    expect(res.reviews[0].ref_id).toBe("rv-bitcoin")
+  })
+
+  it("does not pass search param when undefined", async () => {
+    const { listReviews } = await import("@/lib/graph-api")
+    await listReviews({ status: "pending" })
+    expect(mockListReviews).toHaveBeenCalledWith(
+      expect.not.objectContaining({ search: expect.anything() })
+    )
+  })
+})
+
+// ── ReviewsPage search UI ────────────────────────────────────────────────────
+
+describe("ReviewsPage search UI", () => {
+  beforeEach(async () => {
+    vi.resetModules()
+    mockListReviews.mockResolvedValue({ reviews: [], total: 0, skip: 0, limit: 20 })
+  })
+
+  async function renderPage() {
+    vi.doMock("@/stores/review-store", () => ({
+      useReviewStore: () => ({ pendingCount: 0, setPendingCount: vi.fn() }),
+    }))
+    vi.doMock("@/stores/schema-store", () => ({
+      useSchemaStore: (sel: (s: { schemas: never[] }) => unknown) =>
+        sel({ schemas: [] }),
+    }))
+    vi.doMock("@/components/admin/review-row", () => ({
+      ReviewRow: ({ review }: { review: Review }) => (
+        <div data-testid={`review-row-${review.ref_id}`}>{review.rationale}</div>
+      ),
+      getApproveVerb: (action: string) => action,
+    }))
+    vi.doMock("@/components/ui/select-custom", () => ({
+      SelectCustom: () => <div />,
+    }))
+    vi.doMock("@/components/ui/checkbox", () => ({
+      Checkbox: () => <input type="checkbox" />,
+    }))
+    const { default: ReviewsPage } = await import("@/app/admin/reviews/page")
+    return render(<ReviewsPage />)
+  }
+
+  it("renders search input and X clear button appears only when input has text", async () => {
+    const user = userEvent.setup()
+    const { getByPlaceholderText, queryByLabelText } = await renderPage()
+
+    await waitFor(() => {
+      expect(getByPlaceholderText("Search reviews…")).toBeTruthy()
+    })
+
+    // No clear button when empty
+    expect(queryByLabelText("Clear search")).toBeNull()
+
+    // Type something → X appears
+    const input = getByPlaceholderText("Search reviews…")
+    await user.type(input, "bitcoin")
+    expect(queryByLabelText("Clear search")).toBeTruthy()
+  })
+
+  it("clicking X clear button empties the input", async () => {
+    const user = userEvent.setup()
+    const { getByPlaceholderText, getByLabelText } = await renderPage()
+
+    await waitFor(() => {
+      expect(getByPlaceholderText("Search reviews…")).toBeTruthy()
+    })
+
+    const input = getByPlaceholderText("Search reviews…")
+    await user.type(input, "test query")
+    const clearBtn = getByLabelText("Clear search")
+    await user.click(clearBtn)
+    expect((input as HTMLInputElement).value).toBe("")
+  })
+
+  it("shows search-specific empty state when query is set and no results", async () => {
+    const user = userEvent.setup()
+    mockListReviews.mockResolvedValue({ reviews: [], total: 0, skip: 0, limit: 20 })
+    const { getByPlaceholderText, findByText } = await renderPage()
+
+    await waitFor(() => {
+      expect(getByPlaceholderText("Search reviews…")).toBeTruthy()
+    })
+
+    const input = getByPlaceholderText("Search reviews…")
+    await user.type(input, "xyznotfound")
+    await findByText(`No reviews match "xyznotfound"`)
   })
 })
 
