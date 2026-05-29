@@ -37,6 +37,10 @@ interface GraphViewProps {
   onExitWhiteboard?: () => void;
   onDetailNavigate?: (id: number) => void;
   searchMatches?: Set<number> | null;
+  /** Subset of searchMatches (top-N by score) allowed to show a text label.
+   *  Caps label pile-up when a query returns many hits; non-labeled matches
+   *  keep their glyph spotlight and reveal their label on hover. */
+  searchLabelMatches?: Set<number> | null;
   /** Top-3 ranked search hits, by descending score. Value 0 = best hit (gold),
    *  1-2 = cool-blue runners-up. Amplifies size, color, and label prominence. */
   topMatchRanks?: Map<number, number> | null;
@@ -442,7 +446,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -1821,18 +1825,31 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             ? shownHoverNeighbors.has(i)
             : (hoveredRelated?.has(i) ?? false);
           const isSearchMatch = searchMatches?.has(i) ?? false;
+          // Only the top-N hits (by score) earn a text label; the rest stay as
+          // glyph spotlights. When the cap set is absent (e.g. tiny result sets)
+          // every match is labelable.
+          const isSearchLabel = searchMatches
+            ? (searchLabelMatches?.has(i) ?? isSearchMatch)
+            : false;
           const isRecentNode = recentNodes?.has(i) ?? false;
           const isHighWeight = (graph.nodes[i].weight ?? 0) > 0.5;
-          const isProminent = isSelected || isHovered || isHoverNeighbor || isSearchMatch || isRecentNode || isExpandedProxy || isHighWeight;
+          const isProminent = isSelected || isHovered || isHoverNeighbor || isSearchLabel || isRecentNode || isExpandedProxy || isHighWeight;
 
           // Unstructured nodes: no label unless hovered, selected, or neighbor of selected
           if ((graph.unstructuredNodeIds?.has(i) ?? false) && !isHovered && !isSelected && !isHoverNeighbor) return null;
+
+          // A search hit that didn't make the label cap: keep it a glyph-only
+          // spotlight (color/size handled in the shader). Reveal its label only
+          // when the user reaches for it via hover/selection/expansion.
+          if (isSearchMatch && !isSearchLabel && !isHovered && !isHoverNeighbor && !isSelected && !isExpandedProxy && !isRecentNode) {
+            return null;
+          }
 
           // Hover focus: when something is hovered, suppress every label
           // that isn't hovered / a hover neighbor / explicitly highlighted
           // (selected, search hit, recent). Lets the user read the local
           // neighborhood without competing labels elsewhere.
-          if (hovered !== null && !isHovered && !isHoverNeighbor && !isSelected && !isSearchMatch && !isRecentNode && !isExpandedProxy) {
+          if (hovered !== null && !isHovered && !isHoverNeighbor && !isSelected && !isSearchLabel && !isRecentNode && !isExpandedProxy) {
             return null;
           }
 
@@ -1885,7 +1902,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             : isSelected ? 90
               : isTopHit ? (topRank === 0 ? 85 : 80)
                 : isExpandedProxy ? 75
-                  : isSearchMatch ? 70
+                  : isSearchLabel ? 70
                     : isRecentNode ? 65
                       : isHoverNeighbor ? 60
                         : isHighWeight ? 50
