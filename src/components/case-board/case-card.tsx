@@ -79,12 +79,19 @@ function pickDescription(node: GraphNode): string | null {
   )
 }
 
+// Hard cap on the title string. Some nodes have no name/title and fall all
+// the way through DISPLAY_KEY_FALLBACKS to `text`/`content`, which can be a
+// whole paragraph — without a cap that renders as a giant wall of text.
+const TITLE_MAX = 80
+
 function pickTitle(node: GraphNode): string {
   const props = node.properties as Record<string, unknown> | undefined
   if (!props) return node.ref_id
   for (const key of DISPLAY_KEY_FALLBACKS) {
     const v = props[key]
-    if (typeof v === "string" && v.length > 0) return v
+    if (typeof v === "string" && v.length > 0) {
+      return v.length > TITLE_MAX ? v.slice(0, TITLE_MAX).trimEnd() + "…" : v
+    }
   }
   return node.ref_id
 }
@@ -102,13 +109,18 @@ export function CaseCard({ node, variant, morphProgress, onClick }: CaseCardProp
   const type = node.node_type || ""
   const accent = TYPE_ACCENT[type] ?? DEFAULT_ACCENT
   const title = pickTitle(node)
-  const description = variant === "selected" ? pickDescription(node) : null
-  const fields = pickFields(node, variant === "selected" ? 4 : 2)
+  const isSelected = variant === "selected"
+  // Neighbor cards carry real detail now — hero image + a few fields — since
+  // sparse relationships render as individual cards (dense ones still collapse
+  // into a group). Description stays focal-only so the centerpiece remains the
+  // most detailed card.
+  const description = isSelected ? pickDescription(node) : null
+  const fields = pickFields(node, isSelected ? 4 : 3)
   const thumbnail = resolveNodeThumbnail(node)
 
   const opacity = Math.max(0, Math.min(1, morphProgress))
-  const widthPx = variant === "selected" ? 280 : 230
-  const heroHeight = variant === "selected" ? 170 : 130
+  const widthPx = isSelected ? 300 : 240
+  const heroHeight = isSelected ? 170 : 132
 
   return (
     <div
@@ -176,6 +188,13 @@ export function CaseCard({ node, variant, morphProgress, onClick }: CaseCardProp
             lineHeight: 1.2,
             color: INK_PRIMARY,
             marginBottom: description || fields.length > 0 ? 10 : 0,
+            // Never let a long fallback title (e.g. a node with only `text`)
+            // grow into a tall column — clamp to 2 lines with ellipsis.
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            wordBreak: "break-word",
           }}
         >
           {title}

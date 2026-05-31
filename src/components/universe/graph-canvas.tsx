@@ -27,7 +27,8 @@ import {
   NodeMorph,
   CaseBoardAnimator,
   useCaseBoardStore,
-  computeCaseBoardLayout,
+  GroupMorph,
+  computeBalancedLayout,
 } from "@/components/case-board"
 import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { metroSeries } from "@/data/metro"
@@ -583,10 +584,22 @@ function CameraSync({
     look: [number, number, number]
   }>
 }) {
+  // While the case board is opening/open, the CaseBoardAnimator owns the
+  // camera (it pulls back to the board pose). CameraSync must yield — otherwise
+  // its in-flight select fly-in keeps overriding the board move every frame,
+  // leaving the camera stuck close to the focal (huge focal card, tiny faraway
+  // group cards). This was the "first open looks broken, reopen fixes it" bug:
+  // on reopen the fly-in had already settled so there was nothing to fight.
+  const morphActive = useCaseBoardStore((s) => s.morphTarget > 0.001)
   useFrame((_, delta) => {
     const cam = camRef.current
     if (!cam) return
     const state = targetRef.current
+    if (morphActive) {
+      // Mark the fly-in done so it doesn't resume when the board closes.
+      state.progress = 1
+      return
+    }
     // Only drive the camera while a transition is in flight. Once it settles,
     // hand control back to CameraControls so the user can orbit/pan/zoom.
     if (state.progress >= 1) return
@@ -620,6 +633,7 @@ function CaseViewTrigger({
   onOpen,
   disabled,
   camAnim,
+  suppressedRef,
 }: {
   graph: Graph
   selectedNodeId: number | null
@@ -627,13 +641,24 @@ function CaseViewTrigger({
   onOpen: (node: ApiNode) => void
   disabled: boolean
   camAnim: React.RefObject<{ progress: number }>
+  // Set true by handleCloseCaseBoard so closing doesn't immediately re-fire:
+  // after close, computeCamTarget can park the camera inside the trigger
+  // distance (leaf nodes rest at ~5 < 8), which would auto-reopen. Cleared
+  // when the camera genuinely pulls back out past the re-arm threshold.
+  suppressedRef: React.RefObject<boolean>
 }) {
   const camera = useThree((s) => s.camera)
-  const firedRef = useRef(false)
+  // Start DISARMED so selecting a node (whose click-to-select camera move can
+  // land inside the trigger distance for close-resting/leaf nodes) doesn't
+  // auto-open the board. It only arms once the camera has settled far out, so
+  // opening requires a deliberate dolly-in (or the zoom-in button).
+  const firedRef = useRef(true)
 
   useFrame(() => {
     if (selectedNodeId === null || !selectedApiNode) {
-      firedRef.current = false
+      // Disarm when nothing is selected, so the next selection's click-to-
+      // select camera move can't leave the trigger armed and auto-open.
+      firedRef.current = true
       return
     }
     const node = graph.nodes[selectedNodeId]
@@ -643,18 +668,23 @@ function CaseViewTrigger({
     const dy = camera.position.y - p.y
     const dz = camera.position.z - p.z
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-    // Re-arm once the camera pulls back past 1.5× the threshold. Hysteresis
-    // keeps the trigger from flapping near the boundary and prevents
-    // immediate re-fire after the user closes the case view (camera is
-    // still close to the node until handleCloseCaseView dollies it back).
-    if (dist > CASE_VIEW_TRIGGER_DISTANCE * 1.5) firedRef.current = false
+    // Arm only when the camera has SETTLED (progress >= 1) beyond the trigger
+    // distance — never mid-animation. This is what stops a click-to-select
+    // move (which sweeps in from far out) from arming and then auto-firing the
+    // instant it lands on a close-resting / leaf node.
+    if (camAnim.current.progress >= 1 && dist > CASE_VIEW_TRIGGER_DISTANCE) {
+      firedRef.current = false
+      // Camera settled back out — a manual close is re-armed, so a deliberate
+      // dolly-in can reopen the board again.
+      suppressedRef.current = false
+    }
     if (disabled) return
     // Skip the click-to-select lerp. computeCamTarget can land the rest
     // position below the trigger threshold (Math.max(5, …) for leaf nodes)
     // and the lerp would falsely fire mid-flight. Wait until the user is in
     // control before considering the gesture intentional.
     if (camAnim.current.progress < 1) return
-    if (dist < CASE_VIEW_TRIGGER_DISTANCE && !firedRef.current) {
+    if (dist < CASE_VIEW_TRIGGER_DISTANCE && !firedRef.current && !suppressedRef.current) {
       firedRef.current = true
       onOpen(selectedApiNode)
     }
@@ -845,10 +875,63 @@ function DebugMarkers({
 // camera) and by CaseBoardMorphLayer (to compute the plane the neighbor ring
 // sits in). Keep them in sync so cards face the camera at full morph.
 export const CASE_BOARD_CAM_OFFSET = new Vector3(28, 14, 11.2)
-// World-units multiplier for the normalized force-layout positions. The
-// farthest neighbor ends up at SPREAD units from the focal — tune so the
-// network fills the viewport at the resting camera distance.
-const CASE_BOARD_SPREAD = 12
+// World-units multiplier for the normalized layout positions — the radius of
+// the group ring around the focal. Tune so groups clear the focal card and
+// fill the viewport at the resting camera distance.
+const CASE_BOARD_SPREAD = 9
+
+// Groups with this many members or fewer render as individual cards instead of
+// a group container. 1 = don't wrap a lone node in a group; bump higher to also
+// un-group small clusters.
+const HYBRID_THRESHOLD = 1
+// Approximate on-screen pixels per 1 layout (spread) unit at the resting board
+// pose. Cards are sized in px; the layout works in spread units — this converts
+// between them so the rectangle collision matches what's actually rendered.
+// Lower = cards occupy MORE spread units = more spacing between them.
+const BOARD_PX_PER_UNIT = 150
+
+// A single-neighbor card or a collapsed group card placed on the board.
+type BoardItem =
+  | { kind: "node"; id: string; type: string; edgeLabel: string; node: ApiNode }
+  | { kind: "group"; id: string; type: string; edgeLabel: string; members: ApiNode[] }
+
+// Real card footprint in PIXELS — half-width/half-height — kept in sync with
+// the actual CaseCard / CaseGroup CSS dimensions. Estimating height honestly is
+// what prevents tall cards (e.g. a Person card with a description) from
+// overlapping their neighbors. Circular collision can't capture aspect ratio.
+function boardItemBoxPx(item: BoardItem): { w: number; h: number } {
+  if (item.kind === "node") {
+    // Neighbor CaseCard: width 240; height = hero(132) + padding + pill + title
+    // (+ up to 3 field rows ~46px each). Estimate from the fields present.
+    const props = item.node.properties as Record<string, unknown> | undefined
+    let fieldRows = 0
+    if (props) {
+      for (const k of Object.keys(props)) {
+        if (fieldRows >= 3) break
+        const v = props[k]
+        if ((typeof v === "string" && v.length > 0) || typeof v === "number") fieldRows++
+      }
+    }
+    const h = 132 + 64 + fieldRows * 50
+    return { w: 240, h }
+  }
+  // Group CaseGroup: width 256; header ~40 + rows (capped at 7) ~44px each,
+  // clamped to the LIST_MAX_HEIGHT scroll cap.
+  const rows = item.members.length
+  const bodyH = Math.min(rows, 7) * 44
+  return { w: 256, h: 40 + Math.min(bodyH, 360) }
+}
+
+function pxToHalfUnits(box: { w: number; h: number }): { hw: number; hh: number } {
+  return {
+    hw: box.w / 2 / BOARD_PX_PER_UNIT,
+    hh: box.h / 2 / BOARD_PX_PER_UNIT,
+  }
+}
+
+// Focal CaseCard footprint (width 300; hero 170 + body with description +
+// up to 4 fields). Generous height so neighbors keep clear of it.
+const BOARD_FOCAL_BOX_PX = { w: 300, h: 470 }
 
 // Peak opacity of the cream backdrop. Below 1 lets a hint of the 3D scene
 // bleed through so the board reads as "on top of the world" rather than a
@@ -919,26 +1002,24 @@ function CaseBoardMorphLayer({
   graph,
   refIdToIndex,
   nodes,
-  edges,
   selectedRefId,
   morphProgress,
   cameraRef,
   projectionsRef,
   cardPortalRef,
-  visibleEdges,
-  neighborRefIds,
+  cardElsRef,
+  items,
 }: {
   graph: Graph
   refIdToIndex: Map<string, number>
   nodes: ApiNode[]
-  edges: ApiEdge[]
   selectedRefId: string
   morphProgress: number
   cameraRef: React.RefObject<CameraControlsImpl | null>
   projectionsRef: React.RefObject<ProjectionsRef>
   cardPortalRef: React.RefObject<HTMLDivElement | null>
-  visibleEdges: { a: string; b: string; label: string }[]
-  neighborRefIds: string[]
+  cardElsRef: React.RefObject<Map<string, HTMLElement>>
+  items: BoardItem[]
 }) {
   const selectedIdx = refIdToIndex.get(selectedRefId)
   const selectedNode = nodes.find((n) => n.ref_id === selectedRefId) ?? null
@@ -949,77 +1030,71 @@ function CaseBoardMorphLayer({
     return [p.x, p.y, p.z]
   }, [graph, selectedIdx])
 
-  // Force-directed 2D layout for the case-board. Focal anchored at origin;
-  // edges between neighbors pull related nodes together, repulsion spreads
-  // everything out. Seeded by the focal refId so re-opens are stable.
-  const layout2d = useMemo(() => {
-    if (!focalWorld) return new Map<string, { x: number; y: number }>()
-    return computeCaseBoardLayout({
-      nodes: [selectedRefId, ...neighborRefIds],
-      edges: visibleEdges.map((e) => ({ a: e.a, b: e.b })),
-      anchorId: selectedRefId,
-      seed: selectedRefId,
-    })
-  }, [focalWorld, selectedRefId, neighborRefIds, visibleEdges])
-
-  // Map normalized 2D layout into world-space targets on the plane
-  // perpendicular to the case-board camera direction. Multiplied by
-  // CASE_BOARD_SPREAD so the laid-out network fills the viewport at the
-  // resting camera distance.
-  const neighborTargets = useMemo(() => {
-    if (!focalWorld) {
-      return [] as {
-        node: ApiNode
-        origin: [number, number, number]
-        target: [number, number, number]
-      }[]
+  // World-space anchor for each GROUP: focal at center, groups on a ring
+  // around it (radial hub & spokes). Same camera-facing plane mapping as the
+  // focal — right/up basis derived from the case-board camera offset.
+  const itemTargets = useMemo(() => {
+    type Entry = {
+      item: BoardItem
+      origin: [number, number, number]
+      target: [number, number, number]
     }
+    if (!focalWorld) return [] as Entry[]
     const focal = new Vector3(focalWorld[0], focalWorld[1], focalWorld[2])
     const camPos = focal.clone().add(CASE_BOARD_CAM_OFFSET)
     const forward = focal.clone().sub(camPos).normalize()
     const worldUp = new Vector3(0, 1, 0)
     const right = new Vector3().crossVectors(worldUp, forward).normalize()
     const up = new Vector3().crossVectors(forward, right).normalize()
-    const entries: {
-      node: ApiNode
-      origin: [number, number, number]
-      target: [number, number, number]
-    }[] = []
-    for (const refId of neighborRefIds) {
-      const idx = refIdToIndex.get(refId)
-      if (idx === undefined) continue
-      const apiNode = nodes.find((n) => n.ref_id === refId)
-      if (!apiNode) continue
-      const p = graph.nodes[idx]?.position
-      if (!p) continue
-      const layoutPos = layout2d.get(refId) ?? { x: 0, y: 0 }
+    const placement = computeBalancedLayout({
+      items: items.map((it) => ({ id: it.id, ...pxToHalfUnits(boardItemBoxPx(it)) })),
+      focalHalf: pxToHalfUnits(BOARD_FOCAL_BOX_PX),
+      seed: selectedRefId,
+    })
+    const entries: Entry[] = []
+    for (const item of items) {
+      const pos = placement.get(item.id) ?? { x: 0, y: 0 }
       const offset = right
         .clone()
-        .multiplyScalar(layoutPos.x * CASE_BOARD_SPREAD)
-        .add(up.clone().multiplyScalar(layoutPos.y * CASE_BOARD_SPREAD))
+        .multiplyScalar(pos.x * CASE_BOARD_SPREAD)
+        .add(up.clone().multiplyScalar(pos.y * CASE_BOARD_SPREAD))
       const target = focal.clone().add(offset)
       entries.push({
-        node: apiNode,
-        origin: [p.x, p.y, p.z],
+        item,
+        origin: focalWorld,
         target: [target.x, target.y, target.z],
       })
     }
     return entries
-  }, [focalWorld, neighborRefIds, refIdToIndex, nodes, graph, layout2d])
+  }, [focalWorld, items, selectedRefId])
 
-  // All projection inputs in one list — focal first, then each neighbor.
-  // The SVG looks up positions by refId when drawing per-edge connectors,
-  // so we need both endpoints in the map.
+  // Projection inputs — focal + each group anchor (id = group key) so the
+  // connectors SVG can draw focal → group beziers each frame.
   const projectionInput = useMemo(() => {
     if (!focalWorld) return []
     const list: { id: string; origin: [number, number, number]; target: [number, number, number] }[] = [
       { id: selectedRefId, origin: focalWorld, target: focalWorld },
     ]
-    for (const e of neighborTargets) {
-      list.push({ id: e.node.ref_id, origin: e.origin, target: e.target })
+    for (const e of itemTargets) {
+      list.push({ id: e.item.id, origin: e.origin, target: e.target })
     }
     return list
-  }, [focalWorld, selectedRefId, neighborTargets])
+  }, [focalWorld, selectedRefId, itemTargets])
+
+  // Which groups are expanded (showing the full list vs the compressed pile).
+  // Local to the open session — resets on close since the layer unmounts.
+  // Groups default to expanded (member list shown); the header toggle collapses
+  // to the header only. Tracking the collapsed set keeps "expanded" the default
+  // without seeding state from the (changing) group list.
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() => new Set())
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   return (
     <>
@@ -1037,20 +1112,51 @@ function CaseBoardMorphLayer({
           variant="selected"
           morphProgress={morphProgress}
           portal={cardPortalRef}
+          registerEl={(el) => {
+            const m = cardElsRef.current
+            if (el) m.set(selectedRefId, el)
+            else m.delete(selectedRefId)
+          }}
         />
       )}
-      {neighborTargets.map(({ node, origin, target }) => (
-        <NodeMorph
-          key={node.ref_id}
-          node={node}
-          originPosition={origin}
-          targetPosition={target}
-          variant="neighbor"
-          morphProgress={morphProgress}
-          onClick={() => useCaseBoardStore.getState().open(node.ref_id)}
-          portal={cardPortalRef}
-        />
-      ))}
+      {itemTargets.map(({ item, origin, target }) =>
+        item.kind === "node" ? (
+          <NodeMorph
+            key={item.id}
+            node={item.node}
+            originPosition={origin}
+            targetPosition={target}
+            variant="neighbor"
+            morphProgress={morphProgress}
+            onClick={() => useCaseBoardStore.getState().open(item.id)}
+            portal={cardPortalRef}
+            registerEl={(el) => {
+              const m = cardElsRef.current
+              if (el) m.set(item.id, el)
+              else m.delete(item.id)
+            }}
+          />
+        ) : (
+          <GroupMorph
+            key={item.id}
+            type={item.type}
+            members={item.members}
+            edgeLabel={item.edgeLabel}
+            expanded={!collapsedKeys.has(item.id)}
+            onToggle={() => toggleGroup(item.id)}
+            onMemberClick={(refId) => useCaseBoardStore.getState().open(refId)}
+            originPosition={origin}
+            targetPosition={target}
+            morphProgress={morphProgress}
+            portal={cardPortalRef}
+            registerEl={(el) => {
+              const m = cardElsRef.current
+              if (el) m.set(item.id, el)
+              else m.delete(item.id)
+            }}
+          />
+        ),
+      )}
     </>
   )
 }
@@ -1066,11 +1172,11 @@ const CONNECTOR_LABEL_BG = "#0a0e15"
 const CONNECTOR_LABEL_TEXT = "rgba(180, 210, 240, 0.85)"
 
 function CaseBoardConnectorsSvg({
-  projectionsRef,
+  cardElsRef,
   edges,
   morphProgress,
 }: {
-  projectionsRef: React.RefObject<ProjectionsRef>
+  cardElsRef: React.RefObject<Map<string, HTMLElement>>
   // One per visible-pair edge. id is a stable key (e.g. `${a}|${b}|${label}`)
   // so React can keep DOM stable across renders. a/b are refIds.
   edges: { id: string; a: string; b: string; label: string }[]
@@ -1088,46 +1194,84 @@ function CaseBoardConnectorsSvg({
   useEffect(() => {
     let raf = 0
     function tick() {
-      const positions = projectionsRef.current?.positions
-      if (positions) {
+      const els = cardElsRef.current
+      if (els) {
         for (const e of edges) {
-          const pa = positions.get(e.a)
-          const pb = positions.get(e.b)
-          if (!pa || !pb) continue
+          const ea = els.get(e.a)
+          const eb = els.get(e.b)
+          if (!ea || !eb) continue
+          // Measure the real on-screen card rectangles (viewport px). This is
+          // the only space that matches what's rendered — drei's distanceFactor
+          // and the board's CSS zoom both feed into getBoundingClientRect.
+          const ra = ea.getBoundingClientRect()
+          const rb = eb.getBoundingClientRect()
+          const pa = { x: ra.left + ra.width / 2, y: ra.top + ra.height / 2 }
+          const pb = { x: rb.left + rb.width / 2, y: rb.top + rb.height / 2 }
+          const halfA = { x: ra.width / 2, y: ra.height / 2 }
+          const halfB = { x: rb.width / 2, y: rb.height / 2 }
           const dx = pb.x - pa.x
           const dy = pb.y - pa.y
-          const len = Math.sqrt(dx * dx + dy * dy) || 1
-          // Subtle perpendicular bow so connectors that share endpoints
-          // don't overlap. Sign by edge id hash so adjacent edges bow
-          // opposite directions.
-          let hash = 0
-          for (let i = 0; i < e.id.length; i++) hash = (hash * 31 + e.id.charCodeAt(i)) | 0
-          const sign = hash & 1 ? 1 : -1
-          const bow = Math.max(4, Math.min(22, len * 0.06)) * sign
-          const mx = (pa.x + pb.x) / 2 - (dy / len) * bow
-          const my = (pa.y + pb.y) / 2 + (dx / len) * bow
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1
+          const nx = dx / dist
+          const ny = dy / dist
+          // Clip each endpoint to its card rectangle so the line spans only
+          // the gap between cards instead of tunnelling under them. A is the
+          // focal card (big), B a group container (smaller) — every edge here
+          // runs focal → group, so the roles are fixed.
+          const clip = (hx: number, hy: number) =>
+            Math.min(
+              hx / Math.max(Math.abs(nx), 1e-3),
+              hy / Math.max(Math.abs(ny), 1e-3),
+            )
+          let insetA = clip(halfA.x, halfA.y)
+          let insetB = clip(halfB.x, halfB.y)
+          const room = dist - 10
+          if (room <= 0) {
+            insetA = 0
+            insetB = 0
+          } else if (insetA + insetB > room) {
+            const s = room / (insetA + insetB)
+            insetA *= s
+            insetB *= s
+          }
+          const ax = pa.x + nx * insetA
+          const ay = pa.y + ny * insetA
+          const bx = pb.x - nx * insetB
+          const by = pb.y - ny * insetB
+
+          // Smooth cubic bezier with horizontal tangents — control points
+          // extend sideways from each endpoint toward the other, so the line
+          // leaves the focal and enters the card cleanly (React-Flow style).
+          const cdx = bx - ax
+          const dirX = cdx >= 0 ? 1 : -1
+          const ctrl = Math.max(40, Math.abs(cdx) * 0.5)
+          const c1x = ax + ctrl * dirX
+          const c1y = ay
+          const c2x = bx - ctrl * dirX
+          const c2y = by
 
           const path = pathRefs.current.get(e.id)
           if (path) {
             path.setAttribute(
               "d",
-              `M ${pa.x.toFixed(1)} ${pa.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${pb.x.toFixed(1)} ${pb.y.toFixed(1)}`,
+              `M ${ax.toFixed(1)} ${ay.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`,
             )
           }
           const da = dotARefs.current.get(e.id)
           if (da) {
-            da.setAttribute("cx", pa.x.toFixed(1))
-            da.setAttribute("cy", pa.y.toFixed(1))
+            da.setAttribute("cx", ax.toFixed(1))
+            da.setAttribute("cy", ay.toFixed(1))
           }
           const db = dotBRefs.current.get(e.id)
           if (db) {
-            db.setAttribute("cx", pb.x.toFixed(1))
-            db.setAttribute("cy", pb.y.toFixed(1))
+            db.setAttribute("cx", bx.toFixed(1))
+            db.setAttribute("cy", by.toFixed(1))
           }
           const labelG = labelGRefs.current.get(e.id)
           if (labelG) {
-            const lx = (pa.x + 2 * mx + pb.x) / 4
-            const ly = (pa.y + 2 * my + pb.y) / 4
+            // Cubic midpoint (t = 0.5): (A + 3·C1 + 3·C2 + B) / 8.
+            const lx = (ax + 3 * c1x + 3 * c2x + bx) / 8
+            const ly = (ay + 3 * c1y + 3 * c2y + by) / 8
             labelG.setAttribute("transform", `translate(${lx.toFixed(1)}, ${ly.toFixed(1)})`)
           }
         }
@@ -1136,12 +1280,12 @@ function CaseBoardConnectorsSvg({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [projectionsRef, edges])
+  }, [cardElsRef, edges])
 
   return (
     <svg
       style={{
-        position: "absolute",
+        position: "fixed",
         inset: 0,
         width: "100%",
         height: "100%",
@@ -1337,26 +1481,36 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // position. Mutable ref so the SVG can repaint via its own rAF without
   // touching React state per frame.
   const projectionsRef = useRef<ProjectionsRef>({ positions: new Map() })
+  // Maps focal refId + each group key to its rendered card DOM element, so the
+  // connector overlay can measure real card rectangles and attach edges to the
+  // actual borders (works at any zoom — getBoundingClientRect includes it).
+  const cardElsRef = useRef<Map<string, HTMLElement>>(new Map())
 
   // Board pan + zoom — applied as a CSS transform on the layer that hosts
   // the Html cards + SVG connectors. Lives entirely in DOM so the 3D
   // camera stays locked and the underlying scene doesn't move at all.
   const boardLayerRef = useRef<HTMLDivElement>(null)
-  const [boardPan, setBoardPan] = useState({ x: 0, y: 0 })
-  const [boardZoom, setBoardZoom] = useState(1)
-  // Mirror pan/zoom in refs so the wheel handler (which can fire faster than
-  // React commits, especially on trackpads) always reads the latest values
-  // instead of stale closure state.
   const boardPanRef = useRef({ x: 0, y: 0 })
   const boardZoomRef = useRef(1)
+  // Apply pan/zoom imperatively to the board layer's transform — NOT via React
+  // state. Driving it through setState re-rendered the entire GraphCanvas tree
+  // (heavy, especially with the metro overlay's extra nodes) on every drag-move
+  // / wheel tick — that was the lag, the dead drag, and the stale-until-resize
+  // layout. The connector overlay already tracks via rAF + measured rects, so
+  // the DOM transform is fine as the single source of truth.
+  const applyBoardTransform = useCallback(() => {
+    const el = boardLayerRef.current
+    if (!el) return
+    const p = boardPanRef.current
+    el.style.transform = `translate(${p.x}px, ${p.y}px) scale(${boardZoomRef.current})`
+  }, [])
   const setBoard = useCallback(
     (pan: { x: number; y: number }, zoom: number) => {
       boardPanRef.current = pan
       boardZoomRef.current = zoom
-      setBoardPan(pan)
-      setBoardZoom(zoom)
+      applyBoardTransform()
     },
-    [],
+    [applyBoardTransform],
   )
   const dragStateRef = useRef<{
     startX: number
@@ -1371,10 +1525,9 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // open always starts centered. Without this, the board would remember
   // the pan/zoom from the last session.
   useEffect(() => {
-    if (!morphOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset on external (store) close path; this is the boundary between morphOpen subscription and local board state
-      setBoard({ x: 0, y: 0 }, 1)
-    }
+    // Reset to identity whenever the board opens or closes so each open starts
+    // centered at scale 1. Pure imperative now — no setState, no re-render.
+    setBoard({ x: 0, y: 0 }, 1)
   }, [morphOpen, setBoard])
 
   const handleBoardMouseDown = useCallback(
@@ -1421,6 +1574,20 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
   const handleBoardWheel = useCallback(
     (e: React.WheelEvent<HTMLDivElement>) => {
+      // If the wheel is over a scrollable group list, let it scroll its rows
+      // natively instead of zooming the board. Checked per-event from the
+      // target so there's no persistent flag that can get stuck and
+      // permanently disable zoom.
+      let scrollEl: HTMLElement | null = e.target as HTMLElement | null
+      while (scrollEl && scrollEl !== e.currentTarget) {
+        if (
+          scrollEl.scrollHeight > scrollEl.clientHeight + 1 &&
+          getComputedStyle(scrollEl).overflowY !== "visible"
+        ) {
+          return
+        }
+        scrollEl = scrollEl.parentElement
+      }
       // Miro-style zoom: the step scales with the actual wheel delta (so a
       // trackpad's many small events stay gentle and a mouse notch is one
       // smooth bump), and the zoom anchors on the cursor instead of the
@@ -1492,6 +1659,64 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     }
     return out
   }, [morphSelectedRefId, morphNeighborIds, effectiveEdges])
+
+  // Group the focal's 1-hop neighbors by node_type into case-board groups.
+  // The dominant relationship (edge_type) to the focal becomes the group's
+  // connector label + header subtitle.
+  const boardItems = useMemo<BoardItem[]>(() => {
+    if (!morphSelectedRefId) return []
+    const relFor = new Map<string, string>()
+    for (const e of morphVisibleEdges) {
+      let nb: string | null = null
+      if (e.a === morphSelectedRefId) nb = e.b
+      else if (e.b === morphSelectedRefId) nb = e.a
+      if (nb && !relFor.has(nb)) relFor.set(nb, e.label ?? "")
+    }
+    // Group by (node_type + relationship) so members of a group genuinely share
+    // the same edge to the focal. Grouping by type alone mislabels members — a
+    // spouse and a child both end up under whichever relationship is dominant.
+    const byKey = new Map<string, { type: string; rel: string; members: ApiNode[] }>()
+    const order: string[] = []
+    for (const refId of morphNeighborIds) {
+      const node = effectiveNodes.find((n) => n.ref_id === refId)
+      if (!node) continue
+      const type = node.node_type || "Node"
+      const rel = relFor.get(refId) ?? ""
+      const key = `${type}|${rel}`
+      let g = byKey.get(key)
+      if (!g) {
+        g = { type, rel, members: [] }
+        byKey.set(key, g)
+        order.push(key)
+      }
+      g.members.push(node)
+    }
+    // Hybrid: sparse groups → individual cards; dense ones → one group card.
+    const items: BoardItem[] = []
+    for (const key of order) {
+      const g = byKey.get(key)!
+      if (g.members.length <= HYBRID_THRESHOLD) {
+        for (const node of g.members) {
+          items.push({ kind: "node", id: node.ref_id, type: g.type, edgeLabel: g.rel, node })
+        }
+      } else {
+        items.push({ kind: "group", id: `grp:${key}`, type: g.type, edgeLabel: g.rel, members: g.members })
+      }
+    }
+    return items
+  }, [morphSelectedRefId, morphNeighborIds, morphVisibleEdges, effectiveNodes])
+
+  // One connector per board item: focal → item.
+  const boardConnectorEdges = useMemo(
+    () =>
+      boardItems.map((it) => ({
+        id: it.id,
+        a: morphSelectedRefId ?? "",
+        b: it.id,
+        label: it.edgeLabel || "linked to",
+      })),
+    [boardItems, morphSelectedRefId],
+  )
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   // Metro overlay focus state — driven by hovering the lines (3D) or the
@@ -1584,7 +1809,14 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // Closes the in-3D case board: drops morph state and pulls the camera back
   // to the selected node's rest distance so the trigger re-arms and the user
   // has room to maneuver before the next dolly-in.
+  // Disarm the dolly-in auto-trigger across a manual close. computeCamTarget
+  // below parks the camera at the node's rest distance, which for leaf nodes
+  // is inside CASE_VIEW_TRIGGER_DISTANCE — without this guard the trigger
+  // would see "camera is close" and reopen the board immediately. Cleared in
+  // CaseViewTrigger once the camera pulls back out past the re-arm threshold.
+  const caseTriggerSuppressedRef = useRef(false)
   const handleCloseCaseBoard = useCallback(() => {
+    caseTriggerSuppressedRef.current = true
     useCaseBoardStore.getState().close()
     if (viewState.mode === "subgraph") {
       setCamTarget(
@@ -1982,20 +2214,20 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           onOpen={handleOpenCaseView}
           disabled={morphOpen}
           camAnim={camAnim}
+          suppressedRef={caseTriggerSuppressedRef}
         />
         {morphOpen && morphSelectedRefId && (
           <CaseBoardMorphLayer
             graph={graph}
             refIdToIndex={refIdToIndex}
             nodes={effectiveNodes}
-            edges={effectiveEdges}
             selectedRefId={morphSelectedRefId}
             morphProgress={morphProgress}
             cameraRef={cameraRef}
             projectionsRef={projectionsRef}
             cardPortalRef={boardLayerRef}
-            visibleEdges={morphVisibleEdges}
-            neighborRefIds={morphNeighborIds}
+            cardElsRef={cardElsRef}
+            items={boardItems}
           />
         )}
         <CameraControls
@@ -2090,10 +2322,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           zIndex: CASE_BOARD_Z.cardFar,
           pointerEvents: morphOpen ? "auto" : "none",
           cursor: morphOpen ? (isDragging ? "grabbing" : "grab") : "default",
-          transform: morphOpen
-            ? `translate(${boardPan.x}px, ${boardPan.y}px) scale(${boardZoom})`
-            : undefined,
+          // transform applied imperatively via applyBoardTransform (above) so
+          // dragging / zooming never re-renders this tree.
           transformOrigin: "center center",
+          willChange: "transform",
           // No transform transition: zoom is cursor-anchored and applied
           // per wheel event, so a lagging transition would make the anchor
           // point visibly drift. Smoothness comes from the delta-scaled
@@ -2101,14 +2333,14 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           transition: "none",
         }}
       >
-        {morphOpen && (
-          <CaseBoardConnectorsSvg
-            projectionsRef={projectionsRef}
-            edges={morphVisibleEdges}
-            morphProgress={morphProgress}
-          />
-        )}
       </div>
+      {morphOpen && (
+        <CaseBoardConnectorsSvg
+          cardElsRef={cardElsRef}
+          edges={boardConnectorEdges}
+          morphProgress={morphProgress}
+        />
+      )}
       {morphOpen && (
         <button
           onClick={handleCloseCaseBoard}

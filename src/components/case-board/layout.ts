@@ -17,6 +17,11 @@ export interface ForceLayoutInput {
   anchorId: string | null
   // Seed string for the RNG — pass the focal refId so layouts are stable.
   seed: string
+  // Minimum center-to-center separation, in normalized units (farthest
+  // neighbor ≈ 1 before collision). The force sim treats nodes as points, so
+  // without this the fixed-size cards stack. Caller sets this from the card
+  // footprint relative to the world spread. Default 0 = no collision pass.
+  minSep?: number
 }
 
 export function computeCaseBoardLayout({
@@ -24,6 +29,7 @@ export function computeCaseBoardLayout({
   edges,
   anchorId,
   seed,
+  minSep = 0,
 }: ForceLayoutInput): Map<string, Pos2D> {
   const n = nodes.length
   const pos = new Map<string, Pos2D>()
@@ -126,6 +132,57 @@ export function computeCaseBoardLayout({
       const p = pos.get(id)!
       p.x /= maxR
       p.y /= maxR
+    }
+  }
+
+  // Collision relaxation in normalized space: push apart any pair closer than
+  // minSep. Runs after the force sim so it only resolves residual overlap
+  // without undoing the edge-driven clustering. The anchor is pinned; a
+  // neighbor sitting on top of it is shoved straight out. A handful of passes
+  // is enough since each pass moves overlapping pairs halfway apart.
+  if (minSep > 0 && n > 1) {
+    for (let pass = 0; pass < 60; pass++) {
+      let moved = false
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const idA = nodes[i]
+          const idB = nodes[j]
+          const a = pos.get(idA)!
+          const b = pos.get(idB)!
+          let dx = b.x - a.x
+          let dy = b.y - a.y
+          let d = Math.sqrt(dx * dx + dy * dy)
+          if (d >= minSep) continue
+          // Degenerate overlap (same point) — pick a deterministic direction
+          // from the index so seeded re-opens stay stable.
+          if (d < 1e-4) {
+            const ang = (i * 2.3999632 + j) % (Math.PI * 2)
+            dx = Math.cos(ang)
+            dy = Math.sin(ang)
+            d = 1e-4
+          }
+          const push = (minSep - d) / 2
+          const ux = (dx / d) * push
+          const uy = (dy / d) * push
+          const aPinned = idA === anchorId
+          const bPinned = idB === anchorId
+          if (aPinned) {
+            // Only B moves, by the full overlap.
+            b.x += ux * 2
+            b.y += uy * 2
+          } else if (bPinned) {
+            a.x -= ux * 2
+            a.y -= uy * 2
+          } else {
+            a.x -= ux
+            a.y -= uy
+            b.x += ux
+            b.y += uy
+          }
+          moved = true
+        }
+      }
+      if (!moved) break
     }
   }
 

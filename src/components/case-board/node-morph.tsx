@@ -20,6 +20,9 @@ interface NodeMorphProps {
   // div that the parent transforms for pan / zoom — keeps board movement
   // independent of the 3D camera.
   portal?: React.RefObject<HTMLElement | null>
+  // Registers the card's DOM root so the connector overlay can measure its
+  // real on-screen rectangle and attach edges to the actual card border.
+  registerEl?: (el: HTMLElement | null) => void
 }
 
 function lerp(a: number, b: number, t: number) {
@@ -38,6 +41,7 @@ export function NodeMorph({
   morphProgress,
   onClick,
   portal,
+  registerEl,
 }: NodeMorphProps) {
   if (morphProgress <= 0.001) return null
   const t = Math.max(0, Math.min(1, morphProgress))
@@ -54,22 +58,26 @@ export function NodeMorph({
       portal={portal as React.RefObject<HTMLElement> | undefined}
       position={pos}
       center
-      // Higher distanceFactor = bigger cards at the case-board camera distance
-      // (~33 units). Cards stay readable; user wheel-zoom grows/shrinks them
-      // naturally.
-      distanceFactor={30}
+      // No distanceFactor: the camera is locked at the board pose, so cards are
+      // a 2D DOM overlay — they render at their natural CSS size and are only
+      // POSITIONED by the 3D projection. distanceFactor coupled size to the
+      // renderer's canvas size, which is briefly stale on open and only
+      // refreshes on a real window resize — that was the "focal too big until I
+      // resize" bug. Board zoom is handled by the board layer's CSS transform.
       // Must outrank both drei's default Html zIndexRange (used by GraphView's
       // node + edge labels at ~16.77M) and the cream backdrop. Kept just
       // below the close button so chrome wins.
       zIndexRange={[16777500, 16777400]}
       style={{ pointerEvents: "auto" }}
     >
-      <CaseCard
-        node={node}
-        variant={variant}
-        morphProgress={morphProgress}
-        onClick={onClick}
-      />
+      <div ref={registerEl} style={{ display: "inline-block" }}>
+        <CaseCard
+          node={node}
+          variant={variant}
+          morphProgress={morphProgress}
+          onClick={onClick}
+        />
+      </div>
     </Html>
   )
 }
