@@ -189,6 +189,19 @@ describe("ToolkitFAB", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
     expect(screen.getByText("2.5k bullets")).toBeInTheDocument()
   })
+
+  it("Settings button navigates to /settings via router.push (not openModal)", async () => {
+    userState.isAdmin = true
+    const { ToolkitFAB } = await import("@/components/layout/toolkit")
+    render(<ToolkitFAB {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
+    fireEvent.click(screen.getByText("Settings"))
+
+    expect(mockPush).toHaveBeenCalledWith("/settings")
+    // must NOT call openModal for settings
+    expect(modalOpen).not.toHaveBeenCalledWith("settings")
+  })
 })
 
 // ── Desktop Toolkit hidden class test ─────────────────────────────────────────
@@ -201,5 +214,17 @@ describe("Toolkit (desktop strip)", () => {
     const root = container.firstElementChild
     expect(root?.className).toContain("hidden")
     expect(root?.className).toContain("sm:flex")
+  })
+
+  it("Settings button in desktop toolbar navigates to /settings via router.push", async () => {
+    userState.isAdmin = true
+    const { Toolkit } = await import("@/components/layout/toolkit")
+    render(<Toolkit {...defaultProps} />)
+
+    const settingsBtn = screen.getByRole("button", { name: "Settings" })
+    fireEvent.click(settingsBtn)
+
+    expect(mockPush).toHaveBeenCalledWith("/settings")
+    expect(modalOpen).not.toHaveBeenCalledWith("settings")
   })
 })

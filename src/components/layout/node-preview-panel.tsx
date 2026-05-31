@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal } from "lucide-react"
 import { BulletIcon } from "@/components/ui/bullet-icon"
 
@@ -24,7 +24,7 @@ import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, unescapeText, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge, isBlockedStatus, isInProgress } from "@/lib/node-status"
 import type { GraphNode, GraphData, StakworkRun } from "@/lib/graph-api"
-import { triggerDeepResearch, getLatestStakworkRun } from "@/lib/graph-api"
+import { triggerDeepResearch, getLatestStakworkRun, getNode, isGraphData } from "@/lib/graph-api"
 import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
@@ -674,6 +674,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollContentRef = useRef<HTMLDivElement>(null)
   const boostRef = useRef<HTMLSpanElement>(null)
+  const episodeFetchedRef = useRef(false)
   const [watched, setWatched] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
 
@@ -805,6 +806,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const openAddEdge = useModalStore((s) => s.openAddEdge)
 
   const edges = useGraphStore((s) => s.edges)
+  const graphNodes = useGraphStore((s) => s.nodes)
+  const graphEdges = useGraphStore((s) => s.edges)
 
   const nodeType = currentNode.node_type ?? "Unknown"
   const schema = schemas.find((s) => s.type === nodeType)
@@ -905,6 +908,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     setUnavailableReason(null)
     setUnavailableRetryable(false)
     setUnavailableCategory(null)
+    episodeFetchedRef.current = false
 
     // Blocked nodes (halted/paused/failed/etc) never come back useful from a
     // probe — skip the call entirely and surface the right unavailable copy
@@ -1033,6 +1037,41 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   // The rich widget covers the same field that `description` would render —
   // suppress the generic description block to avoid duplicate body text.
   const widgetCoversDescription = hasTweet || hasTwitterAccount || hasArticle
+
+  // Find a connected Episode node with media_url for tweet nodes
+  const tweetEpisodeNode = useMemo(() => {
+    if (unlockState !== "unlocked" || !hasTweet) return null
+    const nodeMap = new Map(graphNodes.map((n) => [n.ref_id, n]))
+    for (const edge of graphEdges) {
+      if (edge.source !== currentNode.ref_id && edge.target !== currentNode.ref_id) continue
+      const peerId = edge.source === currentNode.ref_id ? edge.target : edge.source
+      const peer = nodeMap.get(peerId)
+      if (peer?.node_type === "Episode" && peer.properties?.media_url) return peer
+    }
+    return null
+  }, [unlockState, hasTweet, graphNodes, graphEdges, currentNode.ref_id])
+
+  // Edge fetch for admin/contributor probe path on tweet nodes.
+  // The paid-unlock path (unlockNode) already calls ?expand=edges and populates
+  // the store, so tweetEpisodeNode will be non-null before this runs — guarded
+  // by episodeFetchedRef to prevent double-fetches.
+  useEffect(() => {
+    if (unlockState !== "unlocked" || !fullNode || episodeFetchedRef.current) return
+    const fp = fullNode.properties as Record<string, unknown> | undefined
+    if (!fp || !("tweet_id" in fp)) return
+    if (tweetEpisodeNode) { episodeFetchedRef.current = true; return }
+    episodeFetchedRef.current = true
+    const controller = new AbortController()
+    getNode(currentNode.ref_id, "edges", controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted || !isGraphData(result)) return
+        useGraphStore.getState().addNodes(result.nodes, result.edges)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlockState, fullNode, currentNode.ref_id, tweetEpisodeNode])
+
   // Remaining properties not handled by rich widgets
   const remainingProps = fp
     ? Object.entries(fp).filter(([k]) =>
@@ -1147,7 +1186,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
               {/* Add Edge */}
               {(isAdmin || hasIdentity) && (
-                <DropdownMenuItem onClick={() => openAddEdge(currentNode.ref_id)}>
+                <DropdownMenuItem onClick={() => openAddEdge(currentNode)}>
                   <GitMerge className="h-3.5 w-3.5 mr-1.5" />
                   Add Edge
                 </DropdownMenuItem>
@@ -1155,7 +1194,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
               {/* Edit node */}
               {isAdmin && (
-                <DropdownMenuItem onClick={() => openEdit(currentNode)}>
+                <DropdownMenuItem onClick={() => openEdit(fullNode ?? currentNode)}>
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Edit node
                 </DropdownMenuItem>
@@ -1370,6 +1409,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 )
               })()}
               {hasTweet && <TweetCard props={fp} />}
+              {hasTweet && tweetEpisodeNode && (
+                <MediaCard
+                  node={tweetEpisodeNode}
+                  props={tweetEpisodeNode.properties as Record<string, unknown>}
+                />
+              )}
               {hasTwitterAccount && <TwitterAccountCard props={fp} />}
               {hasPerson && <PersonCard props={fp} />}
               {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}

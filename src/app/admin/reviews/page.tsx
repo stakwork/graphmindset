@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRightLeft, GitMerge, Trash2, X } from "lucide-react"
+import { ArrowLeft, ArrowRightLeft, GitMerge, Search, Trash2, X } from "lucide-react"
+import { useDebounce } from "@/hooks/use-debounce"
+import { Input } from "@/components/ui/input"
 import type { LucideIcon } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 import { useReviewStore } from "@/stores/review-store"
@@ -73,6 +75,8 @@ export default function ReviewsPage() {
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | "">("pending")
   const [actionFilter, setActionFilter] = useState("")
   const [sort, setSort] = useState("created_at")
+  const [searchQuery, setSearchQuery] = useState("")
+  const debouncedSearch = useDebounce(searchQuery, 300)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkRunning, setBulkRunning] = useState<null | "approve" | "dismiss">(null)
@@ -101,6 +105,7 @@ export default function ReviewsPage() {
             sort,
             skip: currentSkip,
             limit: PAGE_SIZE,
+            search: debouncedSearch || undefined,
           },
           ctrl.signal
         )
@@ -125,7 +130,7 @@ export default function ReviewsPage() {
         if (!options?.silent) setLoading(false)
       }
     },
-    [statusFilter, actionFilter, sort]
+    [statusFilter, actionFilter, sort, debouncedSearch]
   )
 
   useEffect(() => {
@@ -305,6 +310,27 @@ export default function ReviewsPage() {
           })}
         </div>
 
+        {/* Search input */}
+        <div className="relative flex items-center">
+          <Search className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search reviews…"
+            className="h-7 w-[180px] pl-7 pr-6 text-xs"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              aria-label="Clear search"
+              className="absolute right-1.5 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-muted-foreground">
             {total} {total === 1 ? "result" : "results"}
@@ -393,9 +419,11 @@ export default function ReviewsPage() {
             <SkeletonRows />
           ) : reviews.length === 0 ? (
             <div className="py-16 text-center text-sm text-muted-foreground">
-              {statusFilter === "pending"
-                ? "No pending reviews — the graph is clean ✓"
-                : "No reviews match the selected filters."}
+              {searchQuery
+                ? `No reviews match "${searchQuery}"`
+                : statusFilter === "pending"
+                  ? "No pending reviews — the graph is clean ✓"
+                  : "No reviews match the selected filters."}
             </div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border/60">

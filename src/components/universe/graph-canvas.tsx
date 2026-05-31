@@ -74,6 +74,11 @@ function truncateLabel(label: string): string {
 // "source → cluster → 20 leaves" instead of 20 individual lines fanning out.
 const CLUSTER_THRESHOLD = 5
 
+// Max number of search hits that keep a text label at once. Beyond this the
+// view becomes an unreadable pile of overlapping labels; the rest of the hits
+// stay as glyph-only spotlights and reveal their label on hover.
+const SEARCH_LABEL_CAP = 15
+
 // Edge types whose data direction is "child → parent" — flip them so the
 // hierarchy reads parent → child. The container/originator should end up
 // as the visual parent:
@@ -1940,20 +1945,36 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     nodeToLines,
   ])
 
-  // Top-3 ranked search hits, by descending score. GraphView amplifies their
-  // size + color and tints their labels (rank 0 gold, ranks 1-2 cool blue).
-  const topMatchRanks = useMemo<Map<number, number> | null>(() => {
+  // All search hits, sorted by descending score. Drives both the top-3
+  // amplification ranks and the label cap below, so they stay consistent.
+  const sortedHits = useMemo(() => {
     const hits: { i: number; score: number }[] = []
     for (let i = 0; i < nodes.length; i++) {
       if (nodes[i].matched_property === undefined) continue
       hits.push({ i, score: typeof nodes[i].score === "number" ? nodes[i].score! : 0 })
     }
-    if (hits.length === 0) return null
     hits.sort((a, b) => b.score - a.score)
-    const m = new Map<number, number>()
-    for (let r = 0; r < Math.min(3, hits.length); r++) m.set(hits[r].i, r)
-    return m
+    return hits
   }, [nodes])
+
+  // Top-3 ranked search hits, by descending score. GraphView amplifies their
+  // size + color and tints their labels (rank 0 gold, ranks 1-2 cool blue).
+  const topMatchRanks = useMemo<Map<number, number> | null>(() => {
+    if (sortedHits.length === 0) return null
+    const m = new Map<number, number>()
+    for (let r = 0; r < Math.min(3, sortedHits.length); r++) m.set(sortedHits[r].i, r)
+    return m
+  }, [sortedHits])
+
+  // A search can return up to 100 hits; labeling every one buries the view in
+  // overlapping text (the de-overlap solver can't help when labels outnumber the
+  // screen slots). Cap text labels to the top-N hits by score — every match
+  // still keeps its glyph spotlight (color + size); the rest reveal their label
+  // on hover or when zoomed into their neighborhood.
+  const searchLabelMatches = useMemo<Set<number> | null>(() => {
+    if (sortedHits.length === 0) return null
+    return new Set(sortedHits.slice(0, SEARCH_LABEL_CAP).map((h) => h.i))
+  }, [sortedHits])
 
   // Feature 2 (GRAPH_FEATURES.md): pan to the rank-0 search hit once per new
   // search query. Tracks the last search term we've already panned for, so a
@@ -2176,6 +2197,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           externalHoveredId={externalHoveredId}
           externalSelectedId={externalSelectedId}
           searchMatches={lineHoverMatches ?? stateHoverMatches ?? searchMatches}
+          searchLabelMatches={searchLabelMatches}
           topMatchRanks={topMatchRanks}
           searchTerm={searchTerm}
           nodeTypeIcons={nodeTypeIcons}
