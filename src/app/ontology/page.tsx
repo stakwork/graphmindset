@@ -1,13 +1,20 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { TypeEditor } from "./type-editor"
-import { Plus, ArrowLeft } from "lucide-react"
+import { Plus, ArrowLeft, Box, Grid2x2 } from "lucide-react"
+import { useUserStore } from "@/stores/user-store"
+
+const OntologyGraph3D = dynamic(
+  () => import("./ontology-graph-3d").then((m) => ({ default: m.OntologyGraph3D })),
+  { ssr: false, loading: () => <div className="flex h-full items-center justify-center"><p className="text-muted-foreground animate-pulse">Loading 3D...</p></div> }
+)
 import { Button } from "@/components/ui/button"
 import { useSchemaStore } from "@/stores/schema-store"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
 
 export interface SchemaAttribute {
@@ -23,6 +30,13 @@ export interface SchemaNode {
   color: string
   node_key: string
   attributes: SchemaAttribute[]
+  inherited_attributes?: SchemaAttribute[]
+  title_key?: string
+  index?: string
+  description_key?: string
+  icon?: string
+  secondary_color?: string
+  paid_properties?: string[]
 }
 
 export interface SchemaEdge {
@@ -34,11 +48,22 @@ export interface SchemaEdge {
 
 export default function OntologyPage() {
   const router = useRouter()
+  const isAdmin = useUserStore((s) => s.isAdmin)
+  const isAuthenticated = useUserStore((s) => s.isAuthenticated)
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [view3D, setView3D] = useState(false)
+  const [schemaError, setSchemaError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (useMocks()) {
+    if (isAuthenticated && !isAdmin) {
+      router.replace("/")
+      return
+    }
+  }, [isAdmin, isAuthenticated, router])
+
+  useEffect(() => {
+    if (isMocksEnabled()) {
       store.setSchemas(SMALL_SCHEMAS)
       store.setEdges(SMALL_EDGES)
     } else {
@@ -50,13 +75,20 @@ export default function OntologyPage() {
   const selected = store.schemas.find((s) => s.ref_id === selectedId) ?? null
 
   const handleUpdateSchema = useCallback(
-    (updated: SchemaNode) => {
-      store.updateSchema(updated)
+    async (updated: SchemaNode) => {
+      if (!isAdmin) return
+      try {
+        await store.updateSchema(updated)
+        setSchemaError(null)
+      } catch (err) {
+        setSchemaError(err instanceof Error ? err.message : "Failed to save schema")
+      }
     },
-    [store]
+    [isAdmin, store]
   )
 
-  const handleAddType = useCallback(() => {
+  const handleAddType = useCallback(async () => {
+    if (!isAdmin) return
     // Find next available name
     const existing = new Set(store.schemas.map((s) => s.type))
     let n = 1
@@ -71,16 +103,22 @@ export default function OntologyPage() {
       node_key: "name",
       attributes: [{ key: "name", type: "string", required: true }],
     }
-    store.addSchema(newSchema)
+    try {
+      await store.addSchema(newSchema)
+      setSchemaError(null)
+    } catch (err) {
+      setSchemaError(err instanceof Error ? err.message : "Failed to save schema")
+    }
     setSelectedId(id)
-  }, [store])
+  }, [isAdmin, store])
 
   const handleDeleteSchema = useCallback(
     (refId: string) => {
+      if (!isAdmin) return
       store.removeSchema(refId)
       if (selectedId === refId) setSelectedId(null)
     },
-    [selectedId, store]
+    [isAdmin, selectedId, store]
   )
 
   return (
@@ -99,6 +137,15 @@ export default function OntologyPage() {
           <h2 className="text-sm font-heading font-semibold tracking-wide uppercase flex-1">
             Node Types
           </h2>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setView3D(!view3D)}
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            title={view3D ? "Switch to 2D" : "Switch to 3D"}
+          >
+            {view3D ? <Grid2x2 className="h-4 w-4" /> : <Box className="h-4 w-4" />}
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -141,12 +188,21 @@ export default function OntologyPage() {
 
       {/* Center: Ontology graph */}
       <div className="flex-1 min-w-0">
-        <OntologyGraph
-          schemas={store.schemas}
-          edges={store.edges}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
+        {view3D ? (
+          <OntologyGraph3D
+            schemas={store.schemas}
+            edges={store.edges}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        ) : (
+          <OntologyGraph
+            schemas={store.schemas}
+            edges={store.edges}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        )}
       </div>
 
       {/* Right: Type editor */}
@@ -154,9 +210,12 @@ export default function OntologyPage() {
         <TypeEditor
           schema={selected}
           allSchemas={store.schemas}
+          edges={store.edges}
           onUpdate={handleUpdateSchema}
           onDelete={handleDeleteSchema}
           onClose={() => setSelectedId(null)}
+          error={schemaError ?? undefined}
+          onClearError={() => setSchemaError(null)}
         />
       )}
     </div>

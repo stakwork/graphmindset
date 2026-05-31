@@ -1,69 +1,66 @@
 "use client"
 
-import { useState } from "react"
-import { AppSidebar } from "./app-sidebar"
-import { SourcesPanel } from "./sources-panel"
-import { SearchResultsPanel } from "./search-results-panel"
-import { SearchBar } from "@/components/search/search-bar"
-import { Universe } from "@/components/universe"
+import { useEffect } from "react"
+import { LeftPane } from "./left-pane"
+import { GraphPane } from "@/components/universe/graph-pane"
 import { SettingsModal } from "@/components/modals/settings-modal"
 import { AddContentModal } from "@/components/modals/add-content-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
-import { useAppStore } from "@/stores/app-store"
-import { useGraphStore } from "@/stores/graph-store"
+import { AddNodeModal } from "@/components/modals/add-node-modal"
+import { EditNodeModal } from "@/components/modals/edit-node-modal"
+import { AddEdgeModal } from "@/components/modals/add-edge-modal"
+import { MediaPlayer } from "@/components/player/media-player"
+import { useDefaultLayout } from "react-resizable-panels"
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
+import { useSchemaStore } from "@/stores/schema-store"
+import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
+import { useDeepLink } from "@/hooks/use-deep-link"
+import { usePanelGraphSync } from "@/hooks/use-panel-graph-sync"
+import { isMocksEnabled } from "@/lib/mock-data"
+import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
-  const [sourcesOpen, setSourcesOpen] = useState(false)
-  const searchTerm = useAppStore((s) => s.searchTerm)
-  const hasResults = useGraphStore((s) => s.nodes.length > 0)
+  useDeepLink()
+  useSidebarNeighborFetch()
+  usePanelGraphSync()
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "graphmindset-main-layout" })
+  const schemas = useSchemaStore((s) => s.schemas)
+  const fetchSchemas = useSchemaStore((s) => s.fetchAll)
 
-  const searchPanelOpen = !!searchTerm && hasResults
+  useEffect(() => {
+    if (schemas.length > 0) return
+    if (isMocksEnabled()) {
+      useSchemaStore.getState().setSchemas(SMALL_SCHEMAS)
+    } else {
+      fetchSchemas()
+    }
+  }, [schemas.length, fetchSchemas])
 
   return (
     <>
-      <div className="flex h-screen w-screen overflow-hidden">
-        <AppSidebar
-          sourcesOpen={sourcesOpen}
-          onToggleSources={() => setSourcesOpen((o) => !o)}
-        />
+      <ResizablePanelGroup
+        id="main-layout"
+        orientation="horizontal"
+        defaultLayout={defaultLayout ?? { "left-pane": 33, "right-pane": 67 }}
+        onLayoutChanged={onLayoutChanged}
+        className="h-screen w-screen overflow-hidden"
+      >
+        <ResizablePanel id="left-pane" defaultSize="33%" minSize="20%" maxSize="60%">
+          <LeftPane />
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel id="right-pane" defaultSize="67%" minSize="40%">
+          <GraphPane />
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
-        {/* Sources slide-out panel */}
-        {sourcesOpen && (
-          <SourcesPanel onClose={() => setSourcesOpen(false)} />
-        )}
-
-        {/* Search results slide-out panel */}
-        {searchPanelOpen && !sourcesOpen && (
-          <SearchResultsPanel
-            onClose={() => {
-              useAppStore.getState().setSearchTerm("")
-              useGraphStore.getState().setGraphData([], [])
-            }}
-          />
-        )}
-
-        <div className="flex flex-1 flex-col min-w-0">
-          {/* Top bar */}
-          <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/50 bg-background/80 backdrop-blur-sm px-5">
-            <SearchBar />
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-widest">
-                GraphMindset
-              </span>
-            </div>
-          </header>
-
-          {/* Main viewport */}
-          <main className="flex-1 overflow-hidden">
-            <Universe />
-          </main>
-        </div>
-      </div>
-
-      {/* Modals — outside flex layout so they overlay properly */}
       <SettingsModal />
       <AddContentModal />
+      <AddNodeModal />
+      <EditNodeModal />
+      <AddEdgeModal />
       <BudgetModal />
+      <MediaPlayer />
     </>
   )
 }

@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
 
-# LLM agent files
-Sitemap: /llms.txt
+# Discovery files for LLM agents:
+#   /llms.txt    — site + API overview, endpoint catalog, examples
+#   /agents.txt  — authentication, L402 payment flow, rate limits
+#   /openapi.json (planned) — machine-readable API schema

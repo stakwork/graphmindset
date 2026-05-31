@@ -1,11 +1,15 @@
 "use client"
 
 import { create } from "zustand"
+import { getL402 } from "@/lib/sphinx"
+import { api } from "@/lib/api"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 interface UserState {
   isAdmin: boolean
   isAuthenticated: boolean
   pubKey: string
+  routeHint: string
   budget: number | null
   nodeCount: number
 }
@@ -14,9 +18,11 @@ interface UserActions {
   setIsAdmin: (val: boolean) => void
   setIsAuthenticated: (val: boolean) => void
   setPubKey: (val: string) => void
+  setRouteHint: (val: string) => void
   setBudget: (val: number | null) => void
   incrementNodeCount: () => void
   resetNodeCount: () => void
+  refreshBalance: () => Promise<void>
 }
 
 export type UserStore = UserState & UserActions
@@ -25,13 +31,26 @@ export const useUserStore = create<UserStore>((set) => ({
   isAdmin: false,
   isAuthenticated: false,
   pubKey: "",
+  routeHint: "",
   budget: 0,
   nodeCount: 0,
   setIsAdmin: (isAdmin) => set({ isAdmin }),
   setIsAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
   setPubKey: (pubKey) => set({ pubKey }),
+  setRouteHint: (routeHint) => set({ routeHint }),
   setBudget: (budget) => set({ budget }),
   incrementNodeCount: () =>
     set((s) => ({ nodeCount: s.nodeCount + 1 })),
   resetNodeCount: () => set({ nodeCount: 0 }),
+  refreshBalance: async () => {
+    const l402 = await getL402()
+    if (!l402) { set({ budget: 0 }); return }
+    try {
+      const bal = await api.get<{ balance: number }>("/balance", { Authorization: l402 })
+      set({ budget: bal.balance })
+    } catch {
+      cookieStorage.removeItem("l402")
+      set({ budget: 0 })
+    }
+  },
 }))

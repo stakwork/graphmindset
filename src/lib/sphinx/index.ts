@@ -1,4 +1,6 @@
 export { isSphinx, isAndroid } from "./detect"
-export { enable, getSignedMessage, getL402, hasWebLN, payWithWebLN } from "./bridge"
-export { payL402, getPrice } from "./payment"
+export { adminKeysend } from "./keysend"
+export { enable, getSignedMessage, getL402, hasWebLN, payInvoice } from "./bridge"
+export { payL402, getPrice, topUpLsat, topUpConfirm, topUpStatus, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, savePendingLsat, getPendingLsat, clearPendingLsat } from "./payment"
+export type { TopUpResponse, TransactionRow, BuyLsatChallenge, PendingLsatChallenge } from "./payment"
 export type { IsAdminResponse, SignedMessage } from "./types"

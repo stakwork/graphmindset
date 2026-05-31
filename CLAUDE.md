@@ -16,6 +16,11 @@ Knowledge graph explorer frontend. Rebuilds the core of sphinx-nav-fiber with Ne
 - **jarvis-backend**: Graph data (v2/nodes, v2/edges, schema/all, stats, about)
 - Boltwall proxies most requests to jarvis-backend; schema endpoints go direct
 
+## Transaction History
+- Boltwall `/transactions` API returns `{ action, type, amount, created_at }` where `type` is `'debit'|'credit'` and `amount` is always positive
+- Display utils in `src/lib/transaction-display.ts` — use `getActionDisplayLabel` and `getActionBadgeColor` for rendering
+- Credits (top_up, refunds) show green with `+` prefix; debits show neutral color (not red) with `-` prefix
+
 ## Code Conventions
 - No hardcoded secrets or keys — use NEXT_PUBLIC_ env vars
 - Stores in `src/stores/` use Zustand

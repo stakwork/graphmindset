@@ -1,28 +1,30 @@
 import { Lsat } from "lsat-js"
 import { isSphinx } from "./detect"
 import { api } from "../api"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sphinx = require("sphinx-bridge")
 
 export async function payL402(
-  setBudget: (value: number | null) => void
+  setBudget: (value: number | null) => void,
+  amount?: number
 ): Promise<void> {
   if (isSphinx()) {
     await payViaSphinx(setBudget)
     return
   }
 
-  await payViaWebLN(setBudget)
+  await payViaWebLN(setBudget, amount)
 }
 
 async function payViaSphinx(
   setBudget: (value: number | null) => void
 ): Promise<void> {
   // Clear any existing expired L402
-  const existing = localStorage.getItem("l402")
+  const existing = cookieStorage.getItem("l402")
   if (existing) {
-    localStorage.removeItem("l402")
+    cookieStorage.removeItem("l402")
     const parsed = JSON.parse(existing)
     try {
       await sphinx.updateLsat(parsed.identifier, "expired")
@@ -60,18 +62,21 @@ async function payViaSphinx(
         lsat.baseMacaroon,
         window.location.host
       )
+      if (!result?.success) throw new Error("Sphinx saveLsat failed")
 
-      if (result?.lsat) {
-        localStorage.setItem(
-          "l402",
-          JSON.stringify({
-            macaroon: lsat.baseMacaroon,
-            identifier: lsat.id,
-            preimage: result.lsat.split(":")[1],
-          })
-        )
-        setBudget(budgetAmount)
-      }
+      // saveLsat does not return a preimage — fetch the stored LSAT to get it
+      const stored = await sphinx.getLsat(window.location.host)
+      if (!stored?.preimage) throw new Error("getLsat returned no preimage after saveLsat")
+
+      cookieStorage.setItem(
+        "l402",
+        JSON.stringify({
+          macaroon: lsat.baseMacaroon,
+          identifier: lsat.id,
+          preimage: stored.preimage,
+        })
+      )
+      setBudget(budgetAmount)
       return
     }
     throw error
@@ -79,35 +84,30 @@ async function payViaSphinx(
 }
 
 async function payViaWebLN(
-  setBudget: (value: number | null) => void
+  setBudget: (value: number | null) => void,
+  amount?: number
 ): Promise<void> {
-  localStorage.removeItem("l402")
+  cookieStorage.removeItem("l402")
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webln = (window as any).webln
   if (!webln) throw new Error("No WebLN provider available")
   await webln.enable()
 
-  const budgetAmount = 50
+  const budgetAmount = amount ?? 50
 
   try {
     await api.post("/buy_lsat", { amount: budgetAmount })
   } catch (error: unknown) {
-    console.log("[payViaWebLN] caught error:", error instanceof Response, error instanceof Response && error.status)
-
     if (error instanceof Response && error.status === 402) {
       const header = error.headers.get("www-authenticate")
-      console.log("[payViaWebLN] www-authenticate header:", header ? `${header.slice(0, 80)}...` : null)
-
       if (!header) throw new Error("No www-authenticate header in 402")
 
       const lsat = Lsat.fromHeader(header)
-      console.log("[payViaWebLN] parsed invoice:", lsat.invoice ? `${lsat.invoice.slice(0, 40)}...` : null)
-
       const payment = await webln.sendPayment(lsat.invoice)
 
       if (payment?.preimage) {
-        localStorage.setItem(
+        cookieStorage.setItem(
           "l402",
           JSON.stringify({
             macaroon: lsat.baseMacaroon,
@@ -123,11 +123,153 @@ async function payViaWebLN(
   }
 }
 
-export async function getPrice(endpoint: string): Promise<number> {
+export type TopUpResponse = {
+  success: boolean
+  payment_request: string
+  payment_hash: string
+}
+
+export async function topUpLsat(
+  macaroon: string,
+  amount: number
+): Promise<TopUpResponse> {
+  return api.post<TopUpResponse>("/top_up_lsat", { macaroon, amount })
+}
+
+export async function topUpConfirm(
+  paymentHash: string,
+  macaroon: string
+): Promise<void> {
+  await api.post("/top_up_confirm", { payment_hash: paymentHash, macaroon })
+}
+
+export async function topUpStatus(paymentHash: string): Promise<boolean> {
+  const res = await api.get<{ paid: boolean }>(`/top_up_status/${paymentHash}`)
+  return res.paid
+}
+
+export async function pollPaymentStatus(
+  paymentHash: string,
+  maxAttempts = 20,
+  intervalMs = 2000,
+  signal?: AbortSignal
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (signal?.aborted) return false
+    try {
+      const paid = await topUpStatus(paymentHash)
+      if (paid) return true
+    } catch {
+      // status check failed — keep polling
+    }
+    if (signal?.aborted) return false
+    // Abortable sleep — wakes immediately on cancel rather than waiting full intervalMs
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, intervalMs)
+      signal?.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+    })
+  }
+  return false
+}
+
+export type BuyLsatChallenge = {
+  invoice: string
+  baseMacaroon: string
+  paymentHash: string
+  id: string
+}
+
+// Lets a user close the page after the QR is shown and pay the invoice later.
+// The base macaroon is bound to that specific Lightning invoice — without it
+// the client cannot rejoin a paid challenge, so persist the challenge tuple
+// the moment we receive it, and clear it once promoted to an active LSAT.
+const PENDING_LSAT_KEY = "l402_pending"
+
+export type PendingLsatChallenge = BuyLsatChallenge & {
+  amount: number
+  createdAt: number
+}
+
+export function savePendingLsat(challenge: BuyLsatChallenge, amount: number): PendingLsatChallenge {
+  const pending: PendingLsatChallenge = { ...challenge, amount, createdAt: Date.now() }
+  cookieStorage.setItem(PENDING_LSAT_KEY, JSON.stringify(pending))
+  return pending
+}
+
+export function getPendingLsat(): PendingLsatChallenge | null {
+  const stored = cookieStorage.getItem(PENDING_LSAT_KEY)
+  if (!stored) return null
+  try {
+    return JSON.parse(stored) as PendingLsatChallenge
+  } catch {
+    return null
+  }
+}
+
+export function clearPendingLsat(): void {
+  cookieStorage.removeItem(PENDING_LSAT_KEY)
+}
+
+/**
+ * Request a fresh L402 challenge from /buy_lsat. The endpoint returns 402 with
+ * an LSAT challenge (macaroon + invoice) per the L402 protocol; we parse and
+ * return it. Used by the QR first-purchase flow — Sphinx and WebLN paths catch
+ * the 402 inline because they need the parsed LSAT alongside their wallet call.
+ */
+export async function fetchBuyLsatChallenge(amount: number): Promise<BuyLsatChallenge> {
+  try {
+    await api.post("/buy_lsat", { amount })
+    throw new Error("Expected 402 challenge from /buy_lsat, got 200")
+  } catch (err: unknown) {
+    if (err instanceof Response && err.status === 402) {
+      const header = err.headers.get("www-authenticate")
+      if (!header) throw new Error("No www-authenticate header in 402")
+      const lsat = Lsat.fromHeader(header)
+      return {
+        invoice: lsat.invoice,
+        baseMacaroon: lsat.baseMacaroon,
+        paymentHash: lsat.paymentHash,
+        id: lsat.id,
+      }
+    }
+    throw err
+  }
+}
+
+export interface TransactionRow {
+  action: string
+  type: 'debit' | 'credit'
+  amount: number
+  created_at: string | null
+  refunded?: boolean
+}
+
+export async function fetchTransactionHistory(): Promise<{
+  transactions: TransactionRow[]
+  scope: 'pubkey' | 'token'
+}> {
   try {
     const res = await api.get<{
+      success: boolean
+      scope: 'pubkey' | 'token'
+      transactions: TransactionRow[]
+    }>('/transactions')
+    return { transactions: res.transactions ?? [], scope: res.scope }
+  } catch {
+    return { transactions: [], scope: 'token' }
+  }
+}
+
+export async function getPrice(
+  endpoint: string,
+  method: "get" | "post" = "post",
+  signal?: AbortSignal,
+): Promise<number> {
+  try {
+    const query = new URLSearchParams({ endpoint, method })
+    const res = await api.get<{
       data: { price: number; endpoint: string; method: string }
-    }>(`/getprice?endpoint=${endpoint}&method=post`)
+    }>(`/getprice?${query}`, undefined, signal)
     return res.data.price
   } catch {
     return 0

@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { SelectCustom } from "@/components/ui/select-custom"
+import { MultiSelectCustom } from "@/components/ui/multi-select-custom"
 import { MAX_LENGTHS } from "@/lib/input-limits"
-import type { SchemaNode, SchemaAttribute } from "./page"
+import type { SchemaNode, SchemaAttribute, SchemaEdge } from "./page"
 
 const COLORS = [
   "#6366f1", "#0d9488", "#d97706", "#8b5cf6", "#ef4444",
@@ -22,19 +23,30 @@ const ATTR_TYPES = ["string", "int", "float", "boolean", "date"]
 interface Props {
   schema: SchemaNode
   allSchemas: SchemaNode[]
+  edges: SchemaEdge[]
   onUpdate: (schema: SchemaNode) => void
   onDelete: (refId: string) => void
   onClose: () => void
+  error?: string
+  onClearError?: () => void
 }
 
-export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: Props) {
+/** Parse "type-key1-key2" → ["key1", "key2"] */
+function parseNodeKeySegments(nodeKey: string, type: string): string[] {
+  const prefix = `${type.toLowerCase()}-`
+  const withoutPrefix = nodeKey.startsWith(prefix) ? nodeKey.slice(prefix.length) : nodeKey
+  return withoutPrefix ? withoutPrefix.split("-").filter(Boolean) : []
+}
+
+export function TypeEditor({ schema, allSchemas, edges, onUpdate, onDelete, onClose, error, onClearError }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const update = useCallback(
     (partial: Partial<SchemaNode>) => {
+      onClearError?.()
       onUpdate({ ...schema, ...partial })
     },
-    [schema, onUpdate]
+    [schema, onUpdate, onClearError]
   )
 
   const updateAttribute = useCallback(
@@ -67,6 +79,39 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
   const parentOptions = allSchemas
     .filter((s) => s.ref_id !== schema.ref_id)
     .map((s) => s.type)
+
+  const refIdToType = Object.fromEntries(allSchemas.map((s) => [s.ref_id, s]))
+
+  const relationships = edges.filter(
+    (e) => (e.source === schema.ref_id || e.target === schema.ref_id)
+      && e.edge_type !== "CHILD_OF"
+  )
+
+  // All own + inherited attribute keys for title/description selects
+  const ownAttrOptions = schema.attributes
+    .filter((a) => a.key)
+    .map((a) => ({ value: a.key, label: a.key }))
+
+  const inheritedAttrOptions = (schema.inherited_attributes ?? [])
+    .filter((a) => a.key)
+    .map((a) => ({
+      value: a.key,
+      label: a.key,
+      hint: schema.parent ? `from ${schema.parent}` : undefined,
+    }))
+
+  const allAttrOptions = [
+    { value: "", label: "None" },
+    ...ownAttrOptions,
+    ...inheritedAttrOptions,
+  ]
+
+  // node_key multi-select: only own required attributes
+  const nodeKeyOptions = schema.attributes
+    .filter((a) => a.key && a.required)
+    .map((a) => ({ value: a.key, label: a.key }))
+
+  const selectedNodeKeys = parseNodeKeySegments(schema.node_key ?? "", schema.type)
 
   return (
     <div className="w-[340px] shrink-0 border-l border-border flex flex-col bg-card">
@@ -116,6 +161,32 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
           />
         </div>
 
+        {/* Title Property */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
+            Title Property
+          </Label>
+          <SelectCustom
+            value={schema.title_key ?? ""}
+            onChange={(val) => update({ title_key: val || undefined })}
+            options={allAttrOptions}
+            placeholder="None"
+          />
+        </div>
+
+        {/* Description Property */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
+            Description Property
+          </Label>
+          <SelectCustom
+            value={schema.description_key ?? ""}
+            onChange={(val) => update({ description_key: val || undefined })}
+            options={allAttrOptions}
+            placeholder="None"
+          />
+        </div>
+
         {/* Color */}
         <div className="space-y-1.5">
           <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
@@ -137,19 +208,20 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
           </div>
         </div>
 
-        {/* Node Key */}
+        {/* Unique Key (node_key) */}
         <div className="space-y-1.5">
           <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
-            Display Key
+            Unique Key
           </Label>
-          <SelectCustom
-            value={schema.node_key}
-            onChange={(val) => update({ node_key: val })}
-            options={schema.attributes.map((a) => ({
-              value: a.key,
-              label: a.key || "(unnamed)",
-            }))}
+          <MultiSelectCustom
+            value={selectedNodeKeys}
+            onChange={(vals) => update({ node_key: vals.join("-") })}
+            options={nodeKeyOptions}
+            placeholder="Select required attributes…"
           />
+          <p className="text-[10px] text-muted-foreground/60">
+            Only required attributes. Combined to uniquely identify nodes.
+          </p>
         </div>
 
         <Separator className="bg-border/30" />
@@ -171,6 +243,36 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
             </Button>
           </div>
 
+          {/* Inherited attributes (read-only) */}
+          {(schema.inherited_attributes ?? []).length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-heading">
+                Inherited from {schema.parent}
+              </p>
+              {(schema.inherited_attributes ?? []).map((attr, i) => (
+                <div
+                  key={`inh-${i}`}
+                  className="flex items-center gap-1.5 rounded-md border border-border/20 bg-muted/10 p-2 opacity-60"
+                >
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground/70 font-mono truncate">
+                        {attr.key}
+                      </span>
+                      <span className="shrink-0 rounded-sm bg-muted/40 px-1 py-0 text-[9px] font-mono text-muted-foreground/60">
+                        {attr.type}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground/50">
+                      {attr.required ? "Required" : "Optional"} · from {schema.parent}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Own attributes (editable) */}
           <div className="space-y-2">
             {schema.attributes.map((attr, i) => (
               <div
@@ -219,10 +321,49 @@ export function TypeEditor({ schema, allSchemas, onUpdate, onDelete, onClose }: 
             ))}
           </div>
         </div>
+
+        <Separator className="bg-border/30" />
+
+        {/* Relationships */}
+        <div className="space-y-2">
+          <Label className="text-[10px] uppercase tracking-wider font-heading text-muted-foreground">
+            Relationships
+          </Label>
+
+          {relationships.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground/50">No relationships defined</p>
+          ) : (
+            <div className="space-y-1.5">
+              {relationships.map((e) => {
+                const source = refIdToType[e.source]
+                const target = refIdToType[e.target]
+                return (
+                  <div
+                    key={e.ref_id}
+                    className="flex items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 px-2 py-1.5"
+                  >
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {source?.type ?? e.source}
+                    </span>
+                    <span className="text-[10px] font-mono font-medium text-foreground truncate mx-1">
+                      — {e.edge_type} →
+                    </span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {target?.type ?? e.target}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border p-4">
+      <div className="border-t border-border p-4 space-y-3">
+        {error && (
+          <p className="text-xs text-destructive leading-snug">{error}</p>
+        )}
         {schema.type === "Thing" ? (
           <p className="text-[10px] text-muted-foreground/50 text-center">
             Root type cannot be deleted

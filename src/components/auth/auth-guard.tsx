@@ -7,30 +7,36 @@ import type { IsAdminResponse } from "@/lib/sphinx"
 import { api } from "@/lib/api"
 import { useUserStore } from "@/stores/user-store"
 import { useAppStore } from "@/stores/app-store"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 import { Separator } from "@/components/ui/separator"
+import { cookieStorage } from "@/lib/cookie-storage"
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [unauthorized, setUnauthorized] = useState(false)
   const [loading, setLoading] = useState(true)
-  const { setBudget, setIsAdmin, setPubKey, setIsAuthenticated } = useUserStore()
+  const { setBudget, setIsAdmin, setPubKey, setRouteHint, setIsAuthenticated } = useUserStore()
   const setGraphMeta = useAppStore((s) => s.setGraphMeta)
 
   const handleAuth = useCallback(async () => {
-    localStorage.removeItem("admin")
-    localStorage.removeItem("signature")
-
     try {
       if (isAndroid()) {
         await new Promise((r) => setTimeout(r, 5000))
       }
 
       const result = await enable()
+      console.log("[auth] enable() result:", JSON.stringify(result))
+
       if (result?.pubkey) {
+        console.log("[auth] setting pubKey:", result.pubkey, "routeHint:", result.routeHint)
         setPubKey(result.pubkey)
+        setRouteHint(result.routeHint ?? "")
+      } else {
+        console.log("[auth] no pubkey in enable() result")
       }
-    } catch {
+    } catch (err) {
+      console.error("[auth] enable() failed:", err)
       setPubKey("")
+      setRouteHint("")
     }
 
     const l402 = await getL402()
@@ -45,24 +51,39 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       })
       setBudget(balance.balance)
     } catch {
+      // L402 is stale or invalid — clear it so top-up/buy flows start fresh
+      cookieStorage.removeItem("l402")
       setBudget(0)
     }
-  }, [setBudget, setPubKey])
+  }, [setBudget, setPubKey, setRouteHint])
 
   const handleIsAdmin = useCallback(async () => {
+    // Local dev: skip /isAdmin call, grant admin
+    if (process.env.NEXT_PUBLIC_DEV_ADMIN === "true") {
+      setIsAdmin(true)
+      setIsAuthenticated(true)
+      return
+    }
+
     try {
       const res = await api.get<{ data: IsAdminResponse }>("/isAdmin")
       const d = res.data
 
-      if (!d.isPublic && !d.isAdmin && !d.isMember) {
+      const isPrivate = d.isPublic === false
+      if (isPrivate && !d.isAdmin && !d.isMember) {
         setUnauthorized(true)
         return
       }
 
       setIsAdmin(!!d.isAdmin)
-      localStorage.setItem("admin", JSON.stringify({ isAdmin: d.isAdmin }))
       setIsAuthenticated(true)
-    } catch {
+    } catch (err) {
+      // 401 = private graph, user has no access → show overlay
+      if (err instanceof Response && err.status === 401) {
+        setUnauthorized(true)
+        return
+      }
+      // Any other error (network, 500, etc.) — fail open
       setIsAuthenticated(true)
     }
   }, [setIsAdmin, setIsAuthenticated])
@@ -72,6 +93,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       const res = await api.get<{
         title?: string
         description?: string
+        mission_statement?: string
+        search_term?: string
+        app_version?: string
+        seed_questions?: string
+        limit?: number
+        depth?: number
+        sort_by?: string
+        top_node_count?: number
       }>("/about")
       setGraphMeta(res.title ?? "Knowledge Graph", res.description ?? "")
     } catch {
@@ -81,18 +110,27 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const init = async () => {
-      if (useMocks()) {
+      if (isMocksEnabled()) {
         setIsAdmin(true)
         setIsAuthenticated(true)
         setBudget(5000)
+        setPubKey("mock-pub-key")
         setGraphMeta("Dev Graph", "Local development instance")
         setLoading(false)
         return
       }
 
-      await handleAuth()
-      await Promise.all([handleIsAdmin(), fetchGraphMeta()])
-      setLoading(false)
+      try {
+        console.log("[auth] starting handleAuth...")
+        await handleAuth()
+        console.log("[auth] handleAuth done, starting isAdmin + graphMeta...")
+        await Promise.all([handleIsAdmin(), fetchGraphMeta()])
+        console.log("[auth] all done")
+      } catch (err) {
+        console.error("[auth] init failed:", err)
+      } finally {
+        setLoading(false)
+      }
     }
     init()
   }, [handleAuth, handleIsAdmin, fetchGraphMeta, setIsAdmin, setIsAuthenticated, setBudget, setGraphMeta])

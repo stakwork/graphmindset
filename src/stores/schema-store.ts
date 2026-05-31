@@ -3,7 +3,7 @@
 import { create } from "zustand"
 import type { SchemaNode, SchemaEdge } from "@/app/ontology/page"
 import { api } from "@/lib/api"
-import { useMocks } from "@/lib/mock-data"
+import { isMocksEnabled } from "@/lib/mock-data"
 
 interface SchemaState {
   schemas: SchemaNode[]
@@ -56,18 +56,27 @@ export const useSchemaStore = create<SchemaState>((set) => ({
       schemas: s.schemas.map((x) => (x.ref_id === updated.ref_id ? updated : x)),
     }))
 
-    if (useMocks()) return
+    if (isMocksEnabled()) return
 
     try {
       await api.put(`/schema/${updated.ref_id}`, {
         type: updated.type,
         parent: updated.parent,
         primary_color: updated.color,
-        node_key: updated.node_key,
+        node_key: updated.node_key
+          ? updated.node_key.replace(new RegExp(`^${updated.type.toLowerCase()}-`), "")
+          : updated.node_key,
+        title_key: updated.title_key ?? null,
+        description_key: updated.description_key ?? null,
         attributes: serializeAttributes(updated.attributes),
       })
     } catch (err) {
-      console.error("Failed to update schema:", err)
+      // Rollback optimistic update
+      set((s) => ({
+        schemas: s.schemas.map((x) => (x.ref_id === updated.ref_id ? updated : x)),
+      }))
+      const body = err instanceof Response ? await err.json().catch(() => ({})) : {}
+      throw new Error((body as { message?: string }).message || "Failed to save schema")
     }
   },
 
@@ -75,7 +84,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     // Optimistic add
     set((s) => ({ schemas: [...s.schemas, schema] }))
 
-    if (useMocks()) return
+    if (isMocksEnabled()) return
 
     try {
       const res = await api.post<{ ref_id?: string }>("/schema", {
@@ -95,9 +104,10 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         }))
       }
     } catch (err) {
-      console.error("Failed to create schema:", err)
       // Rollback
       set((s) => ({ schemas: s.schemas.filter((x) => x.ref_id !== schema.ref_id) }))
+      const body = err instanceof Response ? await err.json().catch(() => ({})) : {}
+      throw new Error((body as { message?: string }).message || "Failed to save schema")
     }
   },
 
@@ -106,7 +116,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     // Optimistic remove
     set((s) => ({ schemas: s.schemas.filter((x) => x.ref_id !== refId) }))
 
-    if (useMocks()) return
+    if (isMocksEnabled()) return
 
     try {
       await api.delete(`/schema/${refId}`)
@@ -126,8 +136,15 @@ export const useSchemaStore = create<SchemaState>((set) => ({
           type: string
           parent?: string
           primary_color?: string
+          secondary_color?: string
           node_key?: string
+          title_key?: string
+          index?: string
+          description_key?: string
+          icon?: string
           attributes?: Record<string, unknown>
+          inherited_attributes?: Record<string, unknown>
+          paid_properties?: string[]
         }>
         edges: SchemaEdge[]
       }>("/schema/all")
@@ -137,8 +154,15 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         type: s.type ?? "",
         parent: s.parent ?? "",
         color: s.primary_color ?? "#64748b",
+        secondary_color: s.secondary_color,
         node_key: s.node_key ?? "name",
+        title_key: s.title_key,
+        index: s.index,
+        description_key: s.description_key,
+        icon: s.icon,
         attributes: parseAttributes(s.attributes),
+        inherited_attributes: parseAttributes(s.inherited_attributes as Record<string, unknown> | undefined),
+        paid_properties: Array.isArray(s.paid_properties) ? (s.paid_properties as string[]) : undefined,
       }))
 
       set({ schemas, edges: res.edges ?? [] })

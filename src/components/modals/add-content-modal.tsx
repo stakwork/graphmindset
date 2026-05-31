@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, CheckCircle2, LinkIcon, Zap } from "lucide-react"
+import { Loader2, CheckCircle2, LinkIcon, Zap, X, RefreshCw } from "lucide-react"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import {
   Dialog,
   DialogContent,
@@ -14,20 +15,39 @@ import { Separator } from "@/components/ui/separator"
 import { MAX_LENGTHS } from "@/lib/input-limits"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
+import { useAppStore } from "@/stores/app-store"
+import { usePlayerStore } from "@/stores/player-store"
 import { api } from "@/lib/api"
 import { getL402, payL402, getPrice } from "@/lib/sphinx"
 import {
   detectSourceType,
-  extractTweetId,
   SOURCE_TYPE_LABELS,
   SOURCE_TYPES,
   isSubscriptionSource,
   type SourceType,
 } from "@/lib/source-detection"
+import { checkNodeExists, type GraphNode } from "@/lib/graph-api"
+import { unlockNode } from "@/lib/unlock-node"
+
+const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
+  [SOURCE_TYPES.TWEET]: "tweet",
+  [SOURCE_TYPES.LINK]: "audio_video",
+  [SOURCE_TYPES.YOUTUBE_VIDEO]: "audio_video",
+  [SOURCE_TYPES.YOUTUBE_LIVE]: "audio_video",
+  [SOURCE_TYPES.YOUTUBE_SHORT]: "audio_video",
+  [SOURCE_TYPES.WEB_PAGE]: "webpage",
+  [SOURCE_TYPES.DOCUMENT]: "document",
+}
+
+const IN_PROGRESS_STATUSES = ["in_progress", "running", "pending"]
+
+type CacheStatus = "miss" | "hit-completed" | "hit-in-progress" | null
+type PreviewState = "pending" | "owned" | "pay-required" | "fallback" | null
 
 export function AddContentModal() {
   const { activeModal, close, open: openModal } = useModalStore()
-  const { budget, setBudget, pubKey } = useUserStore()
+  const { budget, setBudget, pubKey, routeHint, isAdmin } = useUserStore()
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
   const [detecting, setDetecting] = useState(false)
@@ -35,6 +55,14 @@ export function AddContentModal() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState("")
   const [price, setPrice] = useState<number | null>(null)
+  const [topics, setTopics] = useState<string[]>([])
+  const [topicDraft, setTopicDraft] = useState("")
+  const [category, setCategory] = useState("")
+  const [weight, setWeight] = useState<number | null>(null)
+  const [cacheStatus, setCacheStatus] = useState<CacheStatus>(null)
+  const [cachedRefId, setCachedRefId] = useState<string | null>(null)
+  const [previewState, setPreviewState] = useState<PreviewState>(null)
+  const [previewedNode, setPreviewedNode] = useState<GraphNode | null>(null)
 
   // Fetch price based on detected type
   useEffect(() => {
@@ -49,6 +77,10 @@ export function AddContentModal() {
     setDetectedType(null)
     setError("")
     setSuccess(false)
+    setCacheStatus(null)
+    setCachedRefId(null)
+    setPreviewState(null)
+    setPreviewedNode(null)
 
     const trimmed = value.trim()
     if (!trimmed || trimmed.length < 5) return
@@ -57,12 +89,87 @@ export function AddContentModal() {
     try {
       const type = await detectSourceType(trimmed)
       setDetectedType(type)
+
+      // Preflight cache check for YouTube/podcast URLs
+      if (
+        type === SOURCE_TYPES.YOUTUBE_VIDEO ||
+        type === SOURCE_TYPES.YOUTUBE_LIVE ||
+        type === SOURCE_TYPES.YOUTUBE_SHORT ||
+        type === SOURCE_TYPES.LINK
+      ) {
+        const check = await checkNodeExists("Episode", trimmed)
+        console.log("[add-content] cache check:", {
+          nodeType: "Episode",
+          key: trimmed,
+          cacheStatus: check.exists
+            ? IN_PROGRESS_STATUSES.includes(check.status ?? "")
+              ? "hit-in-progress"
+              : "hit-completed"
+            : "miss",
+          cachedRefId: check.ref_id,
+        })
+        if (check.exists && check.ref_id) {
+          const isTerminal = !IN_PROGRESS_STATUSES.includes(check.status ?? "")
+          const resolvedStatus: CacheStatus = isTerminal ? "hit-completed" : "hit-in-progress"
+          setCacheStatus(resolvedStatus)
+          setCachedRefId(check.ref_id)
+
+          // Fire preview probe only for hit-completed
+          if (isTerminal) {
+            setPreviewState("pending")
+            try {
+              const preview = await api.get<{ nodes?: GraphNode[] }>(
+                `/v2/nodes/${check.ref_id}?preview=1`
+              )
+              const node = preview?.nodes?.[0]
+              console.log("[add-content] preview probe:", {
+                result: node ? "owned" : "fallback",
+                ref_id: check.ref_id,
+              })
+              if (node) {
+                setPreviewState("owned")
+                setPreviewedNode(node)
+                usePlayerStore.getState().setPlayingNode(node)
+                // Auto-route: mirror post-success reset + close
+                setSourceUrl("")
+                setDetectedType(null)
+                setSuccess(false)
+                setPrice(null)
+                setTopics([])
+                setTopicDraft("")
+                setCacheStatus(null)
+                setCachedRefId(null)
+                setPreviewState(null)
+                setPreviewedNode(null)
+                close()
+                useAppStore.getState().setMyContentOpen(true)
+              } else {
+                setPreviewState("fallback")
+              }
+            } catch (err: unknown) {
+              const status = err instanceof Response ? err.status : undefined
+              console.log("[add-content] preview probe:", {
+                result: status === 402 ? "pay-required" : "fallback",
+                ref_id: check.ref_id,
+              })
+              if (err instanceof Response && err.status === 402) {
+                setPreviewState("pay-required")
+              } else {
+                setPreviewState("fallback")
+              }
+            }
+          }
+        } else {
+          setCacheStatus("miss")
+          setCachedRefId(null)
+        }
+      }
     } catch {
       setDetectedType(null)
     } finally {
       setDetecting(false)
     }
-  }, [])
+  }, [close])
 
   const submitWithAuth = useCallback(
     async (source: string, sourceType: SourceType) => {
@@ -70,51 +177,76 @@ export function AddContentModal() {
       const headers: Record<string, string> = {}
       if (l402) headers["Authorization"] = l402
 
+      // Cache-hit unlock path: GET /v2/nodes/:ref_id?expand=edges
+      if (cacheStatus === "hit-completed" && cachedRefId) {
+        await unlockNode(cachedRefId)
+        return
+      }
+
+      const fullPubkey = pubKey && routeHint ? `${pubKey}_${routeHint}` : pubKey
+      console.log("[add-content] pubKey:", pubKey, "routeHint:", routeHint, "fullPubkey:", fullPubkey)
+
       if (isSubscriptionSource(sourceType)) {
         const radarBody: Record<string, unknown> = { source, source_type: sourceType }
-        if (pubKey) radarBody.pubkey = pubKey
+        if (fullPubkey) radarBody.pubkey = fullPubkey
+        if (sourceType === SOURCE_TYPES.TWITTER_HANDLE && topics.length) {
+          radarBody.topics = topics
+        }
+        if (category) radarBody.category = category
+        if (weight !== null) radarBody.weight = weight
         await api.post("/radar", radarBody, headers)
         return
       }
 
-      // Build v2/content body matching nav-fiber's format
-      const body: Record<string, unknown> = {}
-      if (pubKey) body.pubkey = pubKey
-
-      if (sourceType === SOURCE_TYPES.TWEET) {
-        body.content_type = "tweet"
-        body.tweet_id = extractTweetId(source) ?? source
-      } else if (sourceType === SOURCE_TYPES.LINK) {
-        body.content_type = "audio_video"
-        body.media_url = source
-      } else if (sourceType === SOURCE_TYPES.WEB_PAGE) {
-        body.content_type = "webpage"
-        body.web_page = source
-      } else if (sourceType === SOURCE_TYPES.DOCUMENT) {
-        body.content_type = "document"
-        body.text = source
+      const contentType = CONTENT_TYPE_BY_SOURCE[sourceType]
+      if (!contentType) {
+        throw new Error(`Unsupported source type: ${sourceType}`)
       }
+      const body: Record<string, unknown> = {
+        content_type: contentType,
+        source_link: source,
+      }
+      if (fullPubkey) body.pubkey = fullPubkey
 
       await api.post("/v2/content", body, headers)
     },
-    []
+    [pubKey, routeHint, topics, category, weight, cacheStatus, cachedRefId]
   )
 
   const handleSubmit = useCallback(async () => {
     const trimmed = sourceUrl.trim()
     if (!trimmed || !detectedType) return
 
+    const openMyContent = () => useAppStore.getState().setMyContentOpen(true)
+
     setSubmitting(true)
     setError("")
     try {
       await submitWithAuth(trimmed, detectedType)
       setSuccess(true)
+      refreshBalance()
       setTimeout(() => {
         setSourceUrl("")
         setDetectedType(null)
         setSuccess(false)
         setPrice(null)
+        setTopics([])
+        setTopicDraft("")
+        setCategory("")
+        setWeight(null)
+        setCacheStatus(null)
+        setCachedRefId(null)
+        setPreviewState(null)
+        setPreviewedNode(null)
         close()
+        // On cache-hit, the user lands on the populated graph + Search Results sidebar;
+        // only open My Content for normal (non-cached) submissions.
+        if (cacheStatus !== "hit-completed") {
+          openMyContent()
+          if (!isSubscriptionSource(detectedType)) {
+            useAppStore.getState().bumpMyContentRefresh()
+          }
+        }
       }, 1200)
     } catch (err: unknown) {
       // Handle 402 — need payment
@@ -125,12 +257,25 @@ export function AddContentModal() {
           // Retry after payment
           await submitWithAuth(trimmed, detectedType)
           setSuccess(true)
+          refreshBalance()
           setTimeout(() => {
             setSourceUrl("")
             setDetectedType(null)
             setSuccess(false)
             setPrice(null)
+            setCategory("")
+            setWeight(null)
+            setCacheStatus(null)
+            setCachedRefId(null)
+            setPreviewState(null)
+            setPreviewedNode(null)
             close()
+            if (cacheStatus !== "hit-completed") {
+              openMyContent()
+              if (!isSubscriptionSource(detectedType)) {
+                useAppStore.getState().bumpMyContentRefresh()
+              }
+            }
           }, 1200)
         } catch {
           openModal("budget")
@@ -148,7 +293,7 @@ export function AddContentModal() {
     } finally {
       setSubmitting(false)
     }
-  }, [sourceUrl, detectedType, close, setBudget, submitWithAuth])
+  }, [sourceUrl, detectedType, close, setBudget, submitWithAuth, refreshBalance])
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -159,12 +304,53 @@ export function AddContentModal() {
         setSuccess(false)
         setError("")
         setPrice(null)
+        setTopics([])
+        setTopicDraft("")
+        setCategory("")
+        setWeight(null)
+        setCacheStatus(null)
+        setCachedRefId(null)
+        setPreviewState(null)
+        setPreviewedNode(null)
       }
     },
     [close]
   )
 
+  const addTopic = useCallback(() => {
+    const t = topicDraft.trim()
+    if (!t || topics.includes(t)) {
+      setTopicDraft("")
+      return
+    }
+    setTopics((prev) => [...prev, t])
+    setTopicDraft("")
+  }, [topicDraft, topics])
+
+  const removeTopic = useCallback((t: string) => {
+    setTopics((prev) => prev.filter((x) => x !== t))
+  }, [])
+
+  const isSubscriptionBlocked = !!detectedType && isSubscriptionSource(detectedType) && !isAdmin
+  const isInProgress = cacheStatus === "hit-in-progress"
+
   const formattedBudget = budget !== null ? budget.toLocaleString() : "--"
+
+  // Suppress payment UI while preview probe is in-flight or already owned
+  const hidePaymentUI = previewState === "pending" || previewState === "owned"
+
+  // Derive submit button label
+  const submitLabel = (() => {
+    if (success) return null // handled separately
+    if (submitting) return null // handled separately
+    if (cacheStatus === "hit-completed") {
+      return price && price > 0 ? "Pay & Unlock" : "Unlock"
+    }
+    if (cacheStatus === "hit-in-progress") {
+      return "Processing…"
+    }
+    return price && price > 0 ? "Pay & Add" : "Add Source"
+  })()
 
   return (
     <Dialog open={activeModal === "addContent"} onOpenChange={handleOpenChange}>
@@ -204,23 +390,127 @@ export function AddContentModal() {
             </div>
           )}
 
-          {/* Cost & Budget */}
-          {detectedType && price !== null && price > 0 && (
+          {/* Subscription source callout */}
+          {detectedType && !detecting && isSubscriptionSource(detectedType) && (
+            <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 animate-fade-in-up">
+              <RefreshCw className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+              <span className="text-xs text-primary/80">
+                This source will be ingested continuously on a schedule — new content appears automatically.
+              </span>
+            </div>
+          )}
+
+          {/* Cache state badge */}
+          {cacheStatus === "hit-completed" && !detecting && (
+            <div className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 animate-fade-in-up">
+              <Zap className="h-3.5 w-3.5 text-emerald-500" />
+              <span className="text-xs text-emerald-500 font-medium">
+                Cached — instant unlock
+              </span>
+            </div>
+          )}
+
+          {cacheStatus === "hit-in-progress" && !detecting && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 animate-fade-in-up">
+              <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
+              <span className="text-xs text-amber-500 font-medium">
+                Processing — check back shortly
+              </span>
+            </div>
+          )}
+
+          {detectedType === SOURCE_TYPES.TWITTER_HANDLE && !detecting && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+                Topic filter (optional)
+              </label>
+              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-muted/50 px-2 py-1.5 min-h-[34px]">
+                {topics.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() => removeTopic(t)}
+                      className="hover:text-destructive"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  value={topicDraft}
+                  onChange={(e) => setTopicDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault()
+                      addTopic()
+                    } else if (e.key === "Backspace" && !topicDraft && topics.length) {
+                      removeTopic(topics[topics.length - 1])
+                    }
+                  }}
+                  onBlur={addTopic}
+                  placeholder={topics.length ? "" : "AI, devtools (Enter to add)"}
+                  className="flex-1 min-w-[80px] bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Only tweets matching one of these topics will be ingested.
+              </p>
+            </div>
+          )}
+
+          {/* Admin-only category & weight inputs for subscription sources */}
+          {isAdmin && detectedType && isSubscriptionSource(detectedType) && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+                  Category (optional)
+                </label>
+                <input
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="e.g. AI, crypto, finance"
+                  className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+                  Weight 0–1 (optional)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={weight ?? ""}
+                  onChange={(e) => setWeight(e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0.0 – 1.0"
+                  className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Cost & Budget — hidden while preview probe is in-flight or content is owned */}
+          {detectedType && price !== null && price > 0 && !hidePaymentUI && (
             <>
               <Separator className="bg-border/30" />
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Zap className="h-3 w-3 text-amber" />
+                  <BulletIcon className="h-3 w-3 text-amber" />
                   <span>Cost</span>
                 </div>
                 <span className="font-mono text-foreground">
-                  {price} sats
+                  {price} bullets
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Budget</span>
                 <span className="font-mono text-foreground">
-                  {formattedBudget} sats
+                  {formattedBudget} bullets
                 </span>
               </div>
             </>
@@ -228,6 +518,26 @@ export function AddContentModal() {
 
           {error && (
             <p className="text-xs text-destructive">{error}</p>
+          )}
+
+          {isSubscriptionBlocked && (
+            <p className="text-xs text-muted-foreground">
+              Adding subscription sources requires admin access.
+            </p>
+          )}
+
+          {/* Anon-loss disclosure */}
+          {!pubKey && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your bullets.
+            </p>
+          )}
+
+          {/* Post-submit success note for subscription sources */}
+          {success && detectedType && isSubscriptionSource(detectedType) && (
+            <p className="text-xs text-muted-foreground text-center">
+              Ingestion begins on the next scheduled run.
+            </p>
           )}
 
           {/* Actions */}
@@ -241,26 +551,34 @@ export function AddContentModal() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={submitting || !detectedType || !sourceUrl.trim()}
+              disabled={
+                submitting ||
+                !detectedType ||
+                !sourceUrl.trim() ||
+                isSubscriptionBlocked ||
+                isInProgress
+              }
               className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {success ? (
                 <>
                   <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                  Added
+                  {cacheStatus === "hit-completed" ? "Unlocked" : "Added"}
                 </>
               ) : submitting ? (
                 <>
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  Adding...
-                </>
-              ) : price && price > 0 ? (
-                <>
-                  <Zap className="mr-1.5 h-3.5 w-3.5" />
-                  Pay & Add
+                  {cacheStatus === "hit-completed" ? "Unlocking..." : "Adding..."}
                 </>
               ) : (
-                "Add Source"
+                <>
+                  {price && price > 0 ? (
+                    <BulletIcon className="mr-1.5 h-3.5 w-3.5" />
+                  ) : cacheStatus === "hit-completed" ? (
+                    <Zap className="mr-1.5 h-3.5 w-3.5" />
+                  ) : null}
+                  {submitLabel}
+                </>
               )}
             </Button>
           </div>

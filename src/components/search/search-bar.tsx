@@ -9,12 +9,13 @@ import { useUserStore } from "@/stores/user-store"
 import { useModalStore } from "@/stores/modal-store"
 import { searchNodes } from "@/lib/graph-api"
 import { payL402 } from "@/lib/sphinx"
-import { useMocks, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 
 export function SearchBar() {
   const setSearchTerm = useAppStore((s) => s.setSearchTerm)
-  const { setGraphData, setLoading } = useGraphStore()
-  const setBudget = useUserStore((s) => s.setBudget)
+  const closeAllPanels = useAppStore((s) => s.closeAllPanels)
+  const { setGraphData, setLoading, clearSelection } = useGraphStore()
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
   const openModal = useModalStore((s) => s.open)
   const [value, setValue] = useState("")
   const [focused, setFocused] = useState(false)
@@ -33,19 +34,35 @@ export function SearchBar() {
       abortRef.current = controller
 
       setSearchTerm(trimmed)
+      closeAllPanels()
+      clearSelection()
       setSearching(true)
       setLoading(true)
 
       try {
-        if (useMocks()) {
+        if (isMocksEnabled()) {
           const q = trimmed.toLowerCase()
-          const filtered = MOCK_NODES.filter(
-            (n) => (n.properties?.name as string)?.toLowerCase().includes(q) || n.node_type.toLowerCase().includes(q)
-          )
+          // Match across fields a real full-text search would index, so mock
+          // mode demos behave like production (e.g. searching "bitcoin" hits
+          // tweets/sections/claims whose body text mentions it).
+          const SEARCH_FIELDS = [
+            "name", "title", "episode_title", "show_title",
+            "text", "claim_text", "summary", "description", "bio",
+            "twitter_handle", "author",
+          ] as const
+          const filtered = MOCK_NODES.filter((n) => {
+            if (n.node_type.toLowerCase().includes(q)) return true
+            for (const f of SEARCH_FIELDS) {
+              const v = n.properties?.[f]
+              if (typeof v === "string" && v.toLowerCase().includes(q)) return true
+            }
+            return false
+          })
           setGraphData(filtered, MOCK_EDGES)
         } else {
           const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
           setGraphData(result.nodes ?? [], result.edges ?? [])
+          refreshBalance()
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return
@@ -53,10 +70,11 @@ export function SearchBar() {
         // Handle 402 — need payment to search
         if (err instanceof Response && err.status === 402) {
           try {
-            await payL402(setBudget)
+            await payL402(() => {})
             // Retry search after payment
             const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
             setGraphData(result.nodes ?? [], result.edges ?? [])
+            refreshBalance()
           } catch {
             // Payment failed or cancelled — open budget modal
             openModal("budget")
@@ -69,7 +87,7 @@ export function SearchBar() {
         setLoading(false)
       }
     },
-    [value, setSearchTerm, setGraphData, setLoading]
+    [value, setSearchTerm, closeAllPanels, clearSelection, setGraphData, setLoading, refreshBalance, openModal]
   )
 
   const handleClear = useCallback(() => {

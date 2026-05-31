@@ -1,0 +1,325 @@
+# GraphMindset — AI Agent Policy
+
+## About
+
+GraphMindset is a Lightning-payable knowledge graph platform with an
+L402-metered HTTP API. Agents can read public graph data, add content
+from URLs, and traverse the ontology — paid endpoints settle in
+satoshis over Lightning.
+
+For the endpoint catalog with curl examples see `/llms.txt`.
+
+## Authentication — L402 (LSAT)
+
+Every paid request uses this single header:
+
+    Authorization: LSAT <macaroon>:<placeholder>
+
+Where `<macaroon>` is the base64 token issued by the server in the 402
+challenge and `<placeholder>` is any non-empty string. The macaroon is
+what actually authenticates you — the server identifies your LSAT and
+checks its balance by macaroon alone.
+
+The value after the colon must be present (the parser splits on `:`
+and requires both sides), but its content **is not currently
+validated**. In the boltwall middleware
+(`src/middleware/checkLsat.ts`), `parseAuth` extracts the preimage
+field but `checkingLsat` never compares it against anything — the
+known-broken test `checkLsat.test.ts` "rejects authorization when
+SHA256(preimage) does not match paymentHash (currently not enforced)"
+documents this as a temporary state. In practice the official tests
+use the literal string `"somepreimage"`. Treat the placeholder as a
+syntactic marker, not a credential; **do not waste effort extracting a
+real preimage from a wallet** — most consumer wallets don't expose one
+anyway.
+
+Forward-compatibility: if cryptographic preimage verification is added
+later, paid clients will need to provide the real 32-byte preimage
+from the wallet that settled the invoice. Until then `:paid` (or any
+non-empty string) is sufficient.
+
+The activation check that *does* matter: a fresh macaroon is rejected
+until its embedded `paymentHash` corresponds to a confirmed invoice on
+the Lightning node. Once your wallet pays, the server sees the
+settlement on its LN node and activates the LSAT on the next request.
+
+### The 402 → pay → retry flow
+
+1. Send a request with no `Authorization` header (or `Authorization: `
+   to opt out of auto-attach):
+
+       GET /api/v2/nodes?q=karpathy
+
+   Server responds:
+
+       HTTP/2 402 Payment Required
+       WWW-Authenticate: LSAT macaroon="AgEOY...", invoice="lnbc100n1p..."
+       Access-Control-Expose-Headers: www-authenticate
+       Content-Type: application/json
+       {"error":{"message":"Payment required"}}
+
+2. Pay the `invoice` (BOLT11) with any Lightning wallet — Sphinx,
+   Phoenix, Wallet of Satoshi, Muun, Alby, etc. You do **not** need to
+   extract the payment preimage from your wallet; the server detects
+   settlement directly from its LN node via the macaroon's embedded
+   `paymentHash`.
+
+3. Resend the original request with:
+
+       Authorization: LSAT <macaroon-from-step-1>:paid
+
+   The string after the colon is currently not validated; any non-empty
+   placeholder works. Subsequent calls reuse the same header until the
+   token's balance is exhausted; a new 402 then issues a fresh challenge.
+
+### If you cannot pay invoices yourself
+
+If you are an AI assistant or other unattended agent without
+Lightning-payment capability, do not give up at the 402 — ask the
+human operator for the credentials. Concrete protocol:
+
+1. Capture `macaroon` and `invoice` from the 402's `WWW-Authenticate`
+   header. Do not retry blindly — each 402 issues a fresh macaroon/
+   invoice pair and re-trying without paying just discards the previous
+   challenge.
+2. Tell the human, in one short message:
+   - what action you were trying to perform (e.g. "search 'Karpathy'"
+     or "add tweet https://x.com/…/status/…"),
+   - the invoice amount in sats (parse the `lnbcNNN<unit>…` part —
+     `100n` = 10 sats, `1u` = 100 sats, `1m` = 100 000 sats) and the
+     full BOLT11 invoice string,
+   - that they only need to **pay the invoice in any wallet** (Wallet
+     of Satoshi, Muun, Phoenix, Sphinx — anything) and reply "paid".
+     They do not need to copy a preimage; the server detects payment
+     on its LN node.
+   - alternatively, if the human prefers a session-long credential
+     instead of pay-per-call, they can paste a pre-funded LSAT token
+     blob exported from the web UI / Sphinx app:
+     `{"macaroon":"…","identifier":"…","preimage":"…"}` — extract its
+     `macaroon` field (the `preimage` field is also currently not
+     validated, so it can be ignored).
+3. Build `Authorization: LSAT <macaroon-from-step-1>:paid` and retry
+   the original request. (If the human pasted a token blob in step 2b,
+   use that macaroon instead and still send `:paid` after the colon.)
+4. Persist the resulting token across calls in the same session — it
+   keeps working until its balance is exhausted, at which point you
+   get a fresh 402 and repeat the dance.
+
+### Presenting the invoice without breaking it
+
+BOLT11 strings are 250+ characters with no internal whitespace. Many
+chat / terminal renderers wrap long lines mid-string and silently
+insert spaces or newlines, producing a corrupted string the user's
+wallet rejects. Use a layered approach so the human always gets at
+least one form that works on their device:
+
+**Always emit (zero cost, works everywhere):**
+
+- The raw invoice on **its own line as plain text — no code fence,
+  no quotes, no markdown wrappers**. Fenced ` ``` ` blocks and
+  blockquotes are the most common cause of mid-string wrapping.
+  A bare paragraph line lets the user triple-click to select it.
+- The same invoice as a `lightning:` URI on a separate line:
+  `lightning:lnbc...`. On macOS / iOS / Android with a Lightning
+  wallet installed, this is clickable and opens the wallet directly.
+  Most terminals also auto-link it without wrapping inside the URL.
+- The amount in sats and what the payment unlocks ("10 sats for one
+  search", "1000 sats top-up", etc.).
+
+**Opportunistic, where you have shell access and can detect the OS:**
+
+Write the invoice to the user's system clipboard via a one-liner side
+channel, then tell them "it's on your clipboard, paste into your
+wallet." Eliminates the copy step entirely.
+
+- macOS:        `printf '%s' '<invoice>' | pbcopy`
+- Linux Wayland: `printf '%s' '<invoice>' | wl-copy`
+- Linux X11:     `printf '%s' '<invoice>' | xclip -selection clipboard`
+- Windows / WSL: `printf '%s' '<invoice>' | clip.exe`
+
+If the tool isn't installed or the platform is unknown, fail silently
+— the user still has the two text forms above.
+
+**When stuck, ask:**
+
+If the human reports the invoice doesn't scan or "has spaces in it,"
+the rendering is the culprit, not the invoice. Re-emit it as plain
+text on a single bare line and offer the `lightning:` URI and the
+clipboard write side by side — don't generate a fresh 402 (each one
+costs a new macaroon).
+
+### Why the human only needs to say "paid"
+
+Most consumer Lightning wallets — Wallet of Satoshi, Muun, Phoenix —
+do not surface the payment preimage in their UI. Insisting that the
+human dig one out would block almost everyone except CLI / Sphinx
+users. Fortunately this server doesn't need it: `activateDynamicLsat`
+in `src/utils/lsat.ts` decodes the macaroon to extract its
+`paymentHash`, queries the LN node for that hash, and proceeds when
+`invoice.is_confirmed` is true. The Authorization header's preimage
+slot is a syntactic remnant of the L402 spec, not a verified
+credential in the current implementation.
+
+### Probing without a real payment
+
+Any LSAT macaroon that is already activated (i.e. its embedded invoice
+has been paid and the server has a `DynamicLsat` record for it) will
+accept any non-empty string after the colon — including the empty
+form `LSAT <macaroon>:` on some endpoints — for both read and write
+routes, because the preimage is not currently validated. A **fresh**
+macaroon from an unpaid 402 will be rejected regardless of what you
+put after the colon: `ensureDynamicLsat` won't create the record until
+the LN node confirms the invoice is paid.
+
+Practical implication: you cannot bypass payment by guessing or
+recycling someone else's macaroon — but once activated, the macaroon
+behaves like a bearer balance, so treat it as a secret.
+
+A useful side effect: a 404 returned **with** an LSAT header means
+your auth was accepted but the route is wrong — don't retry the same
+path.
+
+### Token formats you may see
+
+The Sphinx frontend persists the token as a base64-encoded JSON blob:
+
+    {"macaroon":"<base64>", "identifier":"<hex>", "preimage":"<hex-or-empty>"}
+
+This blob is NOT what goes in the Authorization header. Extract the
+`macaroon` field and build `LSAT <macaroon>:paid` (or `<macaroon>:<preimage>`
+if the blob carries one — it makes no difference to the current server,
+but matches the future verified form).
+
+## Allowed
+
+- All `GET` requests against documented endpoints (see `/llms.txt`).
+- Programmatic content adds via `POST /api/v2/content` — be sensible
+  with rate and source quality; spam and duplicates are filtered.
+- Identifying yourself in `User-Agent` is appreciated but not required.
+
+## Common task → endpoint cheatsheet
+
+When the human says…                | Hit this endpoint
+------------------------------------|-----------------------------------
+"search for X"                      | `GET /api/v2/nodes?q=X&limit=50`
+"add this URL"                      | `POST /api/v2/content` with `{content_type, source_link}`
+"show / list my content"            | `GET /api/v2/content?sort_by=date&limit=100`
+"what have I added"                 | `GET /api/v2/content?sort_by=date&limit=100`
+"what's still processing"           | `GET /api/v2/content` and read `totalProcessing`
+"how many sats do I have" /         | `GET /api/balance` → `{balance}`
+  "check my balance"                |
+"show my transactions / history"    | `GET /api/transactions` → `{transactions[], scope}`
+"how much have I earned" /          | `GET /api/transactions` and sum rows where
+  "show my payouts" /               | `action="payout"` (unlock earnings, 10 sats
+  "earnings"                        | each, with `node_ref_id` for per-node
+                                    | attribution). Boost earnings: if your LSAT is
+                                    | Sphinx-signed they arrive as off-ledger keysend
+                                    | to your wallet and won't appear here; if
+                                    | anonymous they show as `action="boost"` with
+                                    | `type="credit"`. See "Earnings" section below.
+"top me up N sats" /                | TWO-STEP. (1) `POST /api/top_up_lsat`
+  "add more balance"                | body `{macaroon, amount}` → returns
+                                    | `{payment_request, payment_hash}`. (2) After
+                                    | invoice paid, `POST /api/top_up_confirm`
+                                    | body `{payment_hash}` (with same auth header) →
+                                    | `{new_balance}`. See `/llms.txt`.
+"mint a fresh token"                | `POST /api/buy_lsat` (no body) → 402 with
+                                    | macaroon+invoice → pay → use
+                                    | `LSAT <macaroon-from-402>:paid`
+"open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
+"what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`
+"how many nodes / topics / people"  | `GET /api/stats` (free)
+"subscribe to this RSS / channel"   | `POST /radar` with `{source, source_type}`
+
+**For "my content" specifically: never fetch `/api/v2/nodes` and try to
+filter client-side.** Graph nodes have no `added_by` property and you
+will silently return wrong results. Always use `GET /api/v2/content`,
+which the server filters by the LSAT identity in your `Authorization`
+header.
+
+## Earnings — you can also earn sats
+
+Adding content isn't a one-way contribution. Every node you submit
+via `POST /api/v2/content` becomes a revenue source for the LSAT
+macaroon that submitted it. Earnings auto-credit the same balance
+you spend from — there is no separate earnings wallet and no claim
+step. `DynamicLsat.balance` is computed as
+`max(0, -SUM(transaction amounts))`, so a payout row literally lifts
+the next `/api/balance` response. An agent whose content is being
+unlocked can fund downstream calls purely from earnings.
+
+Two earn events:
+
+1. **Unlocks (reveals).** When another user fetches a node you added
+   via `GET /api/v2/nodes/<ref_id>?expand=edges`, the server pays
+   you a flat **10 sats per unlock**, debited from the unlocker.
+   Self-unlock is blocked — you can't pay yourself. The credit
+   appears in `GET /api/transactions` as:
+
+       { "action": "payout",
+         "type":   "credit",
+         "amount": 10,
+         "related_transaction_id": "<unlocker's debit row>",
+         "node_ref_id": "<your node>",
+         "created_at": ... }
+
+   `node_ref_id` lets you attribute each payout to a specific piece
+   of content if you want per-node revenue stats.
+
+2. **Boosts.** When another user calls `POST /boost` on a node you
+   added, the **full boost amount** is credited to you (no platform
+   fee or split). Two delivery paths depending on the recipient
+   identity:
+   - **LSAT carries a Sphinx pubkey signature** → boost paid via
+     off-ledger keysend directly to your Lightning node. It will
+     **not** appear in `/api/transactions`; check your wallet
+     (Sphinx app inbound payment) instead.
+   - **Anonymous LSAT** (no signature) → credited on the boltwall
+     ledger as `{action:"boost", type:"credit", amount:N}` in
+     `/api/transactions`.
+
+### Identity binding (important for agents)
+
+Earnings are bound to the LSAT macaroon **at the moment of**
+`POST /api/v2/content`, plus any Sphinx pubkey signature you
+authenticated with. Consequences:
+
+- If you mint a fresh macaroon via `/api/buy_lsat` later, payouts
+  from nodes added under the **old** macaroon continue to credit the
+  old macaroon, not the new one. Keep the original token if you
+  care about future earnings.
+- For "how much have I earned overall," prefer the **pubkey-scoped**
+  variant of `/api/transactions` (`scope="pubkey"`, returned when
+  you authenticate with a Sphinx-style signature) — it aggregates
+  payouts across every macaroon owned by your pubkey. Token-scoped
+  responses only show payouts for the one macaroon in your auth
+  header.
+- Payout writes are **not atomic** with the unlocker's debit — the
+  debit lands in middleware before the route handler, and the
+  payout credit is written after a successful expand response. In
+  rare failures the unlocker's debit stands and the contributor
+  isn't credited. Don't treat per-call earnings as guaranteed; treat
+  the aggregate over `/api/transactions` as the source of truth.
+
+## Rate limits
+
+- 50 challenge requests per window on the L402 issuer.
+- 429 / 503 → back off exponentially.
+- Bulk crawling without payment will be edge-blocked.
+
+## Sandbox
+
+There is no separate sandbox host — every call settles real (10-sat
+class) Lightning payments. The truly-free endpoints (see `/llms.txt`
+"Free / preflight") let an agent confirm the API is reachable and
+explore the ontology before asking the human to fund a token:
+
+- `GET /api/stats`
+- `GET /api/about`
+- `GET /api/v2/schema/domains`
+- `GET /api/v2/nodes/topic-check?name=<name>`
+- `GET /api/v2/nodes/check?node_type=<T>&key=<k>`
+
+## Contact
+
+Issues and disclosures: github.com/nicksparks/sphinx-nav-fiber/issues
