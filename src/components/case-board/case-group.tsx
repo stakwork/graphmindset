@@ -30,6 +30,7 @@ function metaOf(node: GraphNode): string | null {
   return null
 }
 
+
 const GROUP_WIDTH = 256
 // Card shows ~7 rows then scrolls internally — keeps a 50-member group from
 // becoming a giant card while every member stays reachable.
@@ -39,8 +40,6 @@ export interface CaseGroupProps {
   // node_type — drives the label + accent.
   type: string
   members: GraphNode[]
-  // Relationship to the focal (dominant edge_type) — shown in the header.
-  edgeLabel?: string
   // Whether the body (member list) is shown. Default open; the header toggle
   // collapses to the header only.
   expanded: boolean
@@ -55,7 +54,6 @@ export interface CaseGroupProps {
 export function CaseGroup({
   type,
   members,
-  edgeLabel,
   expanded,
   morphProgress,
   onToggle,
@@ -64,6 +62,8 @@ export function CaseGroup({
   const accent = accentFor(type)
   const opacity = Math.max(0, Math.min(1, morphProgress))
   const count = members.length
+  const showBody = expanded
+  const listMaxHeight = LIST_MAX_HEIGHT
 
   return (
     <div
@@ -89,7 +89,7 @@ export function CaseGroup({
           gap: 8,
           padding: "8px 12px",
           background: `${accent}14`,
-          borderBottom: expanded ? `1px solid ${accent}26` : "none",
+          borderBottom: showBody ? `1px solid ${accent}26` : "none",
           cursor: "pointer",
         }}
       >
@@ -121,23 +121,9 @@ export function CaseGroup({
         >
           {count}
         </span>
-        {edgeLabel && (
-          <span
-            style={{
-              marginLeft: "auto",
-              fontSize: 9,
-              color: INK_DIM,
-              fontFamily: "ui-monospace, monospace",
-              letterSpacing: 0.5,
-              textTransform: "uppercase",
-            }}
-          >
-            {edgeLabel}
-          </span>
-        )}
         <span
           style={{
-            marginLeft: edgeLabel ? 8 : "auto",
+            marginLeft: "auto",
             fontSize: 14,
             lineHeight: 1,
             color: accent,
@@ -150,7 +136,7 @@ export function CaseGroup({
       </div>
 
       {/* Body */}
-      {expanded && (
+      {showBody && (
         <div
           // Suppress board zoom while scrolling the list (only when it can
           // actually scroll), so the wheel scrolls the rows instead.
@@ -170,7 +156,7 @@ export function CaseGroup({
             padding: 6,
             display: "grid",
             gap: 5,
-            maxHeight: LIST_MAX_HEIGHT,
+            maxHeight: listMaxHeight,
             overflowY: "auto",
             // Pin X to hidden — leaving it default makes CSS promote overflow-x
             // to auto whenever overflow-y is auto, which shows a stray
@@ -238,18 +224,18 @@ function MemberRow({
       >
         {!thumb && (title[0]?.toUpperCase() || "•")}
       </div>
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: 12.5,
-          color: INK_PRIMARY,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {title}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_PRIMARY,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {title}
+        </div>
       </div>
       {meta && (
         <div
