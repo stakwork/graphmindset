@@ -28,6 +28,7 @@ import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
+import { AttachableEmbeds } from "./attachable-embeds"
 import { formatDateAbsolute, formatDateRelative } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
 
@@ -1383,12 +1384,9 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 )
               })()}
               {hasTweet && <TweetCard props={fp} />}
-              {hasTweet && tweetEpisodeNode && (
-                <MediaCard
-                  node={tweetEpisodeNode}
-                  props={tweetEpisodeNode.properties as Record<string, unknown>}
-                />
-              )}
+              {/* A tweet's attached Episode is rendered by <AttachableEmbeds>
+                  below (native embed, opt-in via attachable:true) — no separate
+                  MediaCard here, which previously duplicated it. */}
               {hasTwitterAccount && <TwitterAccountCard props={fp} />}
               {hasPerson && <PersonCard props={fp} />}
               {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}
@@ -1439,6 +1437,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
               )}
             </div>
           )}
+          {/* Attachables — the node's attachable neighbours rendered as native
+              embeds (images, episodes…) in the content flow. No label: the
+              embeds read as the node's own content. Fetched scoped, not from the
+              full neighbourhood. */}
+          <AttachableEmbeds nodeRefId={currentNode.ref_id} schemas={schemas} onNavigate={handleNavigate} />
+
           {/* Connections — always visible regardless of unlock state */}
           <div className="pt-2 border-t border-border/30">
             <ConnectionsSection nodeRefId={currentNode.ref_id} schemas={schemas} onNavigate={handleNavigate} />
