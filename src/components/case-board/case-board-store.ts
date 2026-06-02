@@ -19,14 +19,10 @@ export const useCaseBoardStore = create<CaseBoardState>((set) => ({
   selectedRefId: null,
   morphProgress: 0,
   morphTarget: 0,
-  open: (refId) =>
-    set((s) => ({
-      selectedRefId: refId,
-      morphTarget: 1,
-      // Re-focusing on a different node mid-morph keeps the existing progress
-      // so the camera/card animation continues without a visible reset.
-      morphProgress: s.selectedRefId === refId ? s.morphProgress : s.morphProgress,
-    })),
+  // Re-focusing on a different node mid-morph keeps the existing progress so
+  // the camera/card animation continues without a visible reset — i.e. we only
+  // swap selectedRefId and re-target to 1, leaving morphProgress untouched.
+  open: (refId) => set({ selectedRefId: refId, morphTarget: 1 }),
   close: () => set({ morphTarget: 0 }),
   setProgress: (p) =>
     set((s) => {

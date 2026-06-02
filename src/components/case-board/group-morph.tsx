@@ -5,9 +5,10 @@ import type { GraphNode } from "@/lib/graph-api"
 import { CaseGroup } from "./case-group"
 
 interface GroupMorphProps {
+  // Card id (= group key).
+  id: string
   type: string
   members: GraphNode[]
-  edgeLabel?: string
   expanded: boolean
   onToggle: () => void
   onMemberClick: (refId: string) => void
@@ -31,7 +32,6 @@ function lerp(a: number, b: number, t: number) {
 export function GroupMorph({
   type,
   members,
-  edgeLabel,
   expanded,
   onToggle,
   onMemberClick,
@@ -63,7 +63,6 @@ export function GroupMorph({
         <CaseGroup
           type={type}
           members={members}
-          edgeLabel={edgeLabel}
           expanded={expanded}
           morphProgress={morphProgress}
           onToggle={onToggle}

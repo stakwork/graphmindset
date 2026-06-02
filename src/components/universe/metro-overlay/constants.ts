@@ -4,8 +4,9 @@ export const MAP_Y_OFFSET = -0.6
 
 // Lore graph nodes are lifted onto a higher Y plane so they float above the
 // metro schematic. Stations keep their fixed positions at y=0; edges crossing
-// the gap visually connect the two layers.
-export const LORE_Y_LIFT = 18
+// the gap visually connect the two layers. Bumped up to give the two layers
+// clear vertical breathing room — at the smaller lift they read as one plane.
+export const LORE_Y_LIFT = 34
 
 // Real Moscow Metro line colors — applied to TUNNEL_TO edges so the
 // schematic map reads the way an actual metro guide does.

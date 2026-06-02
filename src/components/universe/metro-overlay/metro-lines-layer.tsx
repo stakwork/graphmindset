@@ -145,7 +145,11 @@ export function MetroLinesLayer({
     <>
       {lines.flatMap((line) => {
         const rgb = METRO_LINE_COLORS[line] ?? [1, 1, 1]
-        const dimmed = activeLines !== null && !activeLines.has(line)
+        // Lines rest at the dimmed look by default and only brighten to full
+        // opacity when in focus — i.e. the line itself is hovered, or a node
+        // sitting on it is hovered/selected (see `activeLines`). When nothing
+        // is in focus (activeLines === null) every line stays dimmed.
+        const dimmed = activeLines === null || !activeLines.has(line)
         const open = segmentsByLine.open.get(line)
         const blocked = segmentsByLine.blocked.get(line)
         const out: React.ReactElement[] = []

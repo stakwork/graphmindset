@@ -41,15 +41,20 @@ const INTERNAL_KEYS = new Set([
   "mapX", "mapY", "mapZ",
 ])
 
-function pickFields(node: GraphNode, max: number): { label: string; value: string }[] {
+function pickFields(
+  node: GraphNode,
+  max: number,
+  valueMax = 60,
+): { label: string; value: string }[] {
   const props = node.properties as Record<string, unknown> | undefined
   if (!props) return []
+  const clip = (v: string) => (v.length > valueMax ? v.slice(0, valueMax) + "…" : v)
   const out: { label: string; value: string }[] = []
   for (const key of Object.keys(props)) {
     if (INTERNAL_KEYS.has(key)) continue
     const v = props[key]
     if (typeof v === "string" && v.length > 0) {
-      out.push({ label: key, value: v.length > 60 ? v.slice(0, 60) + "…" : v })
+      out.push({ label: key, value: clip(v) })
     } else if (typeof v === "number") {
       out.push({ label: key, value: String(v) })
     }
@@ -59,7 +64,7 @@ function pickFields(node: GraphNode, max: number): { label: string; value: strin
     for (const key of DISPLAY_KEY_FALLBACKS) {
       const v = props[key]
       if (typeof v === "string" && v.length > 0) {
-        out.push({ label: key, value: v.length > 60 ? v.slice(0, 60) + "…" : v })
+        out.push({ label: key, value: clip(v) })
         break
       }
     }
@@ -110,13 +115,11 @@ export function CaseCard({ node, variant, morphProgress, onClick }: CaseCardProp
   const accent = TYPE_ACCENT[type] ?? DEFAULT_ACCENT
   const title = pickTitle(node)
   const isSelected = variant === "selected"
-  // Neighbor cards carry real detail now — hero image + a few fields — since
-  // sparse relationships render as individual cards (dense ones still collapse
-  // into a group). Description stays focal-only so the centerpiece remains the
-  // most detailed card.
-  const description = isSelected ? pickDescription(node) : null
-  const fields = pickFields(node, isSelected ? 4 : 3)
+  // Focal card shows the description + a few more fields; neighbors stay tighter
+  // (hero + title + a few fields).
   const thumbnail = resolveNodeThumbnail(node)
+  const description = isSelected ? pickDescription(node) : null
+  const fields = pickFields(node, isSelected ? 4 : 3, 60)
 
   const opacity = Math.max(0, Math.min(1, morphProgress))
   const widthPx = isSelected ? 300 : 240

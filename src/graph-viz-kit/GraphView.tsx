@@ -69,6 +69,12 @@ interface GraphViewProps {
    *  hover is ignored so nodes sweeping under a stationary cursor don't fire
    *  hover effects. Any existing hover is cleared on the rising edge. */
   suppressHover?: boolean;
+  /** Node indices that should rest muted in overview mode — dim glyph (below
+   *  the bloom threshold, so no halo) and no label — until hovered/selected.
+   *  Used for schematic nodes (e.g. metro stations) that are represented by a
+   *  dedicated overlay and would otherwise clutter the resting view. They stay
+   *  fully interactive: hover/click brings back their label and highlight. */
+  mutedNodeIds?: Set<number> | null;
 }
 
 const tmpObj = new THREE.Object3D();
@@ -446,7 +452,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover, mutedNodeIds }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -633,7 +639,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       for (let i = 0; i < nodeCount; i++) {
         const i3 = i * 3;
 
-        const depth = depthMap?.get(i) ?? 0;
+        // Nodes the initial BFS never reached (disconnected components — e.g.
+        // an isolated "lost" metro spur like Salaryevo↔Rumyantsevo) have no
+        // depth entry. Default them to a deep depth so they render dim, not at
+        // depth-0 brightness. Mirrors the subgraph branch's `?? 999`.
+        const depth = depthMap?.get(i) ?? 999;
 
         // Hide proxy glyph when its cluster is expanded (label stays via label layer)
         if (i === expandedClusterId) {
@@ -646,6 +656,16 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           scales[i] = CLOUD_DOT_SCALE;
           const a = 0.4;
           colors[i3] = BASE_R * a; colors[i3 + 1] = BASE_G * a; colors[i3 + 2] = BASE_B * a;
+          alphas[i] = a;
+        } else if (mutedNodeIds?.has(i)) {
+          // Schematic node (e.g. a metro station): rest as a small, dim dot —
+          // alpha kept under the bloom threshold so it doesn't flare into a
+          // halo — and label-less (see the label filter). The dedicated metro
+          // overlay carries the visual; hover/select restores full prominence.
+          const a = 0.16;
+          scales[i] = NODE_SCALE * 0.55;
+          const c = colorForNodeType(graph.nodes[i].nodeType);
+          colors[i3] = c.r * a; colors[i3 + 1] = c.g * a; colors[i3 + 2] = c.b * a;
           alphas[i] = a;
         } else {
           const w = graph.nodes[i].weight ?? 0;
@@ -698,7 +718,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     }
 
     return { positions, scales, colors, alphas };
-  }, [graph, viewState, nodeCount, expandedClusterId]);
+  }, [graph, viewState, nodeCount, expandedClusterId, mutedNodeIds]);
 
   const { treeEdges, crossEdges, targetEdges, edgeLaneInfo } = useMemo(() => {
     // Hide edges touching cloud members of COLLAPSED clusters.
@@ -936,7 +956,6 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   // Assigned to mesh in useEffect and re-assigned whenever the mesh changes.
   const raycastFn = useRef<THREE.Mesh["raycast"] | null>(null);
   if (!raycastFn.current) {
-    let _raycastLogTimer = 0;
     raycastFn.current = function customRaycast(this: THREE.InstancedMesh, raycaster, intersects) {
       const count = Math.min(nodeCountRef.current, this.instanceMatrix.count);
       const g = graphRef.current;
@@ -953,14 +972,13 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           proxyRadius.set(r.proxyNodeId, Math.max(r.radius, 3));
         }
       }
-      let _skippedCloud = 0, _skippedAlpha = 0, _skippedScale = 0, _tested = 0, _hit = 0;
       for (let i = 0; i < count; i++) {
-        if (clouds.has(i)) { _skippedCloud++; continue; }
-        if (alphas[i] < 0.02) { _skippedAlpha++; continue; }
+        if (clouds.has(i)) continue;
+        if (alphas[i] < 0.02) continue;
 
         this.getMatrixAt(i, _mat4);
         _mat4.decompose(_pos, _quat, _scale);
-        if (_scale.x < 0.01) { _skippedScale++; continue; }
+        if (_scale.x < 0.01) continue;
 
         _sphere.center.copy(_pos);
 
@@ -973,11 +991,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           _sphere.radius = baseScale * camDist * 0.08;
         }
 
-        _tested++;
         if (raycaster.ray.intersectSphere(_sphere, _hitPoint)) {
           const distance = raycaster.ray.origin.distanceTo(_hitPoint);
           if (distance >= raycaster.near && distance <= raycaster.far) {
-            _hit++;
             intersects.push({
               distance,
               point: _hitPoint.clone(),
@@ -986,11 +1002,6 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             } as THREE.Intersection);
           }
         }
-      }
-      const now = Date.now();
-      if (now - _raycastLogTimer > 2000) {
-        _raycastLogTimer = now;
-        console.log(`[GV] raycast: count=${count} tested=${_tested} hit=${_hit} cloud=${_skippedCloud} alpha=${_skippedAlpha} scale=${_skippedScale}`);
       }
     };
   }
@@ -1856,7 +1867,14 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           // Depth-based filter: allow depth 0-1, hide deeper unless prominent
           if (!isProminent) {
             if (viewState.mode === "overview") {
-              const depth = graph.initialDepthMap?.get(i) ?? 0;
+              // Muted schematic nodes (e.g. metro stations) carry no label at
+              // rest — the overlay represents them; hover/select (isProminent)
+              // brings the label back.
+              if (mutedNodeIds?.has(i)) return null;
+              // Unreached nodes (no depth entry) are treated as deep, so their
+              // labels are hidden too — matching the dimmed glyph (see the
+              // `?? 999` in the overview alpha pass).
+              const depth = graph.initialDepthMap?.get(i) ?? 999;
               if (depth > 1) return null;
             } else {
               const selectedId = viewState.selectedNodeId;
@@ -1940,9 +1958,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               )}
               <Html
                 position={[lx, ly, lz]}
-                // Top-3 hits get a zIndexRange above the drei default
-                // ([16777271, 0]) so their labels layer above sibling labels.
-                zIndexRange={isTopHit ? [100000000, 16777272] : undefined}
+                // Top-3 hits sit just above sibling labels (drei default near is
+                // 16777271) but still BELOW the case-board overlay (CASE_BOARD_Z
+                // starts at 16777300) — otherwise a top hit's label would punch
+                // through the open 2D board, both visually and for pointer
+                // events when it's an interactive expanded proxy.
+                zIndexRange={isTopHit ? [16777290, 16777273] : undefined}
                 style={{
                   pointerEvents: isExpandedProxy ? "auto" : "none",
                   userSelect: "none",

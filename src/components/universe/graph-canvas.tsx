@@ -8,16 +8,12 @@ import { Vector3 } from "three"
 import * as THREE from "three"
 import CameraControlsImpl from "camera-controls"
 import {
-  buildGraph,
-  computeRadialLayout,
-  extractInitialSubgraph,
   extractSubgraph,
-  VIRTUAL_CENTER,
   GraphView,
   OffscreenIndicators,
   PrevNodeIndicator,
 } from "@/graph-viz-kit"
-import type { Graph, ViewState, RawNode, RawEdge } from "@/graph-viz-kit"
+import type { Graph, ViewState } from "@/graph-viz-kit"
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
@@ -30,465 +26,27 @@ import {
   GroupMorph,
   computeBalancedLayout,
 } from "@/components/case-board"
-import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
+import {
+  apiToGraph,
+  applyLayout,
+  DEPTH_SHRINK,
+  rescaleAroundAnchor,
+  restoreOriginalPositions,
+} from "./graph-transform"
 import { metroSeries } from "@/data/metro"
 import {
   MetroLinesLayer,
   MetroStationBullets,
   MetroLegend,
-  METRO_FORCE_GROUPED_TYPES,
-  LORE_Y_LIFT,
   statusToState,
+  readStationLines,
   type StationState,
 } from "./metro-overlay"
-
-function nodeLabel(node: ApiNode, schemas: SchemaNode[]): string {
-  const props = node.properties
-  const schema = schemas.find((s) => s.type === node.node_type)
-
-  if (schema?.title_key) {
-    const v = props?.[schema.title_key]
-    if (typeof v === "string" && v.length > 0) return v
-  }
-  if (schema?.index) {
-    const v = props?.[schema.index]
-    if (typeof v === "string" && v.length > 0) return v
-  }
-  if (props) {
-    for (const key of DISPLAY_KEY_FALLBACKS) {
-      const v = props[key]
-      if (typeof v === "string" && v.length > 0) return v
-    }
-  }
-  return node.ref_id
-}
-
-const MAX_LABEL_LENGTH = 30
-
-function truncateLabel(label: string): string {
-  return label.length > MAX_LABEL_LENGTH ? label.slice(0, MAX_LABEL_LENGTH) + "\u2026" : label
-}
-
-// When a single source has this many neighbors of the same (edge_type,
-// target_type), insert a synthetic cluster junction so the bundle reads as
-// "source → cluster → 20 leaves" instead of 20 individual lines fanning out.
-const CLUSTER_THRESHOLD = 5
 
 // Max number of search hits that keep a text label at once. Beyond this the
 // view becomes an unreadable pile of overlapping labels; the rest of the hits
 // stay as glyph-only spotlights and reveal their label on hover.
 const SEARCH_LABEL_CAP = 15
-
-// Edge types whose data direction is "child → parent" — flip them so the
-// hierarchy reads parent → child. The container/originator should end up
-// as the visual parent:
-//   SOURCE        Claim → Chapter         (Chapter is the source, parent of the claim)
-//   MENTIONED_IN  Product/Topic → Section (Section is the container, parent of the mention)
-const INVERT_FOR_HIERARCHY = new Set(["SOURCE", "MENTIONED_IN"])
-
-function apiToGraph(
-  nodes: ApiNode[],
-  edges: ApiEdge[],
-  schemas: SchemaNode[]
-): {
-  graph: Graph
-  indexMap: Map<number, string>
-  refIdToIndex: Map<string, number>
-  fixedPositions: Map<number, { x: number; y: number; z: number }>
-} {
-  const rawNodes: RawNode[] = nodes.map((n) => ({
-    id: n.ref_id,
-    label: truncateLabel(nodeLabel(n, schemas)),
-  }))
-
-  const nodeTypeById = new Map(nodes.map((n) => [n.ref_id, n.node_type || "Unknown"]))
-
-  // Rewrite child→parent edges (e.g. SOURCE: Claim→Chapter) into parent→child
-  // form so every downstream pass — incoming-count, bundles, rawEdges — sees
-  // the same hierarchy. The render arrow ends up pointing parent→child, which
-  // matches the visual we want.
-  edges = edges.map((e) =>
-    INVERT_FOR_HIERARCHY.has(e.edge_type)
-      ? { ...e, source: e.target, target: e.source }
-      : e
-  )
-
-  // ─── 1. Roots + orphan reachability ────────────────────────────────────
-  // Compute on the original `edges` (cluster routing happens later and
-  // doesn't change reachability). Only count incoming from known sources —
-  // edges referencing nodes outside the loaded subgraph would otherwise
-  // mark a real node as "non-root" without contributing to reachability,
-  // leaving its subgraph stranded as orphans.
-  const incomingCount = new Map<string, number>()
-  for (const n of nodes) incomingCount.set(n.ref_id, 0)
-  for (const e of edges) {
-    if (incomingCount.has(e.target) && incomingCount.has(e.source)) {
-      incomingCount.set(e.target, (incomingCount.get(e.target) ?? 0) + 1)
-    }
-  }
-  const roots = nodes.filter((n) => (incomingCount.get(n.ref_id) ?? 0) === 0)
-
-  const undAdj = new Map<string, string[]>()
-  for (const n of nodes) undAdj.set(n.ref_id, [])
-  for (const e of edges) {
-    if (undAdj.has(e.source) && undAdj.has(e.target)) {
-      undAdj.get(e.source)!.push(e.target)
-      undAdj.get(e.target)!.push(e.source)
-    }
-  }
-  const reached = new Set<string>()
-  const reachQ: string[] = []
-  for (const r of roots) {
-    reached.add(r.ref_id)
-    reachQ.push(r.ref_id)
-  }
-  let reachI = 0
-  while (reachI < reachQ.length) {
-    const cur = reachQ[reachI++]
-    for (const nb of undAdj.get(cur) ?? []) {
-      if (!reached.has(nb)) {
-        reached.add(nb)
-        reachQ.push(nb)
-      }
-    }
-  }
-  const orphans = nodes.filter((n) => !reached.has(n.ref_id))
-
-  // Nodes carrying explicit `mapX`/`mapZ` properties opt out of layout —
-  // their position is data-driven (e.g. metro stations on a schematic map),
-  // so they should not be folded into __group_<type> hubs or stray-ring
-  // fallbacks, and their root count shouldn't trigger crowd grouping.
-  const fixedRefIds = new Set<string>()
-  for (const n of nodes) {
-    const p = n.properties as Record<string, unknown> | undefined
-    if (p && typeof p.mapX === "number" && typeof p.mapZ === "number") {
-      fixedRefIds.add(n.ref_id)
-    }
-  }
-  // Metro view is only activated when actual fixed-position data is present.
-  // This keeps the standard graph behavior unchanged for non-metro datasets.
-  const isMetroView = fixedRefIds.size > 0
-
-  // ─── 2. Decide which types get a __group_<type> ────────────────────────
-  // A type gets its own synthetic group node when it either has orphans or
-  // — under the existing crowd-control rule — when there are >10 roots and
-  // the type has ≥2 leaf-like roots. "Leaf-like" = none of the type's roots
-  // have outgoing edges to known nodes. This keeps hierarchy parents (e.g.
-  // Episode, which has outgoing HAS → Chapter) surfacing as individuals
-  // instead of being collapsed into __group_Episode.
-  const orphanTypes = new Set(
-    orphans.filter((o) => !fixedRefIds.has(o.ref_id)).map((o) => o.node_type || "Unknown")
-  )
-  const hasKnownOut = new Set<string>()
-  for (const e of edges) {
-    if (incomingCount.has(e.source) && incomingCount.has(e.target)) {
-      hasKnownOut.add(e.source)
-    }
-  }
-  const crowdGroupedTypes = new Set<string>()
-  if (roots.length > 10) {
-    const leafRootCountByType = new Map<string, number>()
-    for (const r of roots) {
-      if (fixedRefIds.has(r.ref_id)) continue
-      if (hasKnownOut.has(r.ref_id)) continue
-      const type = r.node_type || "Unknown"
-      leafRootCountByType.set(type, (leafRootCountByType.get(type) ?? 0) + 1)
-    }
-    for (const [type, count] of leafRootCountByType) {
-      if (count >= 2) crowdGroupedTypes.add(type)
-    }
-  }
-  // In the metro view, force-group lore types under labeled hubs regardless
-  // of root status — Artyom etc. would otherwise stay as individual nodes and
-  // pull the hop-1 ring into a single arc instead of distributing evenly.
-  const forceGroupedTypes = isMetroView ? METRO_FORCE_GROUPED_TYPES : new Set<string>()
-  const groupedTypes = new Set([...orphanTypes, ...crowdGroupedTypes, ...forceGroupedTypes])
-
-  // ─── 3. Bundle by (source, edge_type, target_type) ─────────────────────
-  const bundles = new Map<string, ApiEdge[]>()
-  for (const e of edges) {
-    const tgtType = nodeTypeById.get(e.target)
-    if (!tgtType) continue
-    const key = `${e.source}::${e.edge_type}::${tgtType}`
-    let arr = bundles.get(key)
-    if (!arr) {
-      arr = []
-      bundles.set(key, arr)
-    }
-    arr.push(e)
-  }
-
-  // ─── 4. Process bundles ────────────────────────────────────────────────
-  // Bundles ≥ CLUSTER_THRESHOLD become a per-source cluster — the parent
-  // keeps ownership ("Episode → Chapter × 9 → 9 chapters"), and the type's
-  // own __group_<type> stays reserved for nodes with no real parent (roots
-  // and orphans).
-  const clusterizedEdges = new Set<ApiEdge>()
-  const clusteredTargets = new Set<string>()
-  const extraNodes: RawNode[] = []
-  const extraEdges: RawEdge[] = []
-
-  for (const [key, arr] of bundles) {
-    if (arr.length < CLUSTER_THRESHOLD) continue
-    const [source, edge_type, target_type] = key.split("::")
-    // Skip clusters whose source isn't in the loaded payload — buildGraph drops
-    // edges with unknown endpoints, so the cluster's parent edge would vanish
-    // and the proxy would end up as an orphan synthetic root with no visible
-    // parent. Let the targets fall back to __group_<type> grouping instead.
-    if (!nodeTypeById.has(source)) continue
-    const clusterId = `__cluster_${source}_${edge_type}_${target_type}`
-    extraNodes.push({ id: clusterId, label: `${target_type} × ${arr.length} · ${edge_type}` })
-    extraEdges.push({ source, target: clusterId, label: edge_type })
-    for (const e of arr) {
-      extraEdges.push({ source: clusterId, target: e.target, label: edge_type })
-      clusterizedEdges.add(e)
-      clusteredTargets.add(e.target)
-    }
-  }
-
-  // ─── 5. Build rawEdges (excluding clusterized) ─────────────────────────
-  const rawEdges: RawEdge[] = []
-  for (const e of edges) {
-    if (clusterizedEdges.has(e)) continue
-    rawEdges.push({ source: e.source, target: e.target, label: e.edge_type })
-  }
-  rawNodes.push(...extraNodes)
-  rawEdges.push(...extraEdges)
-
-  // ─── 6. Add __group_<type> nodes + member edges ────────────────────────
-  // Members = roots of type + orphans of type, minus anything already wired
-  // into a per-source cluster. Without that exclusion, when a cluster's
-  // source isn't in the loaded subgraph the cluster's children look like
-  // roots and end up double-bound: once under `__cluster_…_T × N` and again
-  // under `__group_T`, producing two visual representations of the same type.
-  if (groupedTypes.size > 0) {
-    const memberByType = new Map<string, Set<string>>()
-    for (const t of groupedTypes) memberByType.set(t, new Set())
-    for (const r of roots) {
-      if (clusteredTargets.has(r.ref_id)) continue
-      if (fixedRefIds.has(r.ref_id)) continue
-      const t = r.node_type || "Unknown"
-      if (groupedTypes.has(t)) memberByType.get(t)!.add(r.ref_id)
-    }
-    for (const o of orphans) {
-      if (clusteredTargets.has(o.ref_id)) continue
-      if (fixedRefIds.has(o.ref_id)) continue
-      const t = o.node_type || "Unknown"
-      if (groupedTypes.has(t)) memberByType.get(t)!.add(o.ref_id)
-    }
-    // Force-grouped types: pull in every node of that type, not just
-    // roots/orphans, so well-connected members still cluster under the hub.
-    if (forceGroupedTypes.size > 0) {
-      for (const n of nodes) {
-        if (clusteredTargets.has(n.ref_id)) continue
-        if (fixedRefIds.has(n.ref_id)) continue
-        const t = n.node_type || "Unknown"
-        if (forceGroupedTypes.has(t) && memberByType.has(t)) {
-          memberByType.get(t)!.add(n.ref_id)
-        }
-      }
-    }
-    for (const [t, members] of memberByType) {
-      if (members.size === 0) continue
-      const groupId = `__group_${t}`
-      rawNodes.push({ id: groupId, label: t })
-      for (const m of members) {
-        rawEdges.push({ source: groupId, target: m })
-      }
-    }
-  }
-
-  const graph = buildGraph(rawNodes, rawEdges)
-
-  // Set nodeType on real nodes
-  for (let i = 0; i < nodes.length; i++) {
-    graph.nodes[i].nodeType = nodes[i].node_type
-  }
-  // Mark synthetic nodes — clusters get their own marker so renderers can
-  // distinguish them from the older top-level type bundlers (`_group`).
-  // Also record the underlying member type so the shader can pick a
-  // type-specific glyph (Person clusters render differently from Tweet
-  // clusters, etc.).
-  for (let i = nodes.length; i < graph.nodes.length; i++) {
-    const id = rawNodes[i].id
-    if (id.startsWith("__cluster_")) {
-      graph.nodes[i].nodeType = "_cluster"
-      // id = __cluster_<source>_<edge_type>_<target_type> — target_type is last.
-      const lastUnderscore = id.lastIndexOf("_")
-      graph.nodes[i].clusterMemberType = id.slice(lastUnderscore + 1)
-    } else {
-      graph.nodes[i].nodeType = "_group"
-      // id = __group_<type>
-      graph.nodes[i].clusterMemberType = id.slice("__group_".length)
-    }
-  }
-
-  // Only map real nodes — synthetic nodes have no API counterpart
-  const indexMap = new Map<number, string>()
-  const refIdToIndex = new Map<string, number>()
-  for (let i = 0; i < nodes.length; i++) {
-    indexMap.set(i, nodes[i].ref_id)
-    refIdToIndex.set(nodes[i].ref_id, i)
-  }
-
-  // Resolve cluster-absorbed edges against the same index map and stash them
-  // on the graph as `extraEdges` so the hover/select highlight can surface
-  // them without polluting the base render or layout.
-  const idToIndex = new Map<string, number>()
-  for (let i = 0; i < rawNodes.length; i++) idToIndex.set(rawNodes[i].id, i)
-  graph.extraEdges = []
-  for (const e of clusterizedEdges) {
-    const src = idToIndex.get(e.source)
-    const dst = idToIndex.get(e.target)
-    if (src === undefined || dst === undefined) continue
-    graph.extraEdges.push({ src, dst, label: e.edge_type })
-  }
-
-  // Map graph-node-index → fixed (x, y, z) for nodes that opted out of layout.
-  // `mapY` is optional — defaults to 0 if absent. Consumed by applyLayout to
-  // override the radial-computed position.
-  const fixedPositions = new Map<number, { x: number; y: number; z: number }>()
-  for (let i = 0; i < nodes.length; i++) {
-    if (!fixedRefIds.has(nodes[i].ref_id)) continue
-    const p = nodes[i].properties as Record<string, unknown>
-    const y = typeof p.mapY === "number" ? (p.mapY as number) : 0
-    fixedPositions.set(i, { x: p.mapX as number, y, z: p.mapZ as number })
-  }
-
-  return { graph, indexMap, refIdToIndex, fixedPositions }
-}
-
-function applyLayout(
-  graph: Graph,
-  fixedPositions?: Map<number, { x: number; y: number; z: number }>,
-  forceLift = false
-) {
-  // Metro view lifts the lore graph onto a higher Y plane so it floats above
-  // the schematic. Lift when either: stations are present in the dataset
-  // (fixedPositions has entries) OR the caller forces it (metro theme,
-  // dataset replaced by a search result that doesn't include stations).
-  const hasFixed = !!fixedPositions && fixedPositions.size > 0
-  const loreLift = hasFixed || forceLift ? LORE_Y_LIFT : 0
-
-  // Bumped from the 30 default — transcript/conversation graphs have chains
-  // 40+ deep; truncating leaves the tail at buildGraph's (0,0,0) default.
-  const sub = extractInitialSubgraph(graph, 1000)
-
-  // Strip fixed-position nodes out of the radial layout's input layers so
-  // they don't claim slots in the hop-1 angular budget. depthMap is left
-  // intact — GraphView reads it to size/dim each node.
-  if (hasFixed) {
-    const fixed = fixedPositions!
-    sub.neighborsByDepth = sub.neighborsByDepth.map((layer) =>
-      layer.filter((id) => !fixed.has(id))
-    )
-  }
-
-  const { positions, treeEdgeSet, childrenOf } = computeRadialLayout(
-    sub.centerId,
-    sub.neighborsByDepth,
-    graph.edges,
-    { parentId: sub.parentId }
-  )
-
-  for (const [id, pos] of positions) {
-    if (id !== VIRTUAL_CENTER && id < graph.nodes.length) {
-      const fixed = fixedPositions?.get(id)
-      graph.nodes[id].position = fixed ?? { x: pos.x, y: pos.y + loreLift, z: pos.z }
-    }
-  }
-
-  // Fixed-position nodes the BFS never reached (e.g. stations connected only
-  // to other stations in their own subgraph) still need their coords applied.
-  if (hasFixed) {
-    for (const [id, pos] of fixedPositions!) {
-      if (!positions.has(id) && id < graph.nodes.length) {
-        graph.nodes[id].position = pos
-      }
-    }
-  }
-
-  // Anything BFS never reached (cycle-only components, synthetic nodes the
-  // layout missed) keeps the (0,0,0) default from buildGraph and piles at the
-  // origin. Park them on an outer ring so they stay visible and selectable.
-  const stray: number[] = []
-  for (let i = 0; i < graph.nodes.length; i++) {
-    if (positions.has(i)) continue
-    if (fixedPositions?.has(i)) continue
-    stray.push(i)
-  }
-  if (stray.length > 0) {
-    let maxR = 0
-    for (const [id, p] of positions) {
-      if (id === VIRTUAL_CENTER) continue
-      const r = Math.hypot(p.x, p.z)
-      if (r > maxR) maxR = r
-    }
-    const ringR = (maxR || 22) * 1.5 + 30
-    const angleStep = (Math.PI * 2) / stray.length
-    for (let i = 0; i < stray.length; i++) {
-      const angle = i * angleStep
-      graph.nodes[stray[i]].position = {
-        x: Math.cos(angle) * ringR,
-        y: loreLift,
-        z: Math.sin(angle) * ringR,
-      }
-    }
-  }
-
-  graph.initialDepthMap = sub.depthMap
-  graph.treeEdgeSet = treeEdgeSet
-  graph.childrenOf = childrenOf
-
-  // Snapshot every node's laid-out position. Click handler scales these by
-  // an inflation factor so deeper nodes get R1-sized rings without relaying
-  // out. Fixed-position nodes are omitted — they have data-driven coords
-  // that must not stretch with the rest of the graph.
-  const snapshot = new Map<number, { x: number; y: number; z: number }>()
-  for (let i = 0; i < graph.nodes.length; i++) {
-    if (fixedPositions?.has(i)) continue
-    const p = graph.nodes[i].position
-    snapshot.set(i, { x: p.x, y: p.y, z: p.z })
-  }
-  graph.originalPositions = snapshot
-}
-
-
-// Matches DEPTH_SHRINK in computeRadialLayout. Click inflation is the
-// inverse: 1/0.45^d makes the ring around a depth-d node land at R1 again.
-const DEPTH_SHRINK = 0.45
-
-// Re-scale the graph about a fixed anchor node. The anchor (the clicked
-// node) stays at its current position; every other node's offset *from the
-// anchor* in the original layout is multiplied by `scale`. With
-// scale = 1/0.45^d, the anchor's children land on a true R1 ring while the
-// anchor itself doesn't move on screen — no camera motion required.
-function rescaleAroundAnchor(graph: Graph, anchorId: number, scale: number) {
-  if (!graph.originalPositions) return
-  const origAnchor = graph.originalPositions.get(anchorId)
-  const liveAnchor = graph.nodes[anchorId]?.position
-  if (!origAnchor || !liveAnchor) return
-  const ax = liveAnchor.x
-  const ay = liveAnchor.y
-  const az = liveAnchor.z
-  for (const [id, orig] of graph.originalPositions) {
-    if (id >= graph.nodes.length) continue
-    graph.nodes[id].position = {
-      x: ax + (orig.x - origAnchor.x) * scale,
-      y: ay + (orig.y - origAnchor.y) * scale,
-      z: az + (orig.z - origAnchor.z) * scale,
-    }
-  }
-}
-
-function restoreOriginalPositions(graph: Graph) {
-  if (!graph.originalPositions) return
-  for (const [id, orig] of graph.originalPositions) {
-    if (id < graph.nodes.length) {
-      graph.nodes[id].position = { x: orig.x, y: orig.y, z: orig.z }
-    }
-  }
-}
 
 interface CamTarget {
   posX: number
@@ -533,11 +91,8 @@ const OVERVIEW_CAM: CamTarget = {
   lookX: 0, lookY: 0, lookZ: 0,
 }
 
-// World-units distance from camera to the selected node at which continuous
-// zoom flips into the 2D case view. Post-click rest distance is ~46 units
-// (cameraHeight from computeCamTarget); the trigger is well below that so
-// settling after a click doesn't accidentally fire it.
-const CASE_VIEW_TRIGGER_DISTANCE = 8
+// Press-and-hold duration (ms) on the selected node to open the 2D case view.
+const CASE_VIEW_HOLD_MS = 600
 
 function smoothstep(x: number) {
   return x * x * (3 - 2 * x)
@@ -626,79 +181,68 @@ function CameraSync({
   return null
 }
 
-// Watches camera-to-target distance for the selected node. When the user
-// keeps dollying past CASE_VIEW_TRIGGER_DISTANCE the case view opens —
-// continuous zoom IS the navigation. Also renders the discoverability button
-// near the selected node so users who don't know about the gesture have an
-// explicit affordance. Both paths call the same onOpen callback.
+// Press-and-hold target on the selected node. Pressing starts filling a
+// circular progress ring; holding it to completion opens the in-3D case board.
+// Replaces the old ⤢ button and the dolly-in auto-open — holding the node IS
+// the gesture now. A quick click just flickers and cancels, so it can't open
+// accidentally.
 function CaseViewTrigger({
   graph,
   selectedNodeId,
   selectedApiNode,
   onOpen,
   disabled,
-  camAnim,
-  suppressedRef,
 }: {
   graph: Graph
   selectedNodeId: number | null
   selectedApiNode: ApiNode | null
   onOpen: (node: ApiNode) => void
   disabled: boolean
-  camAnim: React.RefObject<{ progress: number }>
-  // Set true by handleCloseCaseBoard so closing doesn't immediately re-fire:
-  // after close, computeCamTarget can park the camera inside the trigger
-  // distance (leaf nodes rest at ~5 < 8), which would auto-reopen. Cleared
-  // when the camera genuinely pulls back out past the re-arm threshold.
-  suppressedRef: React.RefObject<boolean>
 }) {
-  const camera = useThree((s) => s.camera)
-  // Start DISARMED so selecting a node (whose click-to-select camera move can
-  // land inside the trigger distance for close-resting/leaf nodes) doesn't
-  // auto-open the board. It only arms once the camera has settled far out, so
-  // opening requires a deliberate dolly-in (or the zoom-in button).
-  const firedRef = useRef(true)
+  const [progress, setProgress] = useState(0)
+  const rafRef = useRef(0)
+  const startRef = useRef(0)
+  const holdingRef = useRef(false)
 
-  useFrame(() => {
-    if (selectedNodeId === null || !selectedApiNode) {
-      // Disarm when nothing is selected, so the next selection's click-to-
-      // select camera move can't leave the trigger armed and auto-open.
-      firedRef.current = true
-      return
+  const stop = useCallback(() => {
+    holdingRef.current = false
+    cancelAnimationFrame(rafRef.current)
+    setProgress(0)
+  }, [])
+
+  const start = useCallback(() => {
+    if (!selectedApiNode) return
+    holdingRef.current = true
+    startRef.current = performance.now()
+    const tick = () => {
+      if (!holdingRef.current) return
+      const t = Math.min(1, (performance.now() - startRef.current) / CASE_VIEW_HOLD_MS)
+      setProgress(t)
+      if (t >= 1) {
+        holdingRef.current = false
+        setProgress(0)
+        onOpen(selectedApiNode)
+        return
+      }
+      rafRef.current = requestAnimationFrame(tick)
     }
-    const node = graph.nodes[selectedNodeId]
-    if (!node) return
-    const p = node.position
-    const dx = camera.position.x - p.x
-    const dy = camera.position.y - p.y
-    const dz = camera.position.z - p.z
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-    // Arm only when the camera has SETTLED (progress >= 1) beyond the trigger
-    // distance — never mid-animation. This is what stops a click-to-select
-    // move (which sweeps in from far out) from arming and then auto-firing the
-    // instant it lands on a close-resting / leaf node.
-    if (camAnim.current.progress >= 1 && dist > CASE_VIEW_TRIGGER_DISTANCE) {
-      firedRef.current = false
-      // Camera settled back out — a manual close is re-armed, so a deliberate
-      // dolly-in can reopen the board again.
-      suppressedRef.current = false
-    }
-    if (disabled) return
-    // Skip the click-to-select lerp. computeCamTarget can land the rest
-    // position below the trigger threshold (Math.max(5, …) for leaf nodes)
-    // and the lerp would falsely fire mid-flight. Wait until the user is in
-    // control before considering the gesture intentional.
-    if (camAnim.current.progress < 1) return
-    if (dist < CASE_VIEW_TRIGGER_DISTANCE && !firedRef.current && !suppressedRef.current) {
-      firedRef.current = true
-      onOpen(selectedApiNode)
-    }
-  })
+    rafRef.current = requestAnimationFrame(tick)
+  }, [selectedApiNode, onOpen])
+
+  // Cancel any in-flight hold when the selection changes, the board opens, or
+  // the component unmounts. Done in the effect CLEANUP (not the body) so the
+  // reset's setState doesn't run synchronously inside the effect.
+  useEffect(() => stop, [selectedNodeId, disabled, stop])
 
   if (disabled || selectedNodeId === null || !selectedApiNode) return null
   const node = graph.nodes[selectedNodeId]
   if (!node) return null
   const p = node.position
+
+  const SIZE = 64
+  const R = 26
+  const C = 2 * Math.PI * R
+  const holding = progress > 0
   return (
     <Html
       position={[p.x, p.y, p.z]}
@@ -706,48 +250,58 @@ function CaseViewTrigger({
       style={{ pointerEvents: "none" }}
       zIndexRange={[20, 0]}
     >
-      <div style={{ position: "relative", width: 0, height: 0 }}>
-        <button
-          onClick={() => onOpen(selectedApiNode)}
-          title="Open case view"
-          style={{
-            position: "absolute",
-            top: -68,
-            left: -22,
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            border: "1.5px solid rgba(77, 217, 232, 0.5)",
-            background: "rgba(10, 10, 20, 0.85)",
-            backdropFilter: "blur(12px)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            pointerEvents: "auto",
-            boxShadow: "0 0 20px rgba(77, 217, 232, 0.2)",
-            color: "#4dd9e8",
-            fontSize: 18,
-            lineHeight: 1,
-          }}
-        >
-          ⤢
-        </button>
-        <div
-          style={{
-            position: "absolute",
-            top: -22,
-            left: -22,
-            whiteSpace: "nowrap",
-            fontSize: 10,
-            fontFamily: "'JetBrains Mono', monospace",
-            color: "rgba(77, 217, 232, 0.75)",
-            textShadow: "0 0 8px rgba(0, 0, 0, 0.9)",
-            pointerEvents: "none",
-          }}
-        >
-          zoom in
-        </div>
+      <div
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          start()
+        }}
+        onPointerUp={(e) => {
+          e.stopPropagation()
+          stop()
+        }}
+        onPointerLeave={stop}
+        onPointerCancel={stop}
+        title="Hold to open case view"
+        style={{
+          width: SIZE,
+          height: SIZE,
+          borderRadius: "50%",
+          pointerEvents: "auto",
+          cursor: "pointer",
+          touchAction: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {/* rotate -90° so the ring fills from the top, clockwise */}
+        <svg width={SIZE} height={SIZE} style={{ transform: "rotate(-90deg)" }}>
+          {/* Faint idle ring — marks the node as "hold to open". */}
+          <circle
+            cx={SIZE / 2}
+            cy={SIZE / 2}
+            r={R}
+            fill="none"
+            stroke="rgba(77,217,232,0.22)"
+            strokeWidth={2.5}
+          />
+          {/* Progress arc — fills as the user holds. */}
+          <circle
+            cx={SIZE / 2}
+            cy={SIZE / 2}
+            r={R}
+            fill="none"
+            stroke="#4dd9e8"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeDasharray={C}
+            strokeDashoffset={C * (1 - progress)}
+            style={{
+              opacity: holding ? 1 : 0,
+              filter: "drop-shadow(0 0 6px rgba(77,217,232,0.6))",
+            }}
+          />
+        </svg>
       </div>
     </Html>
   )
@@ -880,20 +434,26 @@ function DebugMarkers({
 // camera) and by CaseBoardMorphLayer (to compute the plane the neighbor ring
 // sits in). Keep them in sync so cards face the camera at full morph.
 export const CASE_BOARD_CAM_OFFSET = new Vector3(28, 14, 11.2)
-// World-units multiplier for the normalized layout positions — the radius of
-// the group ring around the focal. Tune so groups clear the focal card and
-// fill the viewport at the resting camera distance.
-const CASE_BOARD_SPREAD = 9
+// Board camera fov (matches the <Canvas> camera) and its resting distance from
+// the focal (the length of the offset above). Together with the viewport
+// height these give the world-units-per-screen-pixel scale at the board pose,
+// so the px-space card layout can be converted to world positions that match
+// exactly what's rendered — see CaseBoardMorphLayer.
+const BOARD_FOV = 50
+const BOARD_CAM_DISTANCE = CASE_BOARD_CAM_OFFSET.length()
+// Breathing room between cards, in SCREEN PIXELS (the space the layout works
+// in) — applied uniformly on every side now that the packer uses measured card
+// sizes. Sized so the relationship pill can sit near the SOURCE end of the edge
+// (≈48–72px wide) and still leave a visible dashed line running on to the
+// target, instead of the pill covering the whole edge. Single density knob.
+const BOARD_GAP_PX = 130
 
 // Groups with this many members or fewer render as individual cards instead of
-// a group container. 1 = don't wrap a lone node in a group; bump higher to also
-// un-group small clusters.
-const HYBRID_THRESHOLD = 1
-// Approximate on-screen pixels per 1 layout (spread) unit at the resting board
-// pose. Cards are sized in px; the layout works in spread units — this converts
-// between them so the rectangle collision matches what's actually rendered.
-// Lower = cards occupy MORE spread units = more spacing between them.
-const BOARD_PX_PER_UNIT = 150
+// a group container. A deck only earns its container when there are enough
+// same-(type, relationship) neighbors that loose cards would clutter — so a
+// pair or a trio stays as plain cards and stacking begins at 4+. (1 = group
+// every pair, which over-grouped a 2-neighbor station into a "STATION 2" deck.)
+const HYBRID_THRESHOLD = 3
 
 // A single-neighbor card or a collapsed group card placed on the board.
 type BoardItem =
@@ -920,18 +480,11 @@ function boardItemBoxPx(item: BoardItem): { w: number; h: number } {
     const h = 132 + 64 + fieldRows * 50
     return { w: 240, h }
   }
-  // Group CaseGroup: width 256; header ~40 + rows (capped at 7) ~44px each,
-  // clamped to the LIST_MAX_HEIGHT scroll cap.
-  const rows = item.members.length
-  const bodyH = Math.min(rows, 7) * 44
-  return { w: 256, h: 40 + Math.min(bodyH, 360) }
-}
-
-function pxToHalfUnits(box: { w: number; h: number }): { hw: number; hh: number } {
-  return {
-    hw: box.w / 2 / BOARD_PX_PER_UNIT,
-    hh: box.h / 2 / BOARD_PX_PER_UNIT,
-  }
+  // Group CaseGroup: defaults to the STACKED deck, whose footprint is roughly a
+  // single member tile plus the offset backs + header + meta row. The real size
+  // is measured once rendered (and re-measured when unstacked), so this only
+  // needs to be close for the first pre-measurement frame.
+  return { w: 220, h: 250 }
 }
 
 // Focal CaseCard footprint (width 300; hero 170 + body with description +
@@ -948,9 +501,10 @@ export const CASE_BOARD_BACKDROP_OPACITY = 0.92
 // occlude or sit above GraphView's labels needs values past 16.77M.
 export const CASE_BOARD_Z = {
   backdrop: 16777300, // cream paper above 3D labels
-  connectors: 16777350, // SVG between cream + cards
+  connectors: 16777350, // SVG lines + dots: between cream + cards (tunnel under)
   cardFar: 16777400,
   cardNear: 16777500,
+  connectorLabels: 16777700, // edge pills: ABOVE cards so they never clip
   button: 16778000,
 }
 
@@ -1028,12 +582,79 @@ function CaseBoardMorphLayer({
 }) {
   const selectedIdx = refIdToIndex.get(selectedRefId)
   const selectedNode = nodes.find((n) => n.ref_id === selectedRefId) ?? null
+  // Viewport height drives the px→world conversion for the card layout below.
+  const viewportHeight = useThree((s) => s.size.height)
   const focalWorld = useMemo<[number, number, number] | null>(() => {
     if (selectedIdx === undefined) return null
     const p = graph.nodes[selectedIdx]?.position
     if (!p) return null
     return [p.x, p.y, p.z]
   }, [graph, selectedIdx])
+
+  // Real on-screen card sizes (CSS px). offsetWidth/Height are LAYOUT sizes, so
+  // they ignore the board layer's scale transform — exactly the px footprint the
+  // packer needs. The layout below uses these instead of the boardItemBoxPx
+  // estimates, which is what makes the edge-to-edge gap uniform on every side
+  // (estimates mis-guessed card height, so top/bottom got more room than
+  // left/right). A ResizeObserver re-measures when content changes (e.g. a card
+  // switching LOD tier), so the layout re-packs to stay even.
+  const [cardSizes, setCardSizes] = useState<Map<string, { w: number; h: number }>>(
+    () => new Map(),
+  )
+  const sizeObserverRef = useRef<ResizeObserver | null>(null)
+  useEffect(() => {
+    const ro = new ResizeObserver((entries) => {
+      setCardSizes((prev) => {
+        let next = prev
+        for (const e of entries) {
+          const el = e.target as HTMLElement
+          const id = el.dataset.cardId
+          if (!id) continue
+          const w = el.offsetWidth
+          const h = el.offsetHeight
+          if (!w && !h) continue
+          const cur = prev.get(id)
+          if (!cur || cur.w !== w || cur.h !== h) {
+            if (next === prev) next = new Map(prev)
+            next.set(id, { w, h })
+          }
+        }
+        return next
+      })
+    })
+    sizeObserverRef.current = ro
+    return () => ro.disconnect()
+  }, [])
+  // Registers a card's DOM root: tracks it for the connector overlay, observes
+  // it for size changes, and seeds an immediate measurement so the first layout
+  // pass isn't stuck on the estimate.
+  const registerCard = useCallback(
+    (id: string, el: HTMLElement | null) => {
+      const m = cardElsRef.current
+      const ro = sizeObserverRef.current
+      if (el) {
+        el.dataset.cardId = id
+        m.set(id, el)
+        ro?.observe(el)
+        const w = el.offsetWidth
+        const h = el.offsetHeight
+        if (w || h) {
+          setCardSizes((prev) => {
+            const cur = prev.get(id)
+            if (cur && cur.w === w && cur.h === h) return prev
+            const next = new Map(prev)
+            next.set(id, { w, h })
+            return next
+          })
+        }
+      } else {
+        const old = m.get(id)
+        if (old) ro?.unobserve(old)
+        m.delete(id)
+      }
+    },
+    [cardElsRef],
+  )
 
   // World-space anchor for each GROUP: focal at center, groups on a ring
   // around it (radial hub & spokes). Same camera-facing plane mapping as the
@@ -1051,18 +672,38 @@ function CaseBoardMorphLayer({
     const worldUp = new Vector3(0, 1, 0)
     const right = new Vector3().crossVectors(worldUp, forward).normalize()
     const up = new Vector3().crossVectors(forward, right).normalize()
+    // Pack the cards in SCREEN PIXELS — they render at a fixed CSS px size
+    // (NodeMorph has no distanceFactor), so collision in px space matches what
+    // the user actually sees. Spacing is then a fixed px gap regardless of how
+    // many cards there are; the AABB solver only pushes the cluster wider when
+    // cards genuinely can't fit, which is the "tight when few, spread when
+    // many" behaviour we want.
+    // Prefer the measured size; fall back to the estimate only until the card
+    // has rendered once (first frame on open).
+    const halfOf = (id: string, est: { w: number; h: number }) => {
+      const s = cardSizes.get(id) ?? est
+      return { hw: s.w / 2, hh: s.h / 2 }
+    }
     const placement = computeBalancedLayout({
-      items: items.map((it) => ({ id: it.id, ...pxToHalfUnits(boardItemBoxPx(it)) })),
-      focalHalf: pxToHalfUnits(BOARD_FOCAL_BOX_PX),
+      items: items.map((it) => ({ id: it.id, ...halfOf(it.id, boardItemBoxPx(it)) })),
+      focalHalf: halfOf(selectedRefId, BOARD_FOCAL_BOX_PX),
       seed: selectedRefId,
+      gap: BOARD_GAP_PX,
     })
+    // World units per on-screen pixel at the (fixed) board pose. The perspective
+    // camera shows 2·d·tan(fov/2) world units of height across the viewport, so
+    // dividing by the pixel height gives the scale that maps the px layout to
+    // world offsets matching the rendered card sizes — at any viewport size.
+    const fovRad = (BOARD_FOV / 2) * (Math.PI / 180)
+    const worldPerPx =
+      (2 * BOARD_CAM_DISTANCE * Math.tan(fovRad)) / Math.max(1, viewportHeight)
     const entries: Entry[] = []
     for (const item of items) {
       const pos = placement.get(item.id) ?? { x: 0, y: 0 }
       const offset = right
         .clone()
-        .multiplyScalar(pos.x * CASE_BOARD_SPREAD)
-        .add(up.clone().multiplyScalar(pos.y * CASE_BOARD_SPREAD))
+        .multiplyScalar(pos.x * worldPerPx)
+        .add(up.clone().multiplyScalar(pos.y * worldPerPx))
       const target = focal.clone().add(offset)
       entries.push({
         item,
@@ -1071,7 +712,7 @@ function CaseBoardMorphLayer({
       })
     }
     return entries
-  }, [focalWorld, items, selectedRefId])
+  }, [focalWorld, items, selectedRefId, viewportHeight, cardSizes])
 
   // Projection inputs — focal + each group anchor (id = group key) so the
   // connectors SVG can draw focal → group beziers each frame.
@@ -1086,14 +727,14 @@ function CaseBoardMorphLayer({
     return list
   }, [focalWorld, selectedRefId, itemTargets])
 
-  // Which groups are expanded (showing the full list vs the compressed pile).
+  // Which groups are unstacked (members spread as tiles) vs stacked (deck).
   // Local to the open session — resets on close since the layer unmounts.
-  // Groups default to expanded (member list shown); the header toggle collapses
-  // to the header only. Tracking the collapsed set keeps "expanded" the default
-  // without seeding state from the (changing) group list.
-  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() => new Set())
+  // Groups default to STACKED so the board opens tidy; the user unstacks a
+  // group to inspect its members. Tracking the expanded set keeps "stacked" the
+  // default without seeding state from the (changing) group list.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set())
   const toggleGroup = useCallback((key: string) => {
-    setCollapsedKeys((prev) => {
+    setExpandedKeys((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -1111,23 +752,21 @@ function CaseBoardMorphLayer({
       />
       {selectedNode && focalWorld && (
         <NodeMorph
+          id={selectedRefId}
           node={selectedNode}
           originPosition={focalWorld}
           targetPosition={focalWorld}
           variant="selected"
           morphProgress={morphProgress}
           portal={cardPortalRef}
-          registerEl={(el) => {
-            const m = cardElsRef.current
-            if (el) m.set(selectedRefId, el)
-            else m.delete(selectedRefId)
-          }}
+          registerEl={(el) => registerCard(selectedRefId, el)}
         />
       )}
       {itemTargets.map(({ item, origin, target }) =>
         item.kind === "node" ? (
           <NodeMorph
             key={item.id}
+            id={item.id}
             node={item.node}
             originPosition={origin}
             targetPosition={target}
@@ -1135,30 +774,22 @@ function CaseBoardMorphLayer({
             morphProgress={morphProgress}
             onClick={() => useCaseBoardStore.getState().open(item.id)}
             portal={cardPortalRef}
-            registerEl={(el) => {
-              const m = cardElsRef.current
-              if (el) m.set(item.id, el)
-              else m.delete(item.id)
-            }}
+            registerEl={(el) => registerCard(item.id, el)}
           />
         ) : (
           <GroupMorph
             key={item.id}
+            id={item.id}
             type={item.type}
             members={item.members}
-            edgeLabel={item.edgeLabel}
-            expanded={!collapsedKeys.has(item.id)}
+            expanded={expandedKeys.has(item.id)}
             onToggle={() => toggleGroup(item.id)}
             onMemberClick={(refId) => useCaseBoardStore.getState().open(refId)}
             originPosition={origin}
             targetPosition={target}
             morphProgress={morphProgress}
             portal={cardPortalRef}
-            registerEl={(el) => {
-              const m = cardElsRef.current
-              if (el) m.set(item.id, el)
-              else m.delete(item.id)
-            }}
+            registerEl={(el) => registerCard(item.id, el)}
           />
         ),
       )}
@@ -1177,83 +808,79 @@ const CONNECTOR_LABEL_BG = "#0a0e15"
 const CONNECTOR_LABEL_TEXT = "rgba(180, 210, 240, 0.85)"
 
 function CaseBoardConnectorsSvg({
+  projectionsRef,
   cardElsRef,
   edges,
   morphProgress,
 }: {
+  // Projected (board-layer-local) screen positions of every card centre,
+  // written each frame by the in-Canvas ProjectionEmitter. These are the SAME
+  // coordinates drei uses to position the cards, BEFORE the board layer's CSS
+  // transform — so drawing here and letting that transform scale the SVG keeps
+  // edges glued to the cards at any zoom (React-Flow model).
+  projectionsRef: React.RefObject<ProjectionsRef>
+  // Card DOM roots — used only for their natural (un-transformed) size via
+  // offsetWidth/Height, to clip endpoints to the card borders.
   cardElsRef: React.RefObject<Map<string, HTMLElement>>
-  // One per visible-pair edge. id is a stable key (e.g. `${a}|${b}|${label}`)
-  // so React can keep DOM stable across renders. a/b are refIds.
+  // One per visible-pair edge. a/b are refIds (a = focal/source).
   edges: { id: string; a: string; b: string; label: string }[]
   morphProgress: number
 }) {
-  // One ref per dynamic element per edge id: path, two endpoint circles,
-  // label group, label rect.
   const pathRefs = useRef<Map<string, SVGPathElement>>(new Map())
   const dotARefs = useRef<Map<string, SVGCircleElement>>(new Map())
   const dotBRefs = useRef<Map<string, SVGCircleElement>>(new Map())
   const labelGRefs = useRef<Map<string, SVGGElement>>(new Map())
-  const labelRectRefs = useRef<Map<string, SVGRectElement>>(new Map())
-  const labelTextRefs = useRef<Map<string, SVGTextElement>>(new Map())
 
   useEffect(() => {
     let raf = 0
     function tick() {
+      const proj = projectionsRef.current?.positions
       const els = cardElsRef.current
-      if (els) {
+      if (proj && els) {
         for (const e of edges) {
+          const ca = proj.get(e.a)
+          const cb = proj.get(e.b)
           const ea = els.get(e.a)
           const eb = els.get(e.b)
-          if (!ea || !eb) continue
-          // Measure the real on-screen card rectangles (viewport px). This is
-          // the only space that matches what's rendered — drei's distanceFactor
-          // and the board's CSS zoom both feed into getBoundingClientRect.
-          const ra = ea.getBoundingClientRect()
-          const rb = eb.getBoundingClientRect()
-          const pa = { x: ra.left + ra.width / 2, y: ra.top + ra.height / 2 }
-          const pb = { x: rb.left + rb.width / 2, y: rb.top + rb.height / 2 }
-          const halfA = { x: ra.width / 2, y: ra.height / 2 }
-          const halfB = { x: rb.width / 2, y: rb.height / 2 }
-          const dx = pb.x - pa.x
-          const dy = pb.y - pa.y
+          if (!ca || !cb || !ea || !eb) continue
+          // Natural card half-sizes (offsetWidth/Height ignore the CSS scale,
+          // matching the un-transformed space these coords live in).
+          const hax = ea.offsetWidth / 2
+          const hay = ea.offsetHeight / 2
+          const hbx = eb.offsetWidth / 2
+          const hby = eb.offsetHeight / 2
+          const dx = cb.x - ca.x
+          const dy = cb.y - ca.y
           const dist = Math.sqrt(dx * dx + dy * dy) || 1
           const nx = dx / dist
           const ny = dy / dist
-          // Clip each endpoint to its card rectangle so the line spans only
-          // the gap between cards instead of tunnelling under them. A is the
-          // focal card (big), B a group container (smaller) — every edge here
-          // runs focal → group, so the roles are fixed.
-          const clip = (hx: number, hy: number) =>
-            Math.min(
-              hx / Math.max(Math.abs(nx), 1e-3),
-              hy / Math.max(Math.abs(ny), 1e-3),
-            )
-          let insetA = clip(halfA.x, halfA.y)
-          let insetB = clip(halfB.x, halfB.y)
-          const room = dist - 10
-          if (room <= 0) {
-            insetA = 0
-            insetB = 0
-          } else if (insetA + insetB > room) {
-            const s = room / (insetA + insetB)
-            insetA *= s
-            insetB *= s
-          }
-          const ax = pa.x + nx * insetA
-          const ay = pa.y + ny * insetA
-          const bx = pb.x - nx * insetB
-          const by = pb.y - ny * insetB
 
-          // Smooth cubic bezier with horizontal tangents — control points
-          // extend sideways from each endpoint toward the other, so the line
-          // leaves the focal and enters the card cleanly (React-Flow style).
-          const cdx = bx - ax
-          const dirX = cdx >= 0 ? 1 : -1
-          const ctrl = Math.max(40, Math.abs(cdx) * 0.5)
-          const c1x = ax + ctrl * dirX
-          const c1y = ay
-          const c2x = bx - ctrl * dirX
-          const c2y = by
+          // Where the centre→centre ray exits each card rect, and which face it
+          // crossed. Picking the face keeps the line on the edge that faces the
+          // other card, never on a corner.
+          const boundary = (
+            px: number, py: number, hx: number, hy: number, ux: number, uy: number,
+          ) => {
+            const tx = hx / Math.max(Math.abs(ux), 1e-3)
+            const ty = hy / Math.max(Math.abs(uy), 1e-3)
+            const t = Math.min(tx, ty)
+            return { x: px + ux * t, y: py + uy * t, faceX: tx <= ty }
+          }
+          const A = boundary(ca.x, ca.y, hax, hay, nx, ny)
+          const B = boundary(cb.x, cb.y, hbx, hby, -nx, -ny)
+          const ax = A.x, ay = A.y
+          const bx = B.x, by = B.y
+
+          // Leave/enter each card PERPENDICULAR to its face (smoothstep edge).
+          const ctrl = Math.max(20, Math.min(90, dist * 0.4))
+          const nAx = A.faceX ? Math.sign(ax - ca.x) || 1 : 0
+          const nAy = A.faceX ? 0 : Math.sign(ay - ca.y) || 1
+          const nBx = B.faceX ? Math.sign(bx - cb.x) || 1 : 0
+          const nBy = B.faceX ? 0 : Math.sign(by - cb.y) || 1
+          const c1x = ax + nAx * ctrl
+          const c1y = ay + nAy * ctrl
+          const c2x = bx + nBx * ctrl
+          const c2y = by + nBy * ctrl
 
           const path = pathRefs.current.get(e.id)
           if (path) {
@@ -1274,9 +901,15 @@ function CaseBoardConnectorsSvg({
           }
           const labelG = labelGRefs.current.get(e.id)
           if (labelG) {
-            // Cubic midpoint (t = 0.5): (A + 3·C1 + 3·C2 + B) / 8.
-            const lx = (ax + 3 * c1x + 3 * c2x + bx) / 8
-            const ly = (ay + 3 * c1y + 3 * c2y + by) / 8
+            // Place the pill just past the SOURCE card, ALONG THE FACE NORMAL
+            // (= the curve's tangent where it leaves the card), not along the
+            // straight source→target line. The edge leaves perpendicular and
+            // then curves, so offsetting along the straight line drifts the
+            // label off the visible curve (top/bottom edges floated sideways).
+            const pillW = Math.max(48, (e.label || "linked to").length * 7 + 18)
+            const along = pillW / 2 + 10
+            const lx = ax + nAx * along
+            const ly = ay + nAy * along
             labelG.setAttribute("transform", `translate(${lx.toFixed(1)}, ${ly.toFixed(1)})`)
           }
         }
@@ -1285,25 +918,26 @@ function CaseBoardConnectorsSvg({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [cardElsRef, edges])
+  }, [projectionsRef, cardElsRef, edges])
 
+  // One SVG filling the (transformed) connector layer. No per-element scaling —
+  // the layer's CSS transform scales strokes, dots, and the pill as crisp
+  // vectors, exactly like the cards.
   return (
     <svg
       style={{
-        position: "fixed",
+        position: "absolute",
         inset: 0,
         width: "100%",
         height: "100%",
+        overflow: "visible",
         pointerEvents: "none",
         opacity: morphProgress,
-        zIndex: CASE_BOARD_Z.connectors,
       }}
     >
       {edges.map((e) => {
-        // Width of the label pill grows with text length so long edge
-        // types ("ANTAGONIST_OF") don't truncate.
-        const label = (e.label || "linked to").toLowerCase()
-        const pillW = Math.max(48, label.length * 6 + 16)
+        const label = (e.label || "linked to").toUpperCase()
+        const pillW = Math.max(48, label.length * 7 + 18)
         return (
           <g key={e.id}>
             <path
@@ -1312,7 +946,7 @@ function CaseBoardConnectorsSvg({
                 else pathRefs.current.delete(e.id)
               }}
               stroke={CONNECTOR_COLOR_DIM}
-              strokeWidth={1.3}
+              strokeWidth={1.4}
               strokeDasharray="6 5"
               fill="none"
               strokeLinecap="round"
@@ -1344,10 +978,6 @@ function CaseBoardConnectorsSvg({
               }}
             >
               <rect
-                ref={(el) => {
-                  if (el) labelRectRefs.current.set(e.id, el)
-                  else labelRectRefs.current.delete(e.id)
-                }}
                 x={-pillW / 2}
                 y={-9}
                 width={pillW}
@@ -1358,18 +988,15 @@ function CaseBoardConnectorsSvg({
                 strokeWidth={0.75}
               />
               <text
-                ref={(el) => {
-                  if (el) labelTextRefs.current.set(e.id, el)
-                  else labelTextRefs.current.delete(e.id)
-                }}
                 x={0}
                 y={1}
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill={CONNECTOR_LABEL_TEXT}
                 fontSize={9}
+                fontWeight={600}
                 fontFamily='"Space Grotesk", system-ui, sans-serif'
-                letterSpacing={0.5}
+                letterSpacing={1}
               >
                 {label}
               </text>
@@ -1385,6 +1012,11 @@ function CaseBoardConnectorsSvg({
 // rather than blending into the dashed line. Matches the case-board's
 // dark backdrop.
 const CARD_BG_FOR_DOT = "#0a0e15"
+
+// Board zoom limits. Past ~0.5 the cards are tiny; zooming out further just
+// scatters them into empty space with no added value, so we stop there.
+const BOARD_MIN_ZOOM = 0.5
+const BOARD_MAX_ZOOM = 4
 
 interface GraphCanvasProps {
   nodes: ApiNode[]
@@ -1458,6 +1090,37 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return result
   }, [effectiveNodes, effectiveEdges, schemas])
 
+  // ref_id → API node lookups. Built once per data change so the per-click /
+  // per-hover / per-board-item paths don't each rescan the node array.
+  // `nodes` and `effectiveNodes` are kept separate on purpose: callers that
+  // previously scanned `nodes` must not start resolving the metro fixture
+  // stations that only live in `effectiveNodes`.
+  const nodeByRefId = useMemo(() => {
+    const m = new Map<string, ApiNode>()
+    for (const n of nodes) m.set(n.ref_id, n)
+    return m
+  }, [nodes])
+  const effectiveNodeByRefId = useMemo(() => {
+    const m = new Map<string, ApiNode>()
+    for (const n of effectiveNodes) m.set(n.ref_id, n)
+    return m
+  }, [effectiveNodes])
+
+  // Metro stations are drawn by the dedicated schematic overlay (colored lines
+  // + bullets), so their 3D graph glyph + label rest muted to avoid doubling
+  // up and cluttering the overview. They stay interactive — hover/select
+  // restores the label and highlight. Only active in the metro view.
+  const mutedNodeIds = useMemo(() => {
+    if (!metroEnabled) return null
+    const set = new Set<number>()
+    for (const n of effectiveNodes) {
+      if (n.node_type !== "Station") continue
+      const idx = refIdToIndex.get(n.ref_id)
+      if (idx !== undefined) set.add(idx)
+    }
+    return set.size > 0 ? set : null
+  }, [effectiveNodes, refIdToIndex, metroEnabled])
+
   // Lowercase type → schema icon name (e.g. "EpisodeIcon"). The pill in
   // GraphView resolves this through schema-icons to a Lucide component.
   const nodeTypeIcons = useMemo(() => {
@@ -1495,6 +1158,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // the Html cards + SVG connectors. Lives entirely in DOM so the 3D
   // camera stays locked and the underlying scene doesn't move at all.
   const boardLayerRef = useRef<HTMLDivElement>(null)
+  // Connector layer — a sibling of the board layer that gets the SAME pan/zoom
+  // transform, so the edge SVG (drawn in the same projected coordinates the
+  // cards use) scales as one with the cards. This is the React-Flow / Miro
+  // model: nodes + edges + labels in one transformed space, so everything
+  // stays aligned and crisp at any zoom with no per-element scaling hacks.
+  const connectorLayerRef = useRef<HTMLDivElement>(null)
+  // Stable, UNTRANSFORMED container — used to anchor cursor-relative zoom. The
+  // board layer itself has the pan/zoom transform applied, so its own
+  // getBoundingClientRect is post-transform and can't be used as the reference.
+  const containerRef = useRef<HTMLDivElement>(null)
   const boardPanRef = useRef({ x: 0, y: 0 })
   const boardZoomRef = useRef(1)
   // Apply pan/zoom imperatively to the board layer's transform — NOT via React
@@ -1504,10 +1177,12 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // layout. The connector overlay already tracks via rAF + measured rects, so
   // the DOM transform is fine as the single source of truth.
   const applyBoardTransform = useCallback(() => {
-    const el = boardLayerRef.current
-    if (!el) return
     const p = boardPanRef.current
-    el.style.transform = `translate(${p.x}px, ${p.y}px) scale(${boardZoomRef.current})`
+    const z = boardZoomRef.current
+    const t = `translate(${p.x}px, ${p.y}px) scale(${z})`
+    if (boardLayerRef.current) boardLayerRef.current.style.transform = t
+    // Same transform on the connector layer so edges track the cards exactly.
+    if (connectorLayerRef.current) connectorLayerRef.current.style.transform = t
   }, [])
   const setBoard = useCallback(
     (pan: { x: number; y: number }, zoom: number) => {
@@ -1531,7 +1206,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // the pan/zoom from the last session.
   useEffect(() => {
     // Reset to identity whenever the board opens or closes so each open starts
-    // centered at scale 1. Pure imperative now — no setState, no re-render.
+    // centered at scale 1. Pure imperative — no setState, no re-render.
     setBoard({ x: 0, y: 0 }, 1)
   }, [morphOpen, setBoard])
 
@@ -1604,12 +1279,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       const factor = Math.exp(-delta * 0.0015)
 
       const z = boardZoomRef.current
-      const next = Math.max(0.25, Math.min(4, z * factor))
+      const next = Math.max(BOARD_MIN_ZOOM, Math.min(BOARD_MAX_ZOOM, z * factor))
       // Clamping can shrink the effective factor — recompute it so the
       // cursor-anchor math stays exact at the zoom limits.
       const applied = next / z
 
-      const rect = e.currentTarget.getBoundingClientRect()
+      // Anchor against the UNTRANSFORMED container, not the board layer itself
+      // (its rect is post-transform, which threw the anchor off by the current
+      // pan and made the zoom drift toward a point). cx/cy is the cursor
+      // relative to the transform origin (center center).
+      const rect = (containerRef.current ?? e.currentTarget).getBoundingClientRect()
       const cx = e.clientX - rect.left - rect.width / 2
       const cy = e.clientY - rect.top - rect.height / 2
       // Keep the content point under the cursor fixed: pan' = c - f·(c - pan).
@@ -1683,7 +1362,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     const byKey = new Map<string, { type: string; rel: string; members: ApiNode[] }>()
     const order: string[] = []
     for (const refId of morphNeighborIds) {
-      const node = effectiveNodes.find((n) => n.ref_id === refId)
+      const node = effectiveNodeByRefId.get(refId)
       if (!node) continue
       const type = node.node_type || "Node"
       const rel = relFor.get(refId) ?? ""
@@ -1709,7 +1388,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       }
     }
     return items
-  }, [morphSelectedRefId, morphNeighborIds, morphVisibleEdges, effectiveNodes])
+  }, [morphSelectedRefId, morphNeighborIds, morphVisibleEdges, effectiveNodeByRefId])
 
   // One connector per board item: focal → item.
   const boardConnectorEdges = useMemo(
@@ -1797,8 +1476,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     if (viewState.mode !== "subgraph") return null
     const refId = indexMap.get(viewState.selectedNodeId)
     if (!refId) return null
-    return nodes.find((n) => n.ref_id === refId) ?? null
-  }, [viewState, indexMap, nodes])
+    // Resolve from effectiveNodeByRefId so metro Station nodes — which only
+    // live in the spliced fixture set, not the graph store `nodes` — can open
+    // the 2D case view. nodeByRefId (built from `nodes` only) returns null for
+    // them, which left CaseViewTrigger disabled on every station. The board
+    // itself already operates on effectiveNodes, so opening on a station works.
+    return effectiveNodeByRefId.get(refId) ?? nodeByRefId.get(refId) ?? null
+  }, [viewState, indexMap, effectiveNodeByRefId, nodeByRefId])
 
   // Opens the in-3D case board (morph + camera tilt + Html cards) on the
   // node the user has been zooming into. apparentRadius is unused now —
@@ -1812,16 +1496,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   )
 
   // Closes the in-3D case board: drops morph state and pulls the camera back
-  // to the selected node's rest distance so the trigger re-arms and the user
-  // has room to maneuver before the next dolly-in.
-  // Disarm the dolly-in auto-trigger across a manual close. computeCamTarget
-  // below parks the camera at the node's rest distance, which for leaf nodes
-  // is inside CASE_VIEW_TRIGGER_DISTANCE — without this guard the trigger
-  // would see "camera is close" and reopen the board immediately. Cleared in
-  // CaseViewTrigger once the camera pulls back out past the re-arm threshold.
-  const caseTriggerSuppressedRef = useRef(false)
+  // to the selected node's rest distance so the user has room to maneuver.
   const handleCloseCaseBoard = useCallback(() => {
-    caseTriggerSuppressedRef.current = true
     useCaseBoardStore.getState().close()
     if (viewState.mode === "subgraph") {
       setCamTarget(
@@ -1869,12 +1545,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     const set = new Set<number>()
     for (let i = 0; i < nodes.length; i++) {
       const p = nodes[i].properties as Record<string, unknown> | undefined
-      const lineStr =
-        (p && typeof p.metro_line === "string" ? p.metro_line : null) ??
-        (p && typeof p.line === "string" ? p.line : null) ??
-        ""
-      const lines = lineStr.split(",").map((s: string) => s.trim().toLowerCase())
-      if (lines.includes(hoveredLine)) set.add(i)
+      if (readStationLines(p).includes(hoveredLine)) set.add(i)
     }
     return set.size > 0 ? set : null
   }, [nodes, hoveredLine])
@@ -1888,13 +1559,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     for (const n of nodes) {
       if (n.node_type !== "Station") continue
       const p = n.properties as Record<string, unknown> | undefined
-      const raw =
-        (p && typeof p.metro_line === "string" ? p.metro_line : null) ??
-        (p && typeof p.line === "string" ? p.line : null) ??
-        ""
-      const lines = new Set(
-        raw.split(",").map((s: string) => s.trim().toLowerCase()).filter(Boolean)
-      )
+      const lines = new Set(readStationLines(p))
       if (lines.size > 0) stationLines.set(n.ref_id, lines)
     }
     const map = new Map<string, Set<string>>()
@@ -2007,10 +1672,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         setHoveredCardNode(null)
         return
       }
-      const apiNode = nodes.find((n) => n.ref_id === refId)
+      const apiNode = nodeByRefId.get(refId)
       setHoveredCardNode(apiNode ?? null)
     },
-    [indexMap, nodes]
+    [indexMap, nodeByRefId]
   )
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -2027,7 +1692,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       useGraphStore.getState().setHoveredNode(null)
       const refId = indexMap.get(nodeId)
       if (refId && onNodeSelect) {
-        const apiNode = nodes.find((n) => n.ref_id === refId)
+        const apiNode = nodeByRefId.get(refId)
         if (apiNode) onNodeSelect(apiNode)
       }
 
@@ -2106,7 +1771,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       // the search-pan effect from firing for it.
       lastPannedSearchTerm.current = searchTerm
     },
-    [graph, indexMap, nodes, onNodeSelect, setCamTarget, searchTerm]
+    [graph, indexMap, nodeByRefId, onNodeSelect, setCamTarget, searchTerm]
   )
 
   const handleReset = useCallback(() => {
@@ -2165,6 +1830,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
   return (
     <div
+      ref={containerRef}
       className="relative h-full w-full"
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
@@ -2203,6 +1869,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           nodeTypeIcons={nodeTypeIcons}
           onResetView={handleReset}
           suppressHover={cameraInteracting}
+          mutedNodeIds={mutedNodeIds}
           onGraphClick={() => {
             useGraphStore.getState().setSidebarSelectedNode(null)
             useGraphStore.getState().setHoveredNode(null)
@@ -2235,8 +1902,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           selectedApiNode={selectedApiNode}
           onOpen={handleOpenCaseView}
           disabled={morphOpen}
-          camAnim={camAnim}
-          suppressedRef={caseTriggerSuppressedRef}
         />
         {morphOpen && morphSelectedRefId && (
           <CaseBoardMorphLayer
@@ -2356,13 +2021,31 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         }}
       >
       </div>
-      {morphOpen && (
-        <CaseBoardConnectorsSvg
-          cardElsRef={cardElsRef}
-          edges={boardConnectorEdges}
-          morphProgress={morphProgress}
-        />
-      )}
+      {/* Connector layer — sibling of the board layer, given the SAME pan/zoom
+          transform (see applyBoardTransform) so the edge SVG scales as one with
+          the cards. Above the cards so dots/pills read on top; inert to pointer
+          so it never blocks card clicks or board panning. */}
+      <div
+        ref={connectorLayerRef}
+        style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: CASE_BOARD_Z.connectorLabels,
+          pointerEvents: "none",
+          transformOrigin: "center center",
+          willChange: "transform",
+          transition: "none",
+        }}
+      >
+        {morphOpen && (
+          <CaseBoardConnectorsSvg
+            projectionsRef={projectionsRef}
+            cardElsRef={cardElsRef}
+            edges={boardConnectorEdges}
+            morphProgress={morphProgress}
+          />
+        )}
+      </div>
       {morphOpen && (
         <button
           onClick={handleCloseCaseBoard}

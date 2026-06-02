@@ -2,8 +2,13 @@
 
 import type { GraphNode } from "@/lib/graph-api"
 import { DISPLAY_KEY_FALLBACKS, capTitle, resolveNodeThumbnail } from "@/lib/node-display"
-import { accentFor, INK_PRIMARY, INK_DIM, CARD_BG, FIELD_BG } from "./card-style"
-import { boardScrollLock } from "./board-scroll-lock"
+import {
+  accentFor,
+  INK_PRIMARY,
+  INK_BODY,
+  INK_DIM,
+  CARD_BG,
+} from "./card-style"
 
 function titleOf(node: GraphNode): string {
   const props = node.properties as Record<string, unknown> | undefined
@@ -30,32 +35,127 @@ function metaOf(node: GraphNode): string | null {
   return null
 }
 
-const GROUP_WIDTH = 256
-// Card shows ~7 rows then scrolls internally — keeps a 50-member group from
-// becoming a giant card while every member stays reachable.
-const LIST_MAX_HEIGHT = 360
+// One compact member card — a single thumbnail + title (+ optional meta).
+// Reused as the deck's face card (collapsed) and as every tile in the spread
+// (expanded). Kept lean so a popped-out group of N reads as N clean cards
+// rather than N full property panels.
+const MEMBER_W = 168
+const MEMBER_HERO_H = 88
+
+function MemberCard({
+  node,
+  accent,
+  onClick,
+}: {
+  node: GraphNode
+  accent: string
+  // Omitted for the deck face card (the deck click unstacks instead).
+  onClick?: () => void
+}) {
+  const thumb = resolveNodeThumbnail(node)
+  const title = titleOf(node)
+  const meta = metaOf(node)
+  return (
+    <div
+      onClick={
+        onClick
+          ? (e) => {
+              e.stopPropagation()
+              onClick()
+            }
+          : undefined
+      }
+      style={{
+        width: MEMBER_W,
+        background: CARD_BG,
+        border: `1px solid ${accent}66`,
+        borderRadius: 8,
+        overflow: "hidden",
+        cursor: onClick ? "pointer" : "default",
+        boxShadow: `0 0 16px ${accent}14, 0 6px 16px rgba(0,0,0,0.45)`,
+      }}
+    >
+      <div
+        style={{
+          height: MEMBER_HERO_H,
+          background: thumb
+            ? `center / cover no-repeat url(${thumb})`
+            : `${accent}1a`,
+          display: thumb ? undefined : "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: accent,
+          fontSize: 26,
+          fontWeight: 700,
+          boxShadow: `inset 0 -12px 20px -10px rgba(0,0,0,0.6)`,
+        }}
+      >
+        {!thumb && (title[0]?.toUpperCase() || "•")}
+      </div>
+      <div style={{ padding: "8px 10px" }}>
+        <div
+          title={title}
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            lineHeight: 1.25,
+            color: INK_PRIMARY,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            wordBreak: "break-word",
+          }}
+        >
+          {title}
+        </div>
+        {meta && (
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 10,
+              color: INK_DIM,
+              fontFamily: "ui-monospace, monospace",
+            }}
+          >
+            {meta}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Width the expanded spread wraps at — three member tiles per row.
+const SPREAD_COLS = 3
+const SPREAD_GAP = 12
+const SPREAD_MAX_W = SPREAD_COLS * MEMBER_W + (SPREAD_COLS - 1) * SPREAD_GAP
+// Hard cap on tiles rendered in the spread so a 200-member group can't blow the
+// board out. The rest collapse into a "+N more" chip.
+const SPREAD_CAP = 24
+// How many cards peek behind the deck's face card, and their per-layer offset.
+const DECK_LAYERS = 3
+const DECK_OFFSET = 7
 
 export interface CaseGroupProps {
   // node_type — drives the label + accent.
   type: string
   members: GraphNode[]
-  // Relationship to the focal (dominant edge_type) — shown in the header.
-  edgeLabel?: string
-  // Whether the body (member list) is shown. Default open; the header toggle
-  // collapses to the header only.
+  // Whether the group is unstacked (members spread as tiles) vs stacked (deck).
   expanded: boolean
   morphProgress: number
   onToggle: () => void
   onMemberClick: (refId: string) => void
 }
 
-// A labeled group container: header (type · count + collapse toggle) over a
-// vertical list of member rows. Members past ROW_CAP collapse into a "+N more"
-// footer so tall types (e.g. 10 topics) don't run off the board.
+// A labeled group container with two states:
+//   • stacked  (collapsed) — a deck/pile preview; click to unstack
+//   • unstacked (expanded) — members spread as individual tiles inside the
+//     container, which grows to fit them; the board re-packs around the new
+//     measured size. Click the header to re-stack.
 export function CaseGroup({
   type,
   members,
-  edgeLabel,
   expanded,
   morphProgress,
   onToggle,
@@ -68,199 +168,211 @@ export function CaseGroup({
   return (
     <div
       style={{
-        width: GROUP_WIDTH,
         opacity,
         fontFamily: '"Space Grotesk", system-ui, sans-serif',
         userSelect: "none",
         pointerEvents: "auto",
-        background: CARD_BG,
-        border: `1px solid ${accent}55`,
-        borderRadius: 12,
-        boxShadow: `0 0 22px ${accent}1f, 0 10px 28px rgba(0,0,0,0.5)`,
+        // Translucent accent-tinted "lasso" so the spread reads as one group;
+        // matches the reference's group container without a hard fill.
+        background: `${accent}0f`,
+        border: `1px solid ${accent}40`,
+        borderRadius: 16,
+        boxShadow: `0 0 22px ${accent}14, 0 10px 28px rgba(0,0,0,0.45)`,
         overflow: "hidden",
+        width: expanded ? "fit-content" : undefined,
+        maxWidth: expanded ? SPREAD_MAX_W + 20 : undefined,
       }}
     >
-      {/* Header */}
-      <div
-        onClick={onToggle}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          background: `${accent}14`,
-          borderBottom: expanded ? `1px solid ${accent}26` : "none",
-          cursor: "pointer",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 1.4,
-            textTransform: "uppercase",
-            color: accent,
-          }}
-        >
-          {type || "node"}
-        </span>
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 18,
-            height: 18,
-            padding: "0 5px",
-            borderRadius: 9,
-            background: accent,
-            color: "#0a0e15",
-            fontSize: 10,
-            fontWeight: 700,
-          }}
-        >
-          {count}
-        </span>
-        {edgeLabel && (
-          <span
-            style={{
-              marginLeft: "auto",
-              fontSize: 9,
-              color: INK_DIM,
-              fontFamily: "ui-monospace, monospace",
-              letterSpacing: 0.5,
-              textTransform: "uppercase",
-            }}
-          >
-            {edgeLabel}
-          </span>
-        )}
-        <span
-          style={{
-            marginLeft: edgeLabel ? 8 : "auto",
-            fontSize: 14,
-            lineHeight: 1,
-            color: accent,
-            width: 12,
-            textAlign: "center",
-          }}
-        >
-          {expanded ? "−" : "+"}
-        </span>
-      </div>
+      {/* Header — type · count, plus a stack/unstack affordance. */}
+      <Header
+        type={type}
+        accent={accent}
+        count={count}
+        expanded={expanded}
+        onToggle={onToggle}
+      />
 
-      {/* Body */}
-      {expanded && (
+      {expanded ? (
         <div
-          // Suppress board zoom while scrolling the list (only when it can
-          // actually scroll), so the wheel scrolls the rows instead.
-          onPointerEnter={(e) => {
-            boardScrollLock.locked =
-              e.currentTarget.scrollHeight > e.currentTarget.clientHeight
-          }}
-          onPointerLeave={() => {
-            boardScrollLock.locked = false
-          }}
-          onWheel={(e) => {
-            if (e.currentTarget.scrollHeight > e.currentTarget.clientHeight) {
-              e.stopPropagation()
-            }
-          }}
           style={{
-            padding: 6,
-            display: "grid",
-            gap: 5,
-            maxHeight: LIST_MAX_HEIGHT,
-            overflowY: "auto",
-            // Pin X to hidden — leaving it default makes CSS promote overflow-x
-            // to auto whenever overflow-y is auto, which shows a stray
-            // horizontal scrollbar on the slightest content overflow.
-            overflowX: "hidden",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: SPREAD_GAP,
+            padding: 10,
+            maxWidth: SPREAD_MAX_W + 20,
           }}
         >
-          {members.map((m) => (
-            <MemberRow
+          {members.slice(0, SPREAD_CAP).map((m) => (
+            <MemberCard
               key={m.ref_id}
               node={m}
               accent={accent}
               onClick={() => onMemberClick(m.ref_id)}
             />
           ))}
+          {count > SPREAD_CAP && (
+            <div
+              style={{
+                width: MEMBER_W,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: INK_DIM,
+                fontSize: 13,
+                fontWeight: 600,
+                border: `1px dashed ${accent}55`,
+                borderRadius: 8,
+              }}
+            >
+              +{count - SPREAD_CAP} more
+            </div>
+          )}
         </div>
+      ) : (
+        <Deck members={members} accent={accent} onToggle={onToggle} />
       )}
     </div>
   )
 }
 
-function MemberRow({
-  node,
+function Header({
+  type,
   accent,
-  onClick,
+  count,
+  expanded,
+  onToggle,
 }: {
-  node: GraphNode
+  type: string
   accent: string
-  onClick: () => void
+  count: number
+  expanded: boolean
+  onToggle: () => void
 }) {
-  const thumb = resolveNodeThumbnail(node)
-  const title = titleOf(node)
-  const meta = metaOf(node)
   return (
     <div
-      onClick={onClick}
+      onClick={onToggle}
+      title={expanded ? "Stack group" : "Unstack group"}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 8,
-        padding: "6px 8px",
-        background: FIELD_BG,
-        border: `1px solid ${accent}26`,
-        borderRadius: 7,
+        padding: "8px 12px",
         cursor: "pointer",
       }}
     >
-      {/* Leading badge — thumbnail if present, else first letter. */}
-      <div
+      <span
         style={{
-          flex: "0 0 auto",
-          width: 26,
-          height: 26,
-          borderRadius: 6,
-          background: thumb ? `center / cover url(${thumb})` : `${accent}22`,
-          border: `1px solid ${accent}40`,
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 1.4,
+          textTransform: "uppercase",
           color: accent,
-          display: "flex",
+        }}
+      >
+        {type || "node"}
+      </span>
+      <span
+        style={{
+          display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 12,
+          minWidth: 18,
+          height: 18,
+          padding: "0 5px",
+          borderRadius: 9,
+          background: accent,
+          color: "#0a0e15",
+          fontSize: 10,
           fontWeight: 700,
-          overflow: "hidden",
         }}
       >
-        {!thumb && (title[0]?.toUpperCase() || "•")}
-      </div>
+        {count}
+      </span>
+      <span
+        aria-hidden
+        style={{
+          marginLeft: "auto",
+          fontSize: 13,
+          lineHeight: 1,
+          color: accent,
+          fontWeight: 700,
+        }}
+      >
+        {expanded ? "⊟ stack" : "⊞ unstack"}
+      </span>
+    </div>
+  )
+}
+
+// The stacked preview: a face card with a few offset "backs" peeking behind it,
+// and the members' metas fanned below so the group's range stays visible while
+// collapsed. The whole thing unstacks on click.
+function Deck({
+  members,
+  accent,
+  onToggle,
+}: {
+  members: GraphNode[]
+  accent: string
+  onToggle: () => void
+}) {
+  const layers = Math.min(members.length - 1, DECK_LAYERS)
+  const metas = members
+    .map(metaOf)
+    .filter((m): m is string => !!m)
+    .slice(0, 5)
+  return (
+    <div onClick={onToggle} style={{ padding: 12, cursor: "pointer" }}>
       <div
         style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: 12.5,
-          color: INK_PRIMARY,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
+          position: "relative",
+          width: MEMBER_W + layers * DECK_OFFSET,
+          height: MEMBER_HERO_H + 60 + layers * DECK_OFFSET,
         }}
       >
-        {title}
+        {/* Backs — plain offset card shapes peeking down-right. */}
+        {Array.from({ length: layers }).map((_, i) => {
+          const off = (layers - i) * DECK_OFFSET
+          return (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                left: off,
+                top: off,
+                width: MEMBER_W,
+                height: MEMBER_HERO_H + 60,
+                background: CARD_BG,
+                border: `1px solid ${accent}44`,
+                borderRadius: 8,
+                boxShadow: `0 4px 12px rgba(0,0,0,0.4)`,
+              }}
+            />
+          )
+        })}
+        {/* Face card — frontmost, display-only (the deck click unstacks). */}
+        <div style={{ position: "absolute", left: 0, top: 0 }}>
+          <MemberCard node={members[0]} accent={accent} />
+        </div>
       </div>
-      {meta && (
+      {metas.length > 0 && (
         <div
           style={{
-            flex: "0 0 auto",
+            marginTop: 8,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "2px 8px",
             fontSize: 10,
-            color: INK_DIM,
+            color: INK_BODY,
             fontFamily: "ui-monospace, monospace",
           }}
         >
-          {meta}
+          {metas.map((m, i) => (
+            <span key={i}>{m}</span>
+          ))}
+          {members.length > metas.length && metas.length === 5 && (
+            <span style={{ color: INK_DIM }}>…</span>
+          )}
         </div>
       )}
     </div>

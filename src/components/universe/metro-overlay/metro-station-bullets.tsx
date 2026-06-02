@@ -73,11 +73,14 @@ export function MetroStationBullets({
   return (
     <group>
       {bullets.map((b) => {
-        const lineDimmed =
-          activeLines !== null && !b.lines.some((l) => activeLines.has(l))
-        const stateDimmed = activeState !== null && b.state !== activeState
-        const dimmed = lineDimmed || stateDimmed
-        const opacity = dimmed ? 0.12 : 1
+        // Bullets rest dimmed by default (matching the lines) and only brighten
+        // when in focus: either their line is active (line hovered, or a node
+        // on it hovered/selected) or their state is active (legend hover). When
+        // nothing is in focus every bullet stays dimmed.
+        const lineFocus =
+          activeLines !== null && b.lines.some((l) => activeLines.has(l))
+        const stateFocus = activeState !== null && b.state === activeState
+        const opacity = lineFocus || stateFocus ? 1 : 0.12
         return (
           <group
             key={b.id}

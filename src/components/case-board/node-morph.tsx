@@ -5,6 +5,8 @@ import type { GraphNode } from "@/lib/graph-api"
 import { CaseCard } from "./case-card"
 
 interface NodeMorphProps {
+  // Card id (= focal/neighbor refId).
+  id: string
   node: GraphNode
   // Where the node sits in the 3D scene before any morph happened — usually
   // its natural radial-layout position.
