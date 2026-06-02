@@ -142,6 +142,21 @@ export async function getNode(
   )
 }
 
+// Fetch only the *attachable* 1-hop neighbours of a node — edges carrying
+// `attachable: true` — via the backend's server-side `edge_props` filter.
+// Used by the preview panel to render native embeds (images, episodes…) without
+// pulling the node's full (potentially huge) neighbourhood. Returns the host +
+// attached peers in { nodes, edges }; the filter runs in Neo4j, so only matching
+// edges come back.
+export async function getAttachables(refId: string, signal?: AbortSignal): Promise<GraphData> {
+  const edgeProps = encodeURIComponent(JSON.stringify({ attachable: true }))
+  return api.get<GraphData>(
+    `/v2/nodes/${refId}?expand=edges&edge_props=${edgeProps}`,
+    undefined,
+    signal
+  )
+}
+
 // Create a node via the generic paid endpoint (POST /v2/nodes)
 export async function createNode(
   nodeType: string,
