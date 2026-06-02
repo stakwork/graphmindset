@@ -449,9 +449,11 @@ const BOARD_CAM_DISTANCE = CASE_BOARD_CAM_OFFSET.length()
 const BOARD_GAP_PX = 130
 
 // Groups with this many members or fewer render as individual cards instead of
-// a group container. 1 = don't wrap a lone node in a group; bump higher to also
-// un-group small clusters.
-const HYBRID_THRESHOLD = 1
+// a group container. A deck only earns its container when there are enough
+// same-(type, relationship) neighbors that loose cards would clutter — so a
+// pair or a trio stays as plain cards and stacking begins at 4+. (1 = group
+// every pair, which over-grouped a 2-neighbor station into a "STATION 2" deck.)
+const HYBRID_THRESHOLD = 3
 
 // A single-neighbor card or a collapsed group card placed on the board.
 type BoardItem =
@@ -478,11 +480,11 @@ function boardItemBoxPx(item: BoardItem): { w: number; h: number } {
     const h = 132 + 64 + fieldRows * 50
     return { w: 240, h }
   }
-  // Group CaseGroup: width 256; header ~40 + rows (capped at 7) ~44px each,
-  // clamped to the LIST_MAX_HEIGHT scroll cap.
-  const rows = item.members.length
-  const bodyH = Math.min(rows, 7) * 44
-  return { w: 256, h: 40 + Math.min(bodyH, 360) }
+  // Group CaseGroup: defaults to the STACKED deck, whose footprint is roughly a
+  // single member tile plus the offset backs + header + meta row. The real size
+  // is measured once rendered (and re-measured when unstacked), so this only
+  // needs to be close for the first pre-measurement frame.
+  return { w: 220, h: 250 }
 }
 
 // Focal CaseCard footprint (width 300; hero 170 + body with description +
@@ -725,14 +727,14 @@ function CaseBoardMorphLayer({
     return list
   }, [focalWorld, selectedRefId, itemTargets])
 
-  // Which groups are expanded (showing the full list vs the compressed pile).
+  // Which groups are unstacked (members spread as tiles) vs stacked (deck).
   // Local to the open session — resets on close since the layer unmounts.
-  // Groups default to expanded (member list shown); the header toggle collapses
-  // to the header only. Tracking the collapsed set keeps "expanded" the default
-  // without seeding state from the (changing) group list.
-  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() => new Set())
+  // Groups default to STACKED so the board opens tidy; the user unstacks a
+  // group to inspect its members. Tracking the expanded set keeps "stacked" the
+  // default without seeding state from the (changing) group list.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set())
   const toggleGroup = useCallback((key: string) => {
-    setCollapsedKeys((prev) => {
+    setExpandedKeys((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -780,7 +782,7 @@ function CaseBoardMorphLayer({
             id={item.id}
             type={item.type}
             members={item.members}
-            expanded={!collapsedKeys.has(item.id)}
+            expanded={expandedKeys.has(item.id)}
             onToggle={() => toggleGroup(item.id)}
             onMemberClick={(refId) => useCaseBoardStore.getState().open(refId)}
             originPosition={origin}
@@ -1474,8 +1476,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     if (viewState.mode !== "subgraph") return null
     const refId = indexMap.get(viewState.selectedNodeId)
     if (!refId) return null
-    return nodeByRefId.get(refId) ?? null
-  }, [viewState, indexMap, nodeByRefId])
+    // Resolve from effectiveNodeByRefId so metro Station nodes — which only
+    // live in the spliced fixture set, not the graph store `nodes` — can open
+    // the 2D case view. nodeByRefId (built from `nodes` only) returns null for
+    // them, which left CaseViewTrigger disabled on every station. The board
+    // itself already operates on effectiveNodes, so opening on a station works.
+    return effectiveNodeByRefId.get(refId) ?? nodeByRefId.get(refId) ?? null
+  }, [viewState, indexMap, effectiveNodeByRefId, nodeByRefId])
 
   // Opens the in-3D case board (morph + camera tilt + Html cards) on the
   // node the user has been zooming into. apparentRadius is unused now —

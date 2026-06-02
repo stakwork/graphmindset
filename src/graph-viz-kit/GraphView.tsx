@@ -1958,9 +1958,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
               )}
               <Html
                 position={[lx, ly, lz]}
-                // Top-3 hits get a zIndexRange above the drei default
-                // ([16777271, 0]) so their labels layer above sibling labels.
-                zIndexRange={isTopHit ? [100000000, 16777272] : undefined}
+                // Top-3 hits sit just above sibling labels (drei default near is
+                // 16777271) but still BELOW the case-board overlay (CASE_BOARD_Z
+                // starts at 16777300) — otherwise a top hit's label would punch
+                // through the open 2D board, both visually and for pointer
+                // events when it's an interactive expanded proxy.
+                zIndexRange={isTopHit ? [16777290, 16777273] : undefined}
                 style={{
                   pointerEvents: isExpandedProxy ? "auto" : "none",
                   userSelect: "none",
