@@ -118,7 +118,8 @@ function FeaturedCard({
   schemas: ReturnType<typeof useSchemaStore.getState>["schemas"]
 }) {
   const p = node.properties || {}
-  const quote = clipQuote(node) ?? resolveNodeTitle(node, schemas)
+  const headline = resolveNodeTitle(node, schemas)
+  const quote = clipQuote(node)
   const speaker = pickString(p, "speaker_name") || pickString(p, "name")
   const show = pickString(p, "show") || pickString(p, "show_title")
   const episodeNum = typeof p.episode_number === "number" ? p.episode_number : null
@@ -154,9 +155,14 @@ function FeaturedCard({
 
       <div className="absolute bottom-4 left-4 right-4">
         <Quote className="h-5 w-5 text-amber/80 mb-2" strokeWidth={1.5} />
-        <blockquote className="text-xl leading-snug text-white font-medium mb-3 line-clamp-3">
-          {quote}
-        </blockquote>
+        <h3 className="text-xl leading-snug text-white font-semibold mb-1.5 line-clamp-2">
+          {headline}
+        </h3>
+        {quote && (
+          <p className="text-sm leading-snug text-white/70 mb-3 line-clamp-2">
+            {quote}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             {speaker && <div className="text-sm font-semibold text-white truncate">{speaker}</div>}
@@ -187,7 +193,7 @@ export function SideCard({
   schemas: ReturnType<typeof useSchemaStore.getState>["schemas"]
 }) {
   const p = node.properties || {}
-  const quote = clipQuote(node) ?? resolveNodeTitle(node, schemas)
+  const headline = resolveNodeTitle(node, schemas)
   const speaker = pickString(p, "speaker_name")
   const show = pickString(p, "show") || pickString(p, "show_title")
   const duration = typeof p.duration === "number" ? p.duration : null
@@ -215,9 +221,9 @@ export function SideCard({
         )}
       </div>
       <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
-        <blockquote className="text-[13px] leading-snug text-foreground/95 font-medium line-clamp-2">
-          {quote}
-        </blockquote>
+        <h3 className="text-[13px] leading-snug text-foreground/95 font-medium line-clamp-2">
+          {headline}
+        </h3>
         <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground mt-1.5">
           {speaker && <span className="text-primary truncate">{speaker}</span>}
           {speaker && show && <span>·</span>}

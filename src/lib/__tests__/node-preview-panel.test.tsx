@@ -26,15 +26,17 @@ vi.mock("@/lib/api", () => ({
 }))
 
 // --- mock graph-api deep research helpers ---
-const { mockTriggerDeepResearch, mockGetLatestStakworkRun, mockGetNode } = vi.hoisted(() => ({
+const { mockTriggerDeepResearch, mockGetLatestStakworkRun, mockGetNode, mockGetAttachables } = vi.hoisted(() => ({
   mockTriggerDeepResearch: vi.fn(),
   mockGetLatestStakworkRun: vi.fn(),
   mockGetNode: vi.fn().mockResolvedValue(null),
+  mockGetAttachables: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
 }))
 vi.mock("@/lib/graph-api", () => ({
   triggerDeepResearch: (...args: unknown[]) => mockTriggerDeepResearch(...args),
   getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
   getNode: (...args: unknown[]) => mockGetNode(...args),
+  getAttachables: (...args: unknown[]) => mockGetAttachables(...args),
   isGraphData: (v: unknown) => v != null && typeof v === "object" && "nodes" in v && "edges" in v,
 }))
 
@@ -1616,7 +1618,7 @@ describe("NodePreviewPanel – Tweet with connected Episode video", () => {
     },
   }
 
-  it("renders MediaCard play button when tweet has a connected Episode with media_url", async () => {
+  it("does not render its own episode MediaCard for a tweet — delegated to AttachableEmbeds", async () => {
     mockGraphNodes = [EPISODE_NODE]
     mockGraphEdges = [{ source: "tweet-video-1", target: "tweet-video-1-episode", edge_type: "HAS_EPISODE" }]
     mockApiGet.mockResolvedValue({ nodes: [TWEET_NODE], edges: [] })
@@ -1624,8 +1626,11 @@ describe("NodePreviewPanel – Tweet with connected Episode video", () => {
     render(<NodePreviewPanel node={TWEET_NODE} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /play/i })).toBeInTheDocument()
+      expect(screen.getByText("Bitcoin is freedom.")).toBeInTheDocument()
     })
+    // The tweet's attached Episode is now rendered by <AttachableEmbeds>
+    // (mocked empty here), not by a panel-level "Play Video" MediaCard.
+    expect(screen.queryByRole("button", { name: /play/i })).toBeNull()
   })
 
   it("does not render a media player when tweet has no connected Episode", async () => {
