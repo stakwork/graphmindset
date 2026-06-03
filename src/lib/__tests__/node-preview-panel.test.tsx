@@ -645,6 +645,88 @@ describe("NodePreviewPanel – Stakwork project link", () => {
   )
 })
 
+describe("NodePreviewPanel – View original tweet link", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  function makeTweetNode(extraProps: Record<string, unknown>): GraphNode {
+    return {
+      ref_id: "tweet-1",
+      node_type: "Tweet",
+      properties: { name: "Test Tweet", ...extraProps },
+    }
+  }
+
+  it("renders tweet link with constructed URL from tweet_id + twitter_handle", async () => {
+    const node = makeTweetNode({ tweet_id: "123456", twitter_handle: "elonmusk" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /view original tweet/i })
+      expect(link).toBeInTheDocument()
+      expect(link).toHaveAttribute("href", "https://x.com/elonmusk/status/123456")
+      expect(link).toHaveAttribute("target", "_blank")
+      expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    })
+  })
+
+  it("prefers source_link over constructed URL when both are available", async () => {
+    const node = makeTweetNode({
+      tweet_id: "123456",
+      twitter_handle: "elonmusk",
+      source_link: "https://x.com/direct/link/999",
+    })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /view original tweet/i })
+      expect(link).toHaveAttribute("href", "https://x.com/direct/link/999")
+    })
+  })
+
+  it("renders tweet link using source_link alone (no tweet_id/twitter_handle)", async () => {
+    const node = makeTweetNode({ source_link: "https://x.com/some/tweet" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /view original tweet/i })
+      expect(link).toHaveAttribute("href", "https://x.com/some/tweet")
+    })
+  })
+
+  it("does not render tweet link when no tweet_id, twitter_handle, or source_link", async () => {
+    const node = makeTweetNode({ name: "Non-tweet node" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
+  })
+
+  it("does not render tweet link when only tweet_id is present (no handle)", async () => {
+    const node = makeTweetNode({ tweet_id: "123456" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
+  })
+})
+
 describe("NodePreviewPanel – preview=1 probe behaviour", () => {
   beforeEach(() => {
     vi.clearAllMocks()
