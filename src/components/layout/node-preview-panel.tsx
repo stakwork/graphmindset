@@ -207,7 +207,7 @@ function TweetCard({ props }: { props: Record<string, unknown> }) {
   )
 }
 
-function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unknown> }) {
+function MediaCard({ node, props, thumbnail }: { node: GraphNode; props: Record<string, unknown>; thumbnail?: string }) {
   const setPlayingNode = usePlayerStore((s) => s.setPlayingNode)
   const setHost = usePlayerStore((s) => s.setHost)
   const isThisNodeSelected = usePlayerStore(
@@ -237,19 +237,41 @@ function MediaCard({ node, props }: { node: GraphNode; props: Record<string, unk
             // Must stay in sync with the MediaPlayer controls layout in media-player.tsx.
             style={{ marginBottom: 52 }}
           />
+        ) : isVideo ? (
+          // Stable aspect-video container — same size as the host div above.
+          // Zero layout shift when Play is tapped.
+          <button
+            className="relative w-full aspect-video rounded-md overflow-hidden group"
+            onClick={() => setPlayingNode({ ...node, properties: props })}
+          >
+            {thumbnail ? (
+              <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-muted flex items-center justify-center">
+                <Film className="h-8 w-8 text-muted-foreground" />
+              </div>
+            )}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90">
+                <Play className="h-5 w-5 text-black ml-0.5" />
+              </div>
+            </div>
+            {duration !== undefined && (
+              <span className="absolute bottom-2 right-2 text-[10px] font-mono text-white bg-black/60 px-1.5 py-0.5 rounded">
+                {formatDuration(duration)}
+              </span>
+            )}
+          </button>
         ) : (
+          // Audio — existing button unchanged
           <Button
             size="sm"
             variant="outline"
             className="w-full"
             onClick={() => setPlayingNode({ ...node, properties: props })}
           >
-            {isVideo ? (
-              <Film className="h-3.5 w-3.5 mr-1.5" />
-            ) : (
-              <Play className="h-3.5 w-3.5 mr-1.5" />
-            )}
-            {isVideo ? "Play Video" : "Play Audio"}
+            <Play className="h-3.5 w-3.5 mr-1.5" />
+            Play Audio
             {duration !== undefined && (
               <span className="ml-auto text-muted-foreground font-mono text-[10px]">
                 {formatDuration(duration)}
@@ -748,6 +770,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   useEffect(() => {
     setCurrentNode(node)
     setHistory([])
+    scrollContentRef.current?.parentElement?.scrollTo({ top: 0, behavior: 'instant' })
   }, [node.ref_id])
 
   function handleNavigate(peer: GraphNode) {
@@ -843,7 +866,19 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     (s) => s.playingNode?.ref_id === currentNode.ref_id
   )
   const isImageNode = currentNode.node_type === "Image"
-  const showThumbnail = !!thumbnail && !isThisNodePlayingHere && !isImageNode
+  const mediaUrlForNode =
+    (fullNode?.properties?.media_url as string | undefined) ??
+    (typeof fullNode?.properties?.link === "string" && isMediaUrl(fullNode.properties.link as string)
+      ? (fullNode.properties.link as string)
+      : undefined)
+  const isVideoNode =
+    typeof mediaUrlForNode === "string" && /\.(mp4|webm|mov)/i.test(mediaUrlForNode)
+
+  // Suppress static thumbnail when:
+  //  - this node is playing (floating player already visible)
+  //  - it is an Image node
+  //  - it is an unlocked video node (thumbnail now lives inside MediaCard)
+  const showThumbnail = !!thumbnail && !isThisNodePlayingHere && !isImageNode && !(unlockState === 'unlocked' && isVideoNode)
 
   async function handleUnlock() {
     setUnlockState("loading")
@@ -1389,7 +1424,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                   MediaCard here, which previously duplicated it. */}
               {hasTwitterAccount && <TwitterAccountCard props={fp} />}
               {hasPerson && <PersonCard props={fp} />}
-              {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} />}
+              {hasMedia && fullNode && <MediaCard node={fullNode} props={fp} thumbnail={thumbnail} />}
               {isImageNode && <ImageCard props={fp} />}
               {hasSummary && <SummaryBlock text={fp.summary as string} />}
               {hasArticle && <ArticleCard props={fp} />}
