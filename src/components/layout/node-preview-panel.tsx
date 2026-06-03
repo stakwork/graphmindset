@@ -1277,6 +1277,28 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
             )
           })()}
 
+          {/* Original tweet link — visible to all users when tweet data is present */}
+          {(() => {
+            const tweetHandle = (fp?.twitter_handle ?? props?.twitter_handle) as string | undefined
+            const tweetId = (fp?.tweet_id ?? props?.tweet_id) as string | undefined
+            const tweetSourceLink = (fp?.source_link ?? props?.source_link) as string | undefined
+            const tweetUrl =
+              tweetSourceLink ??
+              (tweetHandle && tweetId ? `https://x.com/${tweetHandle}/status/${tweetId}` : null)
+            if (!tweetUrl) return null
+            return (
+              <a
+                href={tweetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2"
+              >
+                <ExternalLink className="h-3 w-3" />
+                View original tweet
+              </a>
+            )
+          })()}
+
           {/* Deep Research — Topic nodes only */}
           {DEEP_RESEARCH_NODE_TYPES.includes(currentNode.node_type) && (
             <div className="pt-1">
