@@ -645,6 +645,110 @@ describe("NodePreviewPanel – Stakwork project link", () => {
   )
 })
 
+describe("NodePreviewPanel – View original tweet link", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+  })
+
+  function makeTweetNode(extraProps: Record<string, unknown>): GraphNode {
+    return {
+      ref_id: "tweet-1",
+      node_type: "Tweet",
+      properties: { name: "Test Tweet", ...extraProps },
+    }
+  }
+
+  it("renders tweet link with constructed URL from tweet_id + twitter_handle", async () => {
+    const node = makeTweetNode({ tweet_id: "123456", twitter_handle: "elonmusk" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /view original tweet/i })
+      expect(link).toBeInTheDocument()
+      expect(link).toHaveAttribute("href", "https://x.com/elonmusk/status/123456")
+      expect(link).toHaveAttribute("target", "_blank")
+      expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    })
+  })
+
+  it("prefers source_link over constructed URL when both are available", async () => {
+    const node = makeTweetNode({
+      tweet_id: "123456",
+      twitter_handle: "elonmusk",
+      source_link: "https://x.com/direct/link/999",
+    })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /view original tweet/i })
+      expect(link).toHaveAttribute("href", "https://x.com/direct/link/999")
+    })
+  })
+
+  it("does not render tweet link from source_link alone (no tweet_id)", async () => {
+    // A real tweet is defined by its tweet_id. source_link alone is not enough
+    // — episodes/articles also carry source_link and must not get this link.
+    const node = makeTweetNode({ source_link: "https://x.com/some/tweet" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
+  })
+
+  it("does not render tweet link for an Episode node that has a source_link", async () => {
+    const node: GraphNode = {
+      ref_id: "ep-1",
+      node_type: "Episode",
+      properties: {
+        name: "Test Episode",
+        source_link: "https://example.com/episode/123",
+        media_url: "https://example.com/episode/123.mp4",
+      },
+    }
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
+  })
+
+  it("does not render tweet link when no tweet_id, twitter_handle, or source_link", async () => {
+    const node = makeTweetNode({ name: "Non-tweet node" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
+  })
+
+  it("does not render tweet link when only tweet_id is present (no handle)", async () => {
+    const node = makeTweetNode({ tweet_id: "123456" })
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
+  })
+})
+
 describe("NodePreviewPanel – preview=1 probe behaviour", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1644,5 +1748,147 @@ describe("NodePreviewPanel – Tweet with connected Episode video", () => {
       expect(screen.getByText("Bitcoin is freedom.")).toBeInTheDocument()
     })
     expect(screen.queryByRole("button", { name: /play/i })).toBeNull()
+  })
+})
+
+// ─── Video thumbnail & layout-shift fix tests ────────────────────────────────
+
+describe("NodePreviewPanel – scroll reset on node switch", () => {
+  const CLIP_A: GraphNode = {
+    ref_id: "clip-a",
+    node_type: "Clip",
+    properties: { name: "Clip A", media_url: "https://example.com/a.mp4" },
+  }
+  const CLIP_B: GraphNode = {
+    ref_id: "clip-b",
+    node_type: "Clip",
+    properties: { name: "Clip B", media_url: "https://example.com/b.mp4" },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockGraphNodes = []
+    mockGraphEdges = []
+    mockApiGet.mockResolvedValue({ nodes: [CLIP_A], edges: [] })
+  })
+
+  it("calls scrollTo({ top: 0 }) on the scroll container when the node ref_id changes", async () => {
+    const scrollToSpy = vi.fn()
+    // Patch Element.prototype.scrollTo to capture the call
+    const original = Element.prototype.scrollTo
+    Element.prototype.scrollTo = scrollToSpy
+
+    const { rerender } = render(
+      <NodePreviewPanel node={CLIP_A} onBack={vi.fn()} schemas={[]} />
+    )
+
+    // Clear initial mount calls
+    scrollToSpy.mockClear()
+
+    // Switch to a different node
+    mockApiGet.mockResolvedValue({ nodes: [CLIP_B], edges: [] })
+    rerender(<NodePreviewPanel node={CLIP_B} onBack={vi.fn()} schemas={[]} />)
+
+    expect(scrollToSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ top: 0 })
+    )
+
+    Element.prototype.scrollTo = original
+  })
+})
+
+describe("NodePreviewPanel – MediaCard video pre-play rendering", () => {
+  const VIDEO_CLIP: GraphNode = {
+    ref_id: "vclip-1",
+    node_type: "Clip",
+    properties: {
+      name: "Test Video Clip",
+      media_url: "https://example.com/video.mp4",
+      image_url: "https://example.com/thumb.jpg",
+    },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockGraphNodes = []
+    mockGraphEdges = []
+    // Probe returns 200 with the node so unlockState = 'unlocked'
+    mockApiGet.mockResolvedValue({ nodes: [VIDEO_CLIP], edges: [] })
+    playerStoreOverrides = { playingNode: null }
+  })
+
+  it("renders an aspect-video button container (not a Play Video button) for unlocked video nodes", async () => {
+    render(<NodePreviewPanel node={VIDEO_CLIP} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      // The aspect-video button should be present
+      const btn = document.querySelector("button.aspect-video")
+      expect(btn).not.toBeNull()
+    })
+
+    // The old "Play Video" button text should NOT appear
+    expect(screen.queryByRole("button", { name: /play video/i })).toBeNull()
+  })
+
+  it("shows the thumbnail image inside the aspect-video button", async () => {
+    render(<NodePreviewPanel node={VIDEO_CLIP} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      const img = document.querySelector("button.aspect-video img") as HTMLImageElement | null
+      expect(img).not.toBeNull()
+      expect(img?.src).toContain("thumb.jpg")
+    })
+  })
+
+  it("does NOT render the static top-level thumbnail img for unlocked video nodes", async () => {
+    render(<NodePreviewPanel node={VIDEO_CLIP} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      // aspect-video button must appear (unlocked state reached)
+      expect(document.querySelector("button.aspect-video")).not.toBeNull()
+    })
+
+    // Static thumbnail (h-32) should be absent — only the one inside MediaCard
+    const topLevelThumb = document.querySelector("img.h-32")
+    expect(topLevelThumb).toBeNull()
+  })
+
+  it("renders 'Play Audio' button (not aspect-video) for audio-only nodes", async () => {
+    const AUDIO_CLIP: GraphNode = {
+      ref_id: "aclip-1",
+      node_type: "Clip",
+      properties: {
+        name: "Audio Clip",
+        media_url: "https://example.com/audio.mp3",
+        image_url: "https://example.com/thumb.jpg",
+      },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [AUDIO_CLIP], edges: [] })
+
+    render(<NodePreviewPanel node={AUDIO_CLIP} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /play audio/i })).toBeInTheDocument()
+    })
+
+    // No aspect-video button for audio
+    expect(document.querySelector("button.aspect-video")).toBeNull()
+  })
+
+  it("renders the host div with aspect-video class when this node is playing", async () => {
+    playerStoreOverrides = { playingNode: { ref_id: "vclip-1" } as GraphNode }
+
+    render(<NodePreviewPanel node={VIDEO_CLIP} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      // When playing, the host div (aspect-video) should appear instead of the button
+      const hostDiv = document.querySelector("div.aspect-video")
+      expect(hostDiv).not.toBeNull()
+    })
+
+    // The clickable button variant should be gone
+    expect(document.querySelector("button.aspect-video")).toBeNull()
   })
 })
