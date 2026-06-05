@@ -1,11 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { TypeEditor } from "./type-editor"
-import { Plus, ArrowLeft, Box, Grid2x2 } from "lucide-react"
+import { Plus, ArrowLeft, Box, Grid2x2, Search } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 
 const OntologyGraph3D = dynamic(
@@ -13,6 +13,7 @@ const OntologyGraph3D = dynamic(
   { ssr: false, loading: () => <div className="flex h-full items-center justify-center"><p className="text-muted-foreground animate-pulse">Loading 3D...</p></div> }
 )
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { useSchemaStore } from "@/stores/schema-store"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
@@ -53,6 +54,7 @@ export default function OntologyPage() {
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [view3D, setView3D] = useState(false)
+  const [search, setSearch] = useState("")
   const [schemaError, setSchemaError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -73,6 +75,14 @@ export default function OntologyPage() {
   }, [])
 
   const selected = store.schemas.find((s) => s.ref_id === selectedId) ?? null
+
+  // Filter by type name, then sort alphabetically (by first letter).
+  const visibleSchemas = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return store.schemas
+      .filter((s) => !q || s.type.toLowerCase().includes(q))
+      .sort((a, b) => a.type.localeCompare(b.type))
+  }, [store.schemas, search])
 
   const handleUpdateSchema = useCallback(
     async (updated: SchemaNode) => {
@@ -155,8 +165,24 @@ export default function OntologyPage() {
             <Plus className="h-4 w-4" />
           </Button>
         </div>
+        <div className="relative z-10 p-2 border-b border-border">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search types..."
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
+        </div>
         <div className="relative z-10 flex-1 overflow-y-auto p-2 space-y-1">
-          {store.schemas.map((schema) => (
+          {visibleSchemas.length === 0 && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              No types match &ldquo;{search}&rdquo;
+            </p>
+          )}
+          {visibleSchemas.map((schema) => (
             <button
               key={schema.ref_id}
               onClick={() => setSelectedId(schema.ref_id)}
