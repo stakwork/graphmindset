@@ -2,6 +2,7 @@
 
 import { create } from "zustand"
 
+// //
 interface AppState {
   searchTerm: string
   sidebarOpen: boolean
