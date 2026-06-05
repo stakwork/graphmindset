@@ -1279,12 +1279,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
           {/* Original tweet link — visible to all users when tweet data is present */}
           {(() => {
-            const tweetHandle = (fp?.twitter_handle ?? props?.twitter_handle) as string | undefined
             const tweetId = (fp?.tweet_id ?? props?.tweet_id) as string | undefined
+            // Only tweets carry a tweet_id. Episodes/articles also have a
+            // source_link, so gating on source_link alone leaked this link onto
+            // non-tweet nodes — require an actual tweet id.
+            if (!tweetId) return null
+            const tweetHandle = (fp?.twitter_handle ?? props?.twitter_handle) as string | undefined
             const tweetSourceLink = (fp?.source_link ?? props?.source_link) as string | undefined
             const tweetUrl =
               tweetSourceLink ??
-              (tweetHandle && tweetId ? `https://x.com/${tweetHandle}/status/${tweetId}` : null)
+              (tweetHandle ? `https://x.com/${tweetHandle}/status/${tweetId}` : null)
             if (!tweetUrl) return null
             return (
               <a
