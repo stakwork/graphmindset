@@ -92,5 +92,15 @@ export function resolveNodeTitle(node: GraphNode, schemas: SchemaNode[]): string
 }
 
 export function resolveNodeThumbnail(node: GraphNode): string | undefined {
-  return pickString(node.properties, "image_url") ?? pickString(node.properties, "thumbnail")
+  // image_url/thumbnail cover most nodes. Image-type nodes (e.g. ones attached
+  // via /v2/content/image) hold their image in url/source_link/source_url
+  // instead, so fall back to those — otherwise attached Image nodes render as
+  // an empty placeholder.
+  return (
+    pickString(node.properties, "image_url") ??
+    pickString(node.properties, "thumbnail") ??
+    pickString(node.properties, "url") ??
+    pickString(node.properties, "source_link") ??
+    pickString(node.properties, "source_url")
+  )
 }

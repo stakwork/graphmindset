@@ -32,7 +32,8 @@ const { mockTriggerDeepResearch, mockGetLatestStakworkRun, mockGetNode, mockGetA
   mockGetNode: vi.fn().mockResolvedValue(null),
   mockGetAttachables: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
 }))
-vi.mock("@/lib/graph-api", () => ({
+vi.mock("@/lib/graph-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/graph-api")>()),
   triggerDeepResearch: (...args: unknown[]) => mockTriggerDeepResearch(...args),
   getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
   getNode: (...args: unknown[]) => mockGetNode(...args),

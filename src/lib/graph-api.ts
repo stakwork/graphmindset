@@ -268,6 +268,45 @@ export async function addImageContent(
   return response.json()
 }
 
+// Link two existing nodes with an `attachable:true` edge so the target renders
+// inline under the source in the preview panel (see AttachableEmbeds). The
+// flag lives in edge_data; the render side fetches via edge_props={attachable:true}.
+// edge_type defaults to CONTAINS — a built-in EDGE_TYPE, so it needs no
+// per-type edge schema between source and target.
+export async function createAttachableEdge(
+  sourceRefId: string,
+  targetRefId: string,
+  edgeType: string = "CONTAINS",
+  signal?: AbortSignal
+) {
+  return createEdge(
+    {
+      edge: { edge_type: edgeType, edge_data: { attachable: true } },
+      source: { ref_id: sourceRefId },
+      target: { ref_id: targetRefId },
+    },
+    signal
+  )
+}
+
+// One-shot "attach an image to a node": upload the file as an Image node
+// (reusing the /v2/content/image pipeline) then wire an attachable CONTAINS
+// edge from the target node to it. Returns the new Image node's ref_id.
+// No schema field is touched — the image shows up purely via the edge.
+export async function attachImageToNode(
+  targetRefId: string,
+  file: File,
+  signal?: AbortSignal
+): Promise<{ imageRefId: string }> {
+  const res = await addImageContent(file, {}, signal)
+  const imageRefId = res.nodes?.[0]?.ref_id
+  if (typeof imageRefId !== "string") {
+    throw new Error("image upload did not return a node ref_id")
+  }
+  await createAttachableEdge(targetRefId, imageRefId, "CONTAINS", signal)
+  return { imageRefId }
+}
+
 // Update a node
 export async function updateNode(
   refId: string,
