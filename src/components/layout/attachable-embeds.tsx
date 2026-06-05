@@ -29,9 +29,19 @@ import { resolveNodeTitle, resolveNodeThumbnail, pickString } from "@/lib/node-d
 import { displayNodeType, cn } from "@/lib/utils"
 import { payL402 } from "@/lib/sphinx"
 import { useUserStore } from "@/stores/user-store"
+import { cookieStorage } from "@/lib/cookie-storage"
+import { BoostButton } from "@/components/boost/boost-button"
+import { BulletIcon } from "@/components/ui/bullet-icon"
 import type { SchemaNode } from "@/app/ontology/page"
 
 const ALLOWED_IMAGE_TYPE_SET = new Set<string>(ALLOWED_IMAGE_TYPES)
+
+// Current boost on a node — `boost` is the canonical field, `num_boost` a
+// legacy fallback (mirrors node-preview-panel).
+function nodeBoost(node: GraphNode): number {
+  const b = node.properties?.boost ?? node.properties?.num_boost
+  return typeof b === "number" && b > 0 ? b : 0
+}
 
 interface AttachableEmbedsProps {
   nodeRefId: string
@@ -46,7 +56,11 @@ export function AttachableEmbeds({ nodeRefId, schemas, onNavigate }: AttachableE
   const [lightbox, setLightbox] = useState<{ images: GraphNode[]; index: number } | null>(null)
   // Bumped after a successful attach to re-pull the attachables for this node.
   const [reloadNonce, setReloadNonce] = useState(0)
+  // Anyone signed in (admin, a pubkey, or an L402 balance) can attach — not
+  // admins only. Matches the "Add Edge" gate in the node panel.
   const isAdmin = useUserStore((s) => s.isAdmin)
+  const pubKey = useUserStore((s) => s.pubKey)
+  const canAttach = isAdmin || !!pubKey || !!cookieStorage.getItem("l402")
 
   useEffect(() => {
     const controller = new AbortController()
@@ -78,9 +92,9 @@ export function AttachableEmbeds({ nodeRefId, schemas, onNavigate }: AttachableE
     }
   }, [peers])
 
-  // For non-admins with no attachables → render nothing (no label, no empty
-  // state). Admins always get the section so they can add the first one.
-  if ((!peers || peers.length === 0) && !isAdmin) return null
+  // With no attachables and no way to add → render nothing (no label, no empty
+  // state). Signed-in users always get the section so they can add the first one.
+  if ((!peers || peers.length === 0) && !canAttach) return null
 
   return (
     <div className="space-y-3">
@@ -96,7 +110,7 @@ export function AttachableEmbeds({ nodeRefId, schemas, onNavigate }: AttachableE
         <AttachableCard key={n.ref_id} node={n} schemas={schemas} onOpen={() => onNavigate?.(n)} />
       ))}
 
-      {isAdmin && (
+      {canAttach && (
         <AttachImageControl
           nodeRefId={nodeRefId}
           onAttached={() => setReloadNonce((n) => n + 1)}
@@ -209,6 +223,11 @@ function MediaGrid({ images, onOpen }: { images: GraphNode[]; onOpen: (index: nu
           {i === cap - 1 && extra > 0 && (
             <span className="absolute inset-0 flex items-center justify-center bg-background/60 text-xl font-bold text-foreground backdrop-blur-[1px]">
               +{extra}
+            </span>
+          )}
+          {nodeBoost(im) > 0 && (
+            <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 font-mono text-[11px] text-amber-400 backdrop-blur-sm">
+              <BulletIcon className="h-3 w-3" /> {nodeBoost(im)}
             </span>
           )}
         </button>
@@ -332,8 +351,9 @@ function Lightbox({
             <ImageIcon className="h-10 w-10 text-muted-foreground" />
           </div>
         )}
-        <figcaption className="flex flex-col items-center gap-1 text-center">
+        <figcaption className="flex flex-col items-center gap-2 text-center">
           <span className="text-sm font-medium text-foreground">{resolveNodeTitle(im, schemas)}</span>
+          <ImageBoost node={im} />
         </figcaption>
       </figure>
 
@@ -403,6 +423,37 @@ function ImageThumb({
       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
     />
   )
+}
+
+/* ── Boost an image — shows current amount and lets anyone boost ─────────── */
+function ImageBoost({ node }: { node: GraphNode }) {
+  const p = node.properties ?? {}
+  const ownerReference = typeof p.owner_reference_id === "string" ? p.owner_reference_id : undefined
+  const pubkey = typeof p.pubkey === "string" ? p.pubkey : undefined
+  const routeHint = typeof p.route_hint === "string" ? p.route_hint : undefined
+  const boost = nodeBoost(node)
+
+  // BoostButton handles the L402 flow and shows the live count. It needs an
+  // owner to credit; without one we can only display the current amount.
+  if (ownerReference) {
+    return (
+      <BoostButton
+        refId={node.ref_id}
+        ownerReference={ownerReference}
+        pubkey={pubkey}
+        routeHint={routeHint}
+        boostCount={boost}
+      />
+    )
+  }
+  if (boost > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 font-mono text-xs text-amber-400">
+        <BulletIcon className="h-3 w-3" /> {boost} bullets
+      </span>
+    )
+  }
+  return null
 }
 
 /* ── Add image — drop / paste / browse → Image node + attachable edge ────── */
