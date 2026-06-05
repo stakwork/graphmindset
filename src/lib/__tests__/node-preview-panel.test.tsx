@@ -690,16 +690,38 @@ describe("NodePreviewPanel – View original tweet link", () => {
     })
   })
 
-  it("renders tweet link using source_link alone (no tweet_id/twitter_handle)", async () => {
+  it("does not render tweet link from source_link alone (no tweet_id)", async () => {
+    // A real tweet is defined by its tweet_id. source_link alone is not enough
+    // — episodes/articles also carry source_link and must not get this link.
     const node = makeTweetNode({ source_link: "https://x.com/some/tweet" })
     mockApiGet.mockResolvedValue(makeGraphData(node))
 
     render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
 
     await waitFor(() => {
-      const link = screen.getByRole("link", { name: /view original tweet/i })
-      expect(link).toHaveAttribute("href", "https://x.com/some/tweet")
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
     })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
+  })
+
+  it("does not render tweet link for an Episode node that has a source_link", async () => {
+    const node: GraphNode = {
+      ref_id: "ep-1",
+      node_type: "Episode",
+      properties: {
+        name: "Test Episode",
+        source_link: "https://example.com/episode/123",
+        media_url: "https://example.com/episode/123.mp4",
+      },
+    }
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull()
+    })
+    expect(screen.queryByRole("link", { name: /view original tweet/i })).toBeNull()
   })
 
   it("does not render tweet link when no tweet_id, twitter_handle, or source_link", async () => {
