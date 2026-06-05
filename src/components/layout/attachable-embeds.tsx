@@ -14,15 +14,24 @@
  * NOT derived from the full neighbourhood — a node may have thousands of edges.
  */
 
-import { useEffect, useMemo, useState, useCallback } from "react"
+import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
-import { Play, Clock, Image as ImageIcon, ChevronRight, X, ChevronLeft } from "lucide-react"
+import { Play, Clock, Image as ImageIcon, ChevronRight, X, ChevronLeft, ImagePlus, Loader2, UploadCloud } from "lucide-react"
 
-import { getAttachables } from "@/lib/graph-api"
+import {
+  getAttachables,
+  attachImageToNode,
+  ALLOWED_IMAGE_TYPES,
+  MAX_IMAGE_UPLOAD_BYTES,
+} from "@/lib/graph-api"
 import type { GraphNode } from "@/lib/graph-api"
 import { resolveNodeTitle, resolveNodeThumbnail, pickString } from "@/lib/node-display"
 import { displayNodeType, cn } from "@/lib/utils"
+import { payL402 } from "@/lib/sphinx"
+import { useUserStore } from "@/stores/user-store"
 import type { SchemaNode } from "@/app/ontology/page"
+
+const ALLOWED_IMAGE_TYPE_SET = new Set<string>(ALLOWED_IMAGE_TYPES)
 
 interface AttachableEmbedsProps {
   nodeRefId: string
@@ -35,6 +44,9 @@ export function AttachableEmbeds({ nodeRefId, schemas, onNavigate }: AttachableE
   // fetch is in flight, and so we never call setState synchronously in the effect.
   const [result, setResult] = useState<{ refId: string; peers: GraphNode[] } | null>(null)
   const [lightbox, setLightbox] = useState<{ images: GraphNode[]; index: number } | null>(null)
+  // Bumped after a successful attach to re-pull the attachables for this node.
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const isAdmin = useUserStore((s) => s.isAdmin)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -53,7 +65,7 @@ export function AttachableEmbeds({ nodeRefId, schemas, onNavigate }: AttachableE
         if (!controller.signal.aborted) setResult({ refId: nodeRefId, peers: [] })
       })
     return () => controller.abort()
-  }, [nodeRefId])
+  }, [nodeRefId, reloadNonce])
 
   const peers = result && result.refId === nodeRefId ? result.peers : null
 
@@ -66,9 +78,9 @@ export function AttachableEmbeds({ nodeRefId, schemas, onNavigate }: AttachableE
     }
   }, [peers])
 
-  // Nothing fetched yet, or genuinely no attachables → render nothing (no label,
-  // no empty state — the section simply doesn't exist for nodes without them).
-  if (!peers || peers.length === 0) return null
+  // For non-admins with no attachables → render nothing (no label, no empty
+  // state). Admins always get the section so they can add the first one.
+  if ((!peers || peers.length === 0) && !isAdmin) return null
 
   return (
     <div className="space-y-3">
@@ -83,6 +95,13 @@ export function AttachableEmbeds({ nodeRefId, schemas, onNavigate }: AttachableE
       {rest.map((n) => (
         <AttachableCard key={n.ref_id} node={n} schemas={schemas} onOpen={() => onNavigate?.(n)} />
       ))}
+
+      {isAdmin && (
+        <AttachImageControl
+          nodeRefId={nodeRefId}
+          onAttached={() => setReloadNonce((n) => n + 1)}
+        />
+      )}
 
       {lightbox && (
         <Lightbox
@@ -178,7 +197,7 @@ function MediaGrid({ images, onOpen }: { images: GraphNode[]; onOpen: (index: nu
             n === 1 ? "aspect-[16/10]" : "aspect-square"
           )}
         >
-          <ImageThumb node={im} />
+          <ImageThumb node={im} variant="fill" />
           <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
             <ImageIcon className="h-4 w-4 text-white" />
           </span>
@@ -341,12 +360,39 @@ function Lightbox({
 }
 
 /* ── Image thumb with graceful fallback ─────────────────────────────────── */
-function ImageThumb({ node }: { node: GraphNode }) {
+// variant="cover" (default) center-crops to fill — fine for small uniform
+// thumbnails. variant="fill" shows the WHOLE image (object-contain) over a
+// blurred, zoomed copy of itself, so mismatched aspect ratios (e.g. a tall
+// full-body shot next to a face crop) aren't cropped and leave no dead space.
+function ImageThumb({
+  node,
+  variant = "cover",
+}: {
+  node: GraphNode
+  variant?: "cover" | "fill"
+}) {
   const src = resolveNodeThumbnail(node)
   if (!src) {
     return (
       <span className="flex h-full w-full items-center justify-center bg-muted">
         <ImageIcon className="h-5 w-5 text-muted-foreground" />
+      </span>
+    )
+  }
+  if (variant === "fill") {
+    return (
+      <span className="relative block h-full w-full overflow-hidden">
+        <img
+          src={src}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl"
+        />
+        <img
+          src={src}
+          alt=""
+          className="relative h-full w-full object-contain transition-transform duration-500 group-hover:scale-105"
+        />
       </span>
     )
   }
@@ -356,5 +402,171 @@ function ImageThumb({ node }: { node: GraphNode }) {
       alt=""
       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
     />
+  )
+}
+
+/* ── Add image — drop / paste / browse → Image node + attachable edge ────── */
+const maxMb = Math.round(MAX_IMAGE_UPLOAD_BYTES / 1024 / 1024)
+
+function AttachImageControl({
+  nodeRefId,
+  onAttached,
+}: {
+  nodeRefId: string
+  onAttached: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Upload validated bytes via the working pipeline (Image node + S3 + workflow),
+  // then wire the attachable edge. Retries once through the L402 on a 402.
+  const uploadAndAttach = useCallback(
+    async (file: File) => {
+      const run = () => attachImageToNode(nodeRefId, file)
+      try {
+        await run()
+      } catch (err) {
+        if (err instanceof Response && err.status === 402) {
+          await payL402(() => {})
+          await run()
+        } else {
+          throw err
+        }
+      }
+    },
+    [nodeRefId]
+  )
+
+  async function describeError(err: unknown): Promise<string> {
+    if (err instanceof Response) {
+      const body = (await err.json().catch(() => null)) as { message?: string; errorCode?: string } | null
+      return body?.message || body?.errorCode || `Upload failed (${err.status})`
+    }
+    return err instanceof Error ? err.message : "Upload failed"
+  }
+
+  const handleFile = useCallback(
+    async (file: File) => {
+      if (!ALLOWED_IMAGE_TYPE_SET.has(file.type)) {
+        setError("Use a JPEG, PNG, WebP, or GIF image")
+        return
+      }
+      if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+        setError(`Image must be under ${maxMb} MB`)
+        return
+      }
+      setBusy(true)
+      setError(null)
+      try {
+        await uploadAndAttach(file)
+        onAttached()
+        setOpen(false)
+      } catch (err) {
+        setError(await describeError(err))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [uploadAndAttach, onAttached]
+  )
+
+  // Paste an image anywhere while the panel is open (e.g. a screenshot).
+  useEffect(() => {
+    if (!open) return
+    const onPaste = (e: ClipboardEvent) => {
+      const imageItem = Array.from(e.clipboardData?.items ?? []).find(
+        (it) => it.kind === "file" && it.type.startsWith("image/")
+      )
+      const f = imageItem?.getAsFile()
+      if (f) {
+        e.preventDefault()
+        handleFile(f)
+      }
+    }
+    window.addEventListener("paste", onPaste)
+    return () => window.removeEventListener("paste", onPaste)
+  }, [open, handleFile])
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    if (busy) return
+    const file = e.dataTransfer.files?.[0]
+    if (file) handleFile(file)
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => { setOpen(true); setError(null) }}
+        className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-card/40 px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border/80 hover:text-foreground"
+      >
+        <ImagePlus className="h-3.5 w-3.5" /> Add image
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card/40 p-3">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          <ImagePlus className="h-3.5 w-3.5" /> Add image
+        </span>
+        <button
+          type="button"
+          onClick={() => { setOpen(false); setError(null) }}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Close"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ALLOWED_IMAGE_TYPES.join(",")}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ""
+          if (f) handleFile(f)
+        }}
+      />
+
+      {/* Drop / paste / browse zone */}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={cn(
+          "flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-3 py-5 text-center transition-colors disabled:opacity-60",
+          dragOver ? "border-primary bg-primary/5" : "border-border hover:border-border/80"
+        )}
+      >
+        {busy ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : (
+          <UploadCloud className="h-5 w-5 text-muted-foreground" />
+        )}
+        <span className="text-[11px] text-muted-foreground">
+          {busy ? "Attaching…" : "Drag & drop, paste, or click to browse"}
+        </span>
+        <span className="text-[10px] text-muted-foreground/50">JPEG / PNG / WebP / GIF · max {maxMb} MB</span>
+      </button>
+
+      {error && (
+        <p className="flex items-start gap-1 text-[11px] text-destructive">
+          <X className="mt-0.5 h-3 w-3 shrink-0" /> {error}
+        </p>
+      )}
+    </div>
   )
 }
