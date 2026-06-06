@@ -230,13 +230,16 @@ export const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024
 // application/json) so the browser can set the multipart boundary itself.
 export async function addImageContent(
   file: File,
-  opts: { name?: string; webhookUrl?: string } = {},
+  opts: { name?: string; webhookUrl?: string; attachTo?: string } = {},
   signal?: AbortSignal
 ): Promise<{
   status: string
   nodes: Array<Record<string, unknown>>
   status_messages: string[]
   temp_url?: string
+  // Present only when attachTo was supplied: whether the server created the
+  // attachable edge. false means the image uploaded but the edge insert failed.
+  attached?: boolean
 }> {
   const url = new URL(`${API_URL}/v2/content/image`)
 
@@ -245,6 +248,10 @@ export async function addImageContent(
     url.searchParams.append("sig", signed.signature)
     url.searchParams.append("msg", signed.message)
   }
+
+  // One-payment attach: the boltwall image endpoint creates the attachable
+  // edge server-side (unbilled) when attach_to is present — a single charge.
+  if (opts.attachTo) url.searchParams.append("attach_to", opts.attachTo)
 
   const headers: Record<string, string> = {}
   const l402 = await getL402()
@@ -266,45 +273,6 @@ export async function addImageContent(
     throw response
   }
   return response.json()
-}
-
-// Link two existing nodes with an `attachable:true` edge so the target renders
-// inline under the source in the preview panel (see AttachableEmbeds). The
-// flag lives in edge_data; the render side fetches via edge_props={attachable:true}.
-// edge_type defaults to CONTAINS — a built-in EDGE_TYPE, so it needs no
-// per-type edge schema between source and target.
-export async function createAttachableEdge(
-  sourceRefId: string,
-  targetRefId: string,
-  edgeType: string = "CONTAINS",
-  signal?: AbortSignal
-) {
-  return createEdge(
-    {
-      edge: { edge_type: edgeType, edge_data: { attachable: true } },
-      source: { ref_id: sourceRefId },
-      target: { ref_id: targetRefId },
-    },
-    signal
-  )
-}
-
-// One-shot "attach an image to a node": upload the file as an Image node
-// (reusing the /v2/content/image pipeline) then wire an attachable CONTAINS
-// edge from the target node to it. Returns the new Image node's ref_id.
-// No schema field is touched — the image shows up purely via the edge.
-export async function attachImageToNode(
-  targetRefId: string,
-  file: File,
-  signal?: AbortSignal
-): Promise<{ imageRefId: string }> {
-  const res = await addImageContent(file, {}, signal)
-  const imageRefId = res.nodes?.[0]?.ref_id
-  if (typeof imageRefId !== "string") {
-    throw new Error("image upload did not return a node ref_id")
-  }
-  await createAttachableEdge(targetRefId, imageRefId, "CONTAINS", signal)
-  return { imageRefId }
 }
 
 // Update a node

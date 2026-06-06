@@ -20,7 +20,7 @@ import { Play, Clock, Image as ImageIcon, ChevronRight, X, ChevronLeft, ImagePlu
 
 import {
   getAttachables,
-  attachImageToNode,
+  addImageContent,
   ALLOWED_IMAGE_TYPES,
   MAX_IMAGE_UPLOAD_BYTES,
 } from "@/lib/graph-api"
@@ -459,6 +459,22 @@ function ImageBoost({ node }: { node: GraphNode }) {
 /* ── Add image — drop / paste / browse → Image node + attachable edge ────── */
 const maxMb = Math.round(MAX_IMAGE_UPLOAD_BYTES / 1024 / 1024)
 
+// Run one paid call, settling the L402 once on a 402 and retrying that SAME
+// call. Deliberately per-call: the image upload and the edge are retried
+// independently, so a 402 on the (cheaper) edge step can never re-run — and
+// re-charge for — the image upload.
+async function withL402Retry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    if (err instanceof Response && err.status === 402) {
+      await payL402(() => {})
+      return await fn()
+    }
+    throw err
+  }
+}
+
 function AttachImageControl({
   nodeRefId,
   onAttached,
@@ -471,25 +487,6 @@ function AttachImageControl({
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  // Upload validated bytes via the working pipeline (Image node + S3 + workflow),
-  // then wire the attachable edge. Retries once through the L402 on a 402.
-  const uploadAndAttach = useCallback(
-    async (file: File) => {
-      const run = () => attachImageToNode(nodeRefId, file)
-      try {
-        await run()
-      } catch (err) {
-        if (err instanceof Response && err.status === 402) {
-          await payL402(() => {})
-          await run()
-        } else {
-          throw err
-        }
-      }
-    },
-    [nodeRefId]
-  )
 
   async function describeError(err: unknown): Promise<string> {
     if (err instanceof Response) {
@@ -512,7 +509,20 @@ function AttachImageControl({
       setBusy(true)
       setError(null)
       try {
-        await uploadAndAttach(file)
+        // Single paid step: boltwall uploads the Image node AND creates the
+        // attachable edge to nodeRefId server-side, so the user is charged once.
+        const res = await withL402Retry(() =>
+          addImageContent(file, { attachTo: nodeRefId })
+        )
+        if (typeof res.nodes?.[0]?.ref_id !== "string") {
+          throw new Error("image upload did not return a node ref_id")
+        }
+        // attached === false means the image uploaded but the edge insert
+        // failed server-side — surface it rather than silently showing nothing.
+        if (res.attached === false) {
+          setError("Image uploaded but couldn't be attached — please try again")
+          return
+        }
         onAttached()
         setOpen(false)
       } catch (err) {
@@ -521,7 +531,7 @@ function AttachImageControl({
         setBusy(false)
       }
     },
-    [uploadAndAttach, onAttached]
+    [nodeRefId, onAttached]
   )
 
   // Paste an image anywhere while the panel is open (e.g. a screenshot).
