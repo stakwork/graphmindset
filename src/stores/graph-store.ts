@@ -10,6 +10,9 @@ interface GraphState {
   loading: boolean
   hoveredNode: GraphNode | null
   sidebarSelectedNode: GraphNode | null
+  // ref_ids whose 1-hop neighborhood is currently being fetched. Drives the
+  // "loading connections" indicator; a Set so concurrent expansions coexist.
+  loadingNeighborRefs: Set<string>
   // Bumps only on full replacement (setGraphData). Consumers that only care
   // about "new search" semantics should depend on this, not on nodes/edges,
   // so appends via addNodes don't trigger a view reset.
@@ -20,6 +23,8 @@ interface GraphState {
   addNodes: (nodes: GraphNode[], edges: GraphEdge[]) => void
   setHoveredNode: (node: GraphNode | null) => void
   setSidebarSelectedNode: (node: GraphNode | null) => void
+  beginNeighborLoad: (refId: string) => void
+  endNeighborLoad: (refId: string) => void
   clearSelection: () => void
 }
 
@@ -34,6 +39,7 @@ export const useGraphStore = create<GraphState>((set) => ({
   loading: false,
   hoveredNode: null,
   sidebarSelectedNode: null,
+  loadingNeighborRefs: new Set<string>(),
   dataVersion: 0,
   setGraphData: (nodes, edges) =>
     set((s) => ({ nodes, edges, dataVersion: s.dataVersion + 1 })),
@@ -53,6 +59,20 @@ export const useGraphStore = create<GraphState>((set) => ({
     }),
   setHoveredNode: (hoveredNode) => set({ hoveredNode }),
   setSidebarSelectedNode: (sidebarSelectedNode) => set({ sidebarSelectedNode }),
+  beginNeighborLoad: (refId) =>
+    set((s) => {
+      if (s.loadingNeighborRefs.has(refId)) return s
+      const next = new Set(s.loadingNeighborRefs)
+      next.add(refId)
+      return { loadingNeighborRefs: next }
+    }),
+  endNeighborLoad: (refId) =>
+    set((s) => {
+      if (!s.loadingNeighborRefs.has(refId)) return s
+      const next = new Set(s.loadingNeighborRefs)
+      next.delete(refId)
+      return { loadingNeighborRefs: next }
+    }),
   clearSelection: () =>
     set({ selectedNode: null, sidebarSelectedNode: null, hoveredNode: null }),
 }))
