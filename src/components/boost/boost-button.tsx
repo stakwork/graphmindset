@@ -5,8 +5,9 @@ import { BulletIcon } from "@/components/ui/bullet-icon"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { isMocksEnabled } from "@/lib/mock-data"
-import { adminKeysend, isSphinx, payL402 } from "@/lib/sphinx"
+import { adminKeysend, hasWebLN, isSphinx, payL402 } from "@/lib/sphinx"
 import { useUserStore } from "@/stores/user-store"
+import { useModalStore } from "@/stores/modal-store"
 import { parsePubkeyWithHint } from "@/lib/pubkey-utils"
 
 const DEFAULT_BOOST_AMOUNT = 10
@@ -20,6 +21,9 @@ interface BoostButtonProps {
   routeHint?: string
   boostCount?: number
   className?: string
+  /** "default" = labelled button; "compact" = single glassy pill that always
+   *  shows the current total and doubles as the trigger (for image overlays). */
+  variant?: "default" | "compact"
 }
 
 export function BoostButton({
@@ -29,6 +33,7 @@ export function BoostButton({
   routeHint,
   boostCount = 0,
   className,
+  variant = "default",
 }: BoostButtonProps) {
   const [count, setCount] = useState(boostCount)
   const [boosting, setBoosting] = useState(false)
@@ -38,6 +43,7 @@ export function BoostButton({
   const isAdmin = useUserStore((s) => s.isAdmin)
   const setBudget = useUserStore((s) => s.setBudget)
   const refreshBalance = useUserStore((s) => s.refreshBalance)
+  const openModal = useModalStore((s) => s.open)
 
   const handleBoost = useCallback(async () => {
     if (boosting) return
@@ -62,6 +68,15 @@ export function BoostButton({
             await api.post("/boost", body)
           } catch (err) {
             if (err instanceof Response && err.status === 402) {
+              // 402 means no L402 token or insufficient balance. payL402 can
+              // settle this inline only when a wallet is present (Sphinx app or
+              // WebLN extension). Otherwise the user needs the QR top-up flow —
+              // open the budget modal rather than throwing "No WebLN provider".
+              if (!isSphinx() && !hasWebLN()) {
+                openModal("budget")
+                setError("Top up your balance to boost.")
+                return
+              }
               await payL402(setBudget)
               await api.post("/boost", body)
             } else {
@@ -81,7 +96,36 @@ export function BoostButton({
     } finally {
       setBoosting(false)
     }
-  }, [refId, ownerReference, pubkey, routeHint, boosting, isAdmin, setBudget, refreshBalance])
+  }, [refId, ownerReference, pubkey, routeHint, boosting, isAdmin, setBudget, refreshBalance, openModal])
+
+  if (variant === "compact") {
+    // Single pill: always shows the current total and is itself the trigger.
+    // Lives as an overlay on image tiles / the lightbox, so keep it tiny and
+    // glassy. Errors are surfaced via the title tooltip (the no-wallet case
+    // opens the budget modal from handleBoost).
+    return (
+      <button
+        type="button"
+        onClick={handleBoost}
+        disabled={boosting}
+        title={error ?? "Boost +" + DEFAULT_BOOST_AMOUNT}
+        aria-label={`Boost — ${count} bullets`}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] backdrop-blur-sm transition-all",
+          flash
+            ? "bg-amber/20 text-amber"
+            : "bg-black/70 text-amber-400 hover:bg-black/85 hover:text-amber",
+          boosting && "cursor-wait opacity-60",
+          className
+        )}
+      >
+        <BulletIcon
+          className={cn("h-3 w-3 transition-transform", flash && "scale-125")}
+        />
+        {count}
+      </button>
+    )
+  }
 
   return (
     <div className="flex flex-col items-start gap-1">

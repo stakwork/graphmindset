@@ -101,6 +101,14 @@ function pickTitle(node: GraphNode): string {
   return node.ref_id
 }
 
+// Current boost on a node — `boost` is canonical, `num_boost` a legacy
+// fallback (mirrors attachable-embeds / node-preview-panel).
+function nodeBoost(node: GraphNode): number {
+  const props = node.properties as Record<string, unknown> | undefined
+  const b = props?.boost ?? props?.num_boost
+  return typeof b === "number" && b > 0 ? b : 0
+}
+
 export interface CaseCardProps {
   node: GraphNode
   variant: "selected" | "neighbor"
@@ -108,9 +116,11 @@ export interface CaseCardProps {
   // below ~0.001 so this stays a smooth fade.
   morphProgress: number
   onClick?: () => void
+  // Focal-only: the node's attached images, rendered as an embedded strip.
+  attachedImages?: GraphNode[]
 }
 
-export function CaseCard({ node, variant, morphProgress, onClick }: CaseCardProps) {
+export function CaseCard({ node, variant, morphProgress, onClick, attachedImages }: CaseCardProps) {
   const type = node.node_type || ""
   const accent = TYPE_ACCENT[type] ?? DEFAULT_ACCENT
   const title = pickTitle(node)
@@ -120,6 +130,10 @@ export function CaseCard({ node, variant, morphProgress, onClick }: CaseCardProp
   const thumbnail = resolveNodeThumbnail(node)
   const description = isSelected ? pickDescription(node) : null
   const fields = pickFields(node, isSelected ? 4 : 3, 60)
+  // Attached images only render on the focal card. Attachables are fetched
+  // upstream (getAttachables) and passed down — the board's neighbour set
+  // doesn't include them.
+  const images = isSelected ? attachedImages ?? [] : []
 
   const opacity = Math.max(0, Math.min(1, morphProgress))
   const widthPx = isSelected ? 300 : 240
@@ -270,6 +284,103 @@ export function CaseCard({ node, variant, morphProgress, onClick }: CaseCardProp
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {images.length > 0 && (
+          <div style={{ marginTop: description || fields.length > 0 ? 12 : 10 }}>
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 600,
+                letterSpacing: 1.2,
+                textTransform: "uppercase",
+                color: INK_DIM,
+                marginBottom: 6,
+              }}
+            >
+              {images.length} {images.length === 1 ? "image" : "images"}
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${Math.min(images.length, 4)}, 1fr)`,
+                gap: 4,
+              }}
+            >
+              {images.slice(0, 4).map((im, i) => {
+                const thumb = resolveNodeThumbnail(im)
+                const boost = nodeBoost(im)
+                const extra = i === 3 && images.length > 4 ? images.length - 4 : 0
+                return (
+                  <div
+                    key={im.ref_id}
+                    style={{
+                      position: "relative",
+                      aspectRatio: "1 / 1",
+                      borderRadius: 4,
+                      overflow: "hidden",
+                      background: FIELD_BG,
+                      border: `1px solid ${accent}33`,
+                      ...(thumb
+                        ? {
+                            backgroundImage: `url(${thumb})`,
+                            backgroundSize: "cover",
+                            backgroundPosition: "center",
+                          }
+                        : {}),
+                    }}
+                  >
+                    {boost > 0 && extra === 0 && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          bottom: 2,
+                          left: 2,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 3,
+                          padding: "1px 5px",
+                          borderRadius: 999,
+                          background: "rgba(0,0,0,0.7)",
+                          color: "#fbbf24",
+                          fontSize: 9,
+                          fontWeight: 700,
+                          fontFamily: '"Space Grotesk", system-ui, sans-serif',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 5,
+                            height: 5,
+                            borderRadius: 999,
+                            background: "#fbbf24",
+                            boxShadow: "0 0 4px #fbbf24",
+                          }}
+                        />
+                        {boost}
+                      </div>
+                    )}
+                    {extra > 0 && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: "rgba(7,11,17,0.62)",
+                          color: INK_PRIMARY,
+                          fontSize: 15,
+                          fontWeight: 700,
+                        }}
+                      >
+                        +{extra}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
