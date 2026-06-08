@@ -17,7 +17,15 @@ import {
   OffscreenIndicators,
   PrevNodeIndicator,
 } from "@/graph-viz-kit"
-import type { Graph, ViewState, RawNode, RawEdge } from "@/graph-viz-kit"
+import type {
+  Graph,
+  ViewState,
+  RawNode,
+  RawEdge,
+  Vec3,
+  GraphNode as VizNode,
+  GraphEdge as VizEdge,
+} from "@/graph-viz-kit"
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
@@ -346,6 +354,331 @@ function applyLayout(graph: Graph) {
   graph.originalPositions = snapshot
 }
 
+// Default ring radius for appended children when their parent has no existing
+// children to size against — matches MIN_R1 / the R1 ring a freshly clicked
+// node's children land on after rescale, so a fetch attaches at the same scale.
+const APPEND_CHILD_R = 22
+// Small per-depth vertical drop so appended children tier below their parent,
+// mirroring computeRadialLayout's y-offset feel without recomputing it.
+const APPEND_Y_DROP = 3
+
+// Place a batch of freshly-appended `kids` on a ring around their already-placed
+// `parent`, updating the derived layout structures (depth, originals, tree
+// edges, childrenOf) so the new nodes behave like first-class layout members on
+// subsequent clicks/rescales.
+function placeChildren(
+  nodes: VizNode[],
+  parent: number,
+  kids: number[],
+  initialDepthMap: Map<number, number>,
+  originalPositions: Map<number, Vec3>,
+  childrenOf: Map<number, number[]>,
+  treeEdgeSet: Set<string>
+): void {
+  const pPos = nodes[parent].position
+  const childDepth = (initialDepthMap.get(parent) ?? 0) + 1
+
+  const existingKids = childrenOf.get(parent) ?? []
+  const existingCount = existingKids.length
+
+  // Radius: average the parent's existing children if any (keeps appended nodes
+  // on the same ring the parent's subtree already uses, rescaled or not),
+  // otherwise fall back to the default R1.
+  let R = APPEND_CHILD_R
+  if (existingCount > 0) {
+    let sum = 0
+    let cnt = 0
+    for (const k of existingKids) {
+      const kp = nodes[k]?.position
+      if (!kp) continue
+      sum += Math.hypot(kp.x - pPos.x, kp.z - pPos.z)
+      cnt++
+    }
+    if (cnt > 0) R = sum / cnt
+  }
+
+  // Fan outward (away from origin), continuing past any existing children so
+  // new arrivals don't stack on top of them.
+  const outward = Math.atan2(pPos.z, pPos.x) || 0
+  const total = existingCount + kids.length
+  const step = (Math.PI * 2) / Math.max(total, 1)
+
+  if (!childrenOf.has(parent)) childrenOf.set(parent, [])
+  const kidList = childrenOf.get(parent)!
+
+  for (let j = 0; j < kids.length; j++) {
+    const v = kids[j]
+    const phi = outward + (existingCount + j) * step
+    const pos: Vec3 = {
+      x: pPos.x + Math.cos(phi) * R,
+      y: pPos.y - APPEND_Y_DROP,
+      z: pPos.z + Math.sin(phi) * R,
+    }
+    nodes[v].position = pos
+    originalPositions.set(v, { ...pos })
+    initialDepthMap.set(v, childDepth)
+    kidList.push(v)
+    treeEdgeSet.add(parent < v ? `${parent}-${v}` : `${v}-${parent}`)
+  }
+}
+
+interface GraphModel {
+  graph: Graph
+  indexMap: Map<number, string>
+  refIdToIndex: Map<string, number>
+}
+
+interface AppendResult {
+  model: GraphModel
+  /** Indices of the nodes added by this append. */
+  newNodeIds: number[]
+  /** For each appended node, the node it was placed under (absent for strays). */
+  parentOf: Map<number, number>
+}
+
+// Fold freshly-fetched nodes/edges into an existing graph WITHOUT re-running
+// apiToGraph or the global radial layout. Existing node objects are reused
+// verbatim (same positions, same indices) so a click-driven 1-hop fetch just
+// attaches the new nodes around their parent — no reshuffle, no camera jump.
+// This is the path GraphView's `nodeCountGrew` snap branch was written for.
+//
+// Grouping IS applied, but only to the freshly-arriving batch: new children of
+// the same (source, edge_type, target_type) that cross CLUSTER_THRESHOLD get a
+// synthetic `_cluster` proxy (source → proxy → members), mirroring apiToGraph.
+// Because append never rebuilds, a proxy created here becomes a permanent node
+// with a fixed index — no cross-rebuild identity drift, which is what sank the
+// old position-cache attempts. Existing nodes (and their existing clustering)
+// are never re-evaluated.
+function appendToGraph(
+  model: GraphModel,
+  apiNodes: ApiNode[],
+  apiEdges: ApiEdge[],
+  schemas: SchemaNode[]
+): AppendResult | null {
+  const prev = model.graph
+  const oldCount = prev.nodes.length
+
+  const refIdToIndex = new Map(model.refIdToIndex)
+  const indexMap = new Map(model.indexMap)
+
+  // ── New real nodes (members). Append-only: existing indices stay put. ──
+  const newApiNodes = apiNodes.filter((n) => !refIdToIndex.has(n.ref_id))
+  const memberObjs: VizNode[] = newApiNodes.map((n, k) => ({
+    id: oldCount + k,
+    label: truncateLabel(nodeLabel(n, schemas)),
+    position: { x: 0, y: 0, z: 0 },
+    degree: 0,
+    nodeType: n.node_type,
+  }))
+  for (let k = 0; k < newApiNodes.length; k++) {
+    const idx = oldCount + k
+    refIdToIndex.set(newApiNodes[k].ref_id, idx)
+    indexMap.set(idx, newApiNodes[k].ref_id)
+  }
+
+  const typeOf = (i: number): string =>
+    (i < oldCount ? prev.nodes[i].nodeType : newApiNodes[i - oldCount]?.node_type) || "Unknown"
+  const isNew = (i: number): boolean => i >= oldCount
+
+  // ── Resolve candidate new edges (hierarchy rewrite, resolve, dedupe) ──
+  interface Cand {
+    src: number
+    dst: number
+    edge_type: string
+  }
+  const seen = new Set(prev.edges.map((e) => `${e.src} ${e.dst}`))
+  const candidates: Cand[] = []
+  for (const raw of apiEdges) {
+    const e = INVERT_FOR_HIERARCHY.has(raw.edge_type)
+      ? { source: raw.target, target: raw.source, edge_type: raw.edge_type }
+      : raw
+    const src = refIdToIndex.get(e.source)
+    const dst = refIdToIndex.get(e.target)
+    if (src === undefined || dst === undefined || src === dst) continue
+    const key = `${src} ${dst}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    candidates.push({ src, dst, edge_type: e.edge_type })
+  }
+
+  if (memberObjs.length === 0 && candidates.length === 0) return null
+
+  // ── Bundle fresh child edges by (source, edge_type, target_type). A bundle
+  //    that crosses the threshold becomes a `_cluster` proxy. Only the new
+  //    batch is grouped — existing children are left untouched. ──
+  const bundles = new Map<
+    string,
+    { src: number; edge_type: string; tgtType: string; edges: Cand[] }
+  >()
+  for (const c of candidates) {
+    if (!isNew(c.dst)) continue
+    const tgtType = typeOf(c.dst)
+    const key = `${c.src} ${c.edge_type} ${tgtType}`
+    let b = bundles.get(key)
+    if (!b) {
+      b = { src: c.src, edge_type: c.edge_type, tgtType, edges: [] }
+      bundles.set(key, b)
+    }
+    b.edges.push(c)
+  }
+
+  const absorbed = new Set<Cand>()
+  const proxyObjs: VizNode[] = []
+  const proxyRouting: { proxy: number; src: number; members: number[]; edge_type: string }[] = []
+  let proxyCursor = oldCount + memberObjs.length
+  for (const b of bundles.values()) {
+    if (b.edges.length < CLUSTER_THRESHOLD) continue
+    const proxy = proxyCursor++
+    proxyObjs.push({
+      id: proxy,
+      label: `${b.tgtType} × ${b.edges.length} · ${b.edge_type}`,
+      position: { x: 0, y: 0, z: 0 },
+      degree: 0,
+      nodeType: "_cluster",
+      clusterMemberType: b.tgtType,
+    })
+    proxyRouting.push({
+      proxy,
+      src: b.src,
+      members: b.edges.map((e) => e.dst),
+      edge_type: b.edge_type,
+    })
+    for (const e of b.edges) absorbed.add(e)
+  }
+
+  const nodes: VizNode[] = [...prev.nodes, ...memberObjs, ...proxyObjs]
+  const total = nodes.length
+
+  // ── Adjacency: copy existing rows, empty rows for new members + proxies ──
+  const adj: number[][] = new Array(total)
+  const outAdj: number[][] = new Array(total)
+  const inAdj: number[][] = new Array(total)
+  for (let i = 0; i < total; i++) {
+    adj[i] = i < oldCount ? prev.adj[i].slice() : []
+    outAdj[i] = i < oldCount ? prev.outAdj[i].slice() : []
+    inAdj[i] = i < oldCount ? prev.inAdj[i].slice() : []
+  }
+
+  const edges: VizEdge[] = prev.edges.slice()
+  const extraEdges: VizEdge[] = (prev.extraEdges ?? []).slice()
+  const addEdge = (src: number, dst: number, label: string) => {
+    edges.push({ src, dst, label })
+    adj[src].push(dst)
+    adj[dst].push(src)
+    outAdj[src].push(dst)
+    inAdj[dst].push(src)
+  }
+
+  // Proxy routing: source → proxy → members in the layout; the absorbed
+  // source → member originals move to extraEdges (surfaced on hover/select,
+  // matching apiToGraph). GraphView drops the proxy → member spokes from the
+  // render automatically (edges out of a `_cluster` node).
+  for (const r of proxyRouting) {
+    addEdge(r.src, r.proxy, r.edge_type)
+    for (const m of r.members) {
+      addEdge(r.proxy, m, r.edge_type)
+      extraEdges.push({ src: r.src, dst: m, label: r.edge_type })
+    }
+  }
+  // Non-clustered new edges go in directly.
+  for (const c of candidates) {
+    if (absorbed.has(c)) continue
+    addEdge(c.src, c.dst, c.edge_type)
+  }
+
+  for (let i = oldCount; i < total; i++) nodes[i].degree = adj[i].length
+
+  // ── Clone derived structures so prev stays intact ──
+  const childrenOf = new Map<number, number[]>()
+  if (prev.childrenOf) for (const [k, v] of prev.childrenOf) childrenOf.set(k, v.slice())
+  const treeEdgeSet = new Set(prev.treeEdgeSet ?? [])
+  const initialDepthMap = new Map(prev.initialDepthMap ?? [])
+  const originalPositions = new Map(prev.originalPositions ?? [])
+
+  // ── Place new nodes around an already-placed parent, in waves so chains of
+  //    new nodes (A→B→C) place parents before their children ──
+  const parentOf = new Map<number, number>()
+  const placed = new Set<number>()
+  for (let i = 0; i < oldCount; i++) placed.add(i)
+
+  // A clustered member must hang off its proxy, never a cross-edge neighbor —
+  // so it waits for the proxy rather than falling back to inAdj/adj.
+  const forcedParent = new Map<number, number>()
+  for (const r of proxyRouting) for (const m of r.members) forcedParent.set(m, r.proxy)
+
+  const pickParent = (v: number): number | undefined => {
+    const forced = forcedParent.get(v)
+    if (forced !== undefined) return placed.has(forced) ? forced : undefined
+    for (const p of inAdj[v]) if (placed.has(p)) return p // directed parent first
+    for (const p of adj[v]) if (placed.has(p)) return p // else any placed neighbor
+    return undefined
+  }
+
+  let pending = [...proxyObjs, ...memberObjs].map((n) => n.id)
+  let progress = true
+  while (pending.length > 0 && progress) {
+    progress = false
+    const byParent = new Map<number, number[]>()
+    const stillPending: number[] = []
+    for (const v of pending) {
+      const p = pickParent(v)
+      if (p === undefined) {
+        stillPending.push(v)
+        continue
+      }
+      if (!byParent.has(p)) byParent.set(p, [])
+      byParent.get(p)!.push(v)
+    }
+    for (const [p, kids] of byParent) {
+      placeChildren(nodes, p, kids, initialDepthMap, originalPositions, childrenOf, treeEdgeSet)
+      for (const v of kids) {
+        placed.add(v)
+        parentOf.set(v, p)
+      }
+      progress = true
+    }
+    pending = stillPending
+  }
+
+  // Strays: new nodes with no placed neighbor (disconnected from current graph).
+  // Park them on an outer ring so they stay visible and selectable.
+  if (pending.length > 0) {
+    let maxR = APPEND_CHILD_R
+    for (const pos of originalPositions.values()) {
+      const r = Math.hypot(pos.x, pos.z)
+      if (r > maxR) maxR = r
+    }
+    const ringR = maxR * 1.2 + 20
+    const step = (Math.PI * 2) / pending.length
+    for (let i = 0; i < pending.length; i++) {
+      const v = pending[i]
+      const pos: Vec3 = { x: Math.cos(i * step) * ringR, y: 0, z: Math.sin(i * step) * ringR }
+      nodes[v].position = pos
+      originalPositions.set(v, { ...pos })
+      initialDepthMap.set(v, 1)
+    }
+  }
+
+  const graph: Graph = {
+    ...prev,
+    nodes,
+    edges,
+    adj,
+    outAdj,
+    inAdj,
+    extraEdges,
+    childrenOf,
+    treeEdgeSet,
+    initialDepthMap,
+    originalPositions,
+  }
+  return {
+    model: { graph, indexMap, refIdToIndex },
+    newNodeIds: [...proxyObjs, ...memberObjs].map((n) => n.id),
+    parentOf,
+  }
+}
+
 
 // Matches DEPTH_SHRINK in computeRadialLayout. Click inflation is the
 // inverse: 1/0.45^d makes the ring around a depth-d node land at R1 again.
@@ -637,11 +970,78 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const dataVersion = useGraphStore((s) => s.dataVersion)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
-  const { graph, indexMap, refIdToIndex } = useMemo(() => {
+  // Declared early so the incremental-append effect below can reveal newly
+  // attached nodes inside the active subgraph focus.
+  const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
+
+  // Full rebuild (apiToGraph + global radial layout) only on a NEW dataset
+  // (dataVersion bump from setGraphData) or a schema change — never on addNodes
+  // appends. Rebuilding on every nodes/edges change is the reshuffle we avoid;
+  // appends are folded in incrementally below via appendToGraph.
+  const baseModel = useMemo(() => {
     const result = apiToGraph(nodes, edges, schemas)
     applyLayout(result.graph)
     return result
-  }, [nodes, edges, schemas])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes/edges read at build time but intentionally NOT deps; see comment above
+  }, [dataVersion, schemas])
+
+  // `appendModel` accumulates incremental appends on top of the last full
+  // build. On a full rebuild (baseModel changes) we use baseModel directly for
+  // THIS render to avoid a one-frame flash of stale data, then resync
+  // appendModel in an effect so subsequent appends build on the fresh layout.
+  const [appendModel, setAppendModel] = useState<GraphModel>(baseModel)
+  const baseRef = useRef(baseModel)
+  const isRebuild = baseRef.current !== baseModel
+  const model = isRebuild ? baseModel : appendModel
+
+  // Counts processed into `model` so the append effect can tell real growth
+  // (addNodes) from a full rebuild that already includes everything.
+  const appendCountsRef = useRef({ nodes: nodes.length, edges: edges.length })
+
+  // A full rebuild resets the append baseline.
+  useEffect(() => {
+    baseRef.current = baseModel
+    setAppendModel(baseModel)
+    appendCountsRef.current = { nodes: nodes.length, edges: edges.length }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- counts captured at rebuild time on purpose
+  }, [baseModel])
+
+  // Fold appended nodes/edges into the current graph in place (no reshuffle).
+  // The count guard runs before the append, so the re-render setAppendModel
+  // triggers (which re-fires this effect via the `model` dep) early-returns.
+  useEffect(() => {
+    const last = appendCountsRef.current
+    if (nodes.length <= last.nodes && edges.length <= last.edges) return
+    appendCountsRef.current = { nodes: nodes.length, edges: edges.length }
+
+    const res = appendToGraph(model, nodes, edges, schemas)
+    if (!res) return
+    setAppendModel(res.model)
+
+    // When focused on a subgraph, GraphView hides anything outside
+    // visibleNodeIds. Reveal the freshly-attached nodes (at their parent's
+    // relative depth + 1) so a click-driven fetch actually surfaces them.
+    if (res.newNodeIds.length > 0) {
+      setViewState((vs) => {
+        if (vs.mode !== "subgraph") return vs
+        const visible = new Set(vs.visibleNodeIds)
+        const depthMap = new Map(vs.depthMap)
+        let changed = false
+        for (const id of res.newNodeIds) {
+          if (visible.has(id)) continue
+          visible.add(id)
+          const p = res.parentOf.get(id)
+          const pd = p === undefined || p === vs.selectedNodeId ? 0 : depthMap.get(p) ?? 1
+          depthMap.set(id, pd + 1)
+          changed = true
+        }
+        if (!changed) return vs
+        return { ...vs, visibleNodeIds: Array.from(visible), depthMap }
+      })
+    }
+  }, [nodes, edges, schemas, model])
+
+  const { graph, indexMap, refIdToIndex } = model
 
   // Lowercase type → schema icon name (e.g. "EpisodeIcon"). The pill in
   // GraphView resolves this through schema-icons to a Lucide component.
@@ -653,7 +1053,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return map
   }, [schemas])
 
-  const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
@@ -714,7 +1113,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // from sidebar-driven neighbor fetches — otherwise focusing the camera on
   // a clicked node would be undone every time a neighborhood arrives.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- paired with an imperative camera reset; remount would drop GL state
     setViewState({ mode: "overview" })
     setCamTarget(OVERVIEW_CAM)
   }, [dataVersion, setCamTarget])
