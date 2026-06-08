@@ -12,7 +12,7 @@ import { MediaPlayer } from "@/components/player/media-player"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { useSchemaStore } from "@/stores/schema-store"
-import { useSidebarNeighborFetch } from "@/hooks/use-sidebar-neighbor-fetch"
+import { useNeighborFetch } from "@/hooks/use-neighbor-fetch"
 import { useDeepLink } from "@/hooks/use-deep-link"
 import { usePanelGraphSync } from "@/hooks/use-panel-graph-sync"
 import { isMocksEnabled } from "@/lib/mock-data"
@@ -20,7 +20,7 @@ import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
 
 export function AppLayout() {
   useDeepLink()
-  useSidebarNeighborFetch()
+  useNeighborFetch()
   usePanelGraphSync()
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "graphmindset-main-layout" })
   const schemas = useSchemaStore((s) => s.schemas)

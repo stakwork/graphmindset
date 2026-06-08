@@ -308,15 +308,52 @@ function MediaCard({ node, props, thumbnail }: { node: GraphNode; props: Record<
   )
 }
 
-function TranscriptBlock({ text }: { text: string }) {
+export function parseTranscriptSegments(
+  text: string
+): Array<{ speaker: string; text: string }> | null {
+  const speakerLineRe = /^([^:\n]+):\s*(.*)$/
+  const lines = text.split("\n")
+  const segments: Array<{ speaker: string; text: string }> = []
+  let current: { speaker: string; lines: string[] } | null = null
+
+  for (const line of lines) {
+    const match = line.match(speakerLineRe)
+    if (match) {
+      if (current)
+        segments.push({ speaker: current.speaker, text: current.lines.join("\n").trim() })
+      current = { speaker: match[1].trim(), lines: match[2] ? [match[2]] : [] }
+    } else if (current) {
+      current.lines.push(line)
+    }
+  }
+  if (current) segments.push({ speaker: current.speaker, text: current.lines.join("\n").trim() })
+
+  return segments.length > 1 ? segments : null
+}
+
+export function TranscriptBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
   const isLong = text.length > 300
-  const display = isLong && !expanded ? text.slice(0, 300) + "\u2026" : text
+  const displayText = isLong && !expanded ? text.slice(0, 300) + "\u2026" : text
+  const segments = parseTranscriptSegments(displayText)
 
   return (
     <div className="space-y-1">
       <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Transcript</p>
-      <p className="text-xs leading-relaxed whitespace-pre-line">{display}</p>
+      {segments ? (
+        <div className="space-y-3">
+          {segments.map((seg, i) => (
+            <div key={i} className="mb-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary font-mono">
+                {seg.speaker}
+              </p>
+              <p className="text-xs leading-relaxed whitespace-pre-line">{seg.text}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs leading-relaxed whitespace-pre-line">{displayText}</p>
+      )}
       {isLong && (
         <button
           onClick={() => setExpanded(!expanded)}
