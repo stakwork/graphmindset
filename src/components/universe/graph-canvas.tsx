@@ -546,6 +546,12 @@ function appendToGraph(
     for (const e of b.edges) absorbed.add(e)
   }
 
+  // Each clustered member → its cluster source. Used to drop ANY direct edge
+  // between the two (including the reciprocal member→source the backend often
+  // also returns) so it doesn't bypass the proxy with a direct line.
+  const memberSource = new Map<number, number>()
+  for (const r of proxyRouting) for (const m of r.members) memberSource.set(m, r.src)
+
   const nodes: VizNode[] = [...prev.nodes, ...memberObjs, ...proxyObjs]
   const total = nodes.length
 
@@ -580,9 +586,11 @@ function appendToGraph(
       extraEdges.push({ src: r.src, dst: m, label: r.edge_type })
     }
   }
-  // Non-clustered new edges go in directly.
+  // Non-clustered new edges go in directly — except a direct member↔source
+  // edge (either direction), which the proxy routing already represents.
   for (const c of candidates) {
     if (absorbed.has(c)) continue
+    if (memberSource.get(c.src) === c.dst || memberSource.get(c.dst) === c.src) continue
     addEdge(c.src, c.dst, c.edge_type)
   }
 
