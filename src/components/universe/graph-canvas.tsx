@@ -15,6 +15,7 @@ import {
 } from "@/graph-viz-kit"
 import type { Graph, ViewState } from "@/graph-viz-kit"
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
+import { getAttachables } from "@/lib/graph-api"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import type { SchemaNode } from "@/app/ontology/page"
@@ -584,6 +585,34 @@ function CaseBoardMorphLayer({
   const selectedNode = nodes.find((n) => n.ref_id === selectedRefId) ?? null
   // Viewport height drives the px→world conversion for the card layout below.
   const viewportHeight = useThree((s) => s.size.height)
+
+  // The focal node's attached images. Attachables come from a separate
+  // server-side `edge_props` query (getAttachables), NOT the regular 1-hop
+  // neighbourhood the board lays out — so without this fetch they'd never
+  // appear on the board. Embedded as a strip inside the focal card. Keyed by
+  // refId so a previous node's images never flash while a new fetch is in
+  // flight (and so we don't setState synchronously inside the effect).
+  const [imagesResult, setImagesResult] = useState<{ refId: string; images: ApiNode[] }>(
+    () => ({ refId: "", images: [] }),
+  )
+  useEffect(() => {
+    const controller = new AbortController()
+    getAttachables(selectedRefId, controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return
+        setImagesResult({
+          refId: selectedRefId,
+          images: (data.nodes ?? []).filter(
+            (n) => n.node_type === "Image" && n.ref_id !== selectedRefId,
+          ),
+        })
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setImagesResult({ refId: selectedRefId, images: [] })
+      })
+    return () => controller.abort()
+  }, [selectedRefId])
+  const attachedImages = imagesResult.refId === selectedRefId ? imagesResult.images : []
   const focalWorld = useMemo<[number, number, number] | null>(() => {
     if (selectedIdx === undefined) return null
     const p = graph.nodes[selectedIdx]?.position
@@ -760,6 +789,7 @@ function CaseBoardMorphLayer({
           morphProgress={morphProgress}
           portal={cardPortalRef}
           registerEl={(el) => registerCard(selectedRefId, el)}
+          attachedImages={attachedImages}
         />
       )}
       {itemTargets.map(({ item, origin, target }) =>

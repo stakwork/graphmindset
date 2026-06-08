@@ -25,6 +25,8 @@ interface NodeMorphProps {
   // Registers the card's DOM root so the connector overlay can measure its
   // real on-screen rectangle and attach edges to the actual card border.
   registerEl?: (el: HTMLElement | null) => void
+  // Focal-only: the node's attached images, embedded as a strip in the card.
+  attachedImages?: GraphNode[]
 }
 
 function lerp(a: number, b: number, t: number) {
@@ -44,6 +46,7 @@ export function NodeMorph({
   onClick,
   portal,
   registerEl,
+  attachedImages,
 }: NodeMorphProps) {
   if (morphProgress <= 0.001) return null
   const t = Math.max(0, Math.min(1, morphProgress))
@@ -78,6 +81,7 @@ export function NodeMorph({
           variant={variant}
           morphProgress={morphProgress}
           onClick={onClick}
+          attachedImages={attachedImages}
         />
       </div>
     </Html>

@@ -202,35 +202,43 @@ function MediaGrid({ images, onOpen }: { images: GraphNode[]; onOpen: (index: nu
       style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
     >
       {shown.map((im, i) => (
-        <button
+        // A tile is a div (not a button) so the interactive boost pill can live
+        // inside it without nesting buttons. The full-bleed open button sits
+        // beneath; decorative overlays are pointer-events-none so clicks fall
+        // through to it; the boost pill sits on top with its own pointer events.
+        <div
           key={im.ref_id}
-          type="button"
-          onClick={() => onOpen(i)}
           className={cn(
-            "group relative cursor-pointer overflow-hidden border border-border bg-muted",
+            "group relative overflow-hidden border border-border bg-muted",
             n === 1 ? "aspect-[16/10]" : "aspect-square"
           )}
         >
-          <ImageThumb node={im} variant="fill" />
-          <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => onOpen(i)}
+            aria-label="Open image"
+            className="block h-full w-full cursor-pointer"
+          >
+            <ImageThumb node={im} variant="fill" />
+          </button>
+          <span className="pointer-events-none absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
             <ImageIcon className="h-4 w-4 text-white" />
           </span>
           {i === 0 && n > 1 && (
-            <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-black/70 px-2.5 py-1 font-mono text-[11px] text-primary backdrop-blur-sm">
+            <span className="pointer-events-none absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-black/70 px-2.5 py-1 font-mono text-[11px] text-primary backdrop-blur-sm">
               <ImageIcon className="h-3 w-3" /> {n} images
             </span>
           )}
           {i === cap - 1 && extra > 0 && (
-            <span className="absolute inset-0 flex items-center justify-center bg-background/60 text-xl font-bold text-foreground backdrop-blur-[1px]">
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/60 text-xl font-bold text-foreground backdrop-blur-[1px]">
               +{extra}
             </span>
           )}
-          {nodeBoost(im) > 0 && (
-            <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 font-mono text-[11px] text-amber-400 backdrop-blur-sm">
-              <BulletIcon className="h-3 w-3" /> {nodeBoost(im)}
-            </span>
-          )}
-        </button>
+          {/* Current boost amount + trigger — always visible, FB/X-style. */}
+          <div className="absolute bottom-2 left-2 z-10">
+            <ImageBoost node={im} variant="compact" />
+          </div>
+        </div>
       ))}
     </div>
   )
@@ -351,9 +359,9 @@ function Lightbox({
             <ImageIcon className="h-10 w-10 text-muted-foreground" />
           </div>
         )}
-        <figcaption className="flex flex-col items-center gap-2 text-center">
+        <figcaption className="flex flex-col items-center gap-2.5 text-center">
           <span className="text-sm font-medium text-foreground">{resolveNodeTitle(im, schemas)}</span>
-          <ImageBoost node={im} />
+          <ImageBoost node={im} variant="compact" className="px-3 py-1 text-sm" />
         </figcaption>
       </figure>
 
@@ -426,7 +434,17 @@ function ImageThumb({
 }
 
 /* ── Boost an image — shows current amount and lets anyone boost ─────────── */
-function ImageBoost({ node }: { node: GraphNode }) {
+// variant="default" → labelled button (lightbox caption).
+// variant="compact" → glassy pill overlay (image tile / lightbox over the art).
+function ImageBoost({
+  node,
+  variant = "default",
+  className,
+}: {
+  node: GraphNode
+  variant?: "default" | "compact"
+  className?: string
+}) {
   const p = node.properties ?? {}
   const ownerReference = typeof p.owner_reference_id === "string" ? p.owner_reference_id : undefined
   const pubkey = typeof p.pubkey === "string" ? p.pubkey : undefined
@@ -443,10 +461,21 @@ function ImageBoost({ node }: { node: GraphNode }) {
         pubkey={pubkey}
         routeHint={routeHint}
         boostCount={boost}
+        variant={variant}
+        className={className}
       />
     )
   }
+  // No owner to credit — passive display only. Match the active pill's shape so
+  // the grid stays visually consistent whether or not a tile is boostable.
   if (boost > 0) {
+    if (variant === "compact") {
+      return (
+        <span className={cn("inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 font-mono text-[11px] text-amber-400 backdrop-blur-sm", className)}>
+          <BulletIcon className="h-3 w-3" /> {boost}
+        </span>
+      )
+    }
     return (
       <span className="inline-flex items-center gap-1 font-mono text-xs text-amber-400">
         <BulletIcon className="h-3 w-3" /> {boost} bullets
