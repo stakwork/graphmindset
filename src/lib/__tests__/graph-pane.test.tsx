@@ -17,6 +17,9 @@ const graphState = {
   setSelectedNode: vi.fn(),
   setSidebarSelectedNode: vi.fn(),
   clearSelection: vi.fn(),
+  // Upstream's fetch-on-select added this set; graph-pane reads .size to show
+  // a "loading neighbours" indicator.
+  loadingNeighborRefs: new Set<string>(),
 }
 
 vi.mock("@/stores/graph-store", () => ({

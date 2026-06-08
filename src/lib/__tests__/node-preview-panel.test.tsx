@@ -143,7 +143,7 @@ vi.mock("@/lib/cookie-storage", () => ({
   },
 }))
 
-import { NodePreviewPanel } from "@/components/layout/node-preview-panel"
+import { NodePreviewPanel, TranscriptBlock, parseTranscriptSegments } from "@/components/layout/node-preview-panel"
 import type { GraphNode } from "@/lib/graph-api"
 
 const BASE_NODE: GraphNode = {
@@ -1891,5 +1891,85 @@ describe("NodePreviewPanel – MediaCard video pre-play rendering", () => {
 
     // The clickable button variant should be gone
     expect(document.querySelector("button.aspect-video")).toBeNull()
+  })
+})
+
+
+describe("parseTranscriptSegments", () => {
+  it("returns null for plain text with no speaker labels", () => {
+    expect(parseTranscriptSegments("This is a plain transcript without any speakers.")).toBeNull()
+  })
+
+  it("returns null for a single speaker segment (needs >1 to segment)", () => {
+    expect(parseTranscriptSegments("Alice: Hello everyone.")).toBeNull()
+  })
+
+  it("parses two speaker segments correctly", () => {
+    const text = "Alice: Hello.\nBob: Hi there."
+    const result = parseTranscriptSegments(text)
+    expect(result).toHaveLength(2)
+    expect(result![0]).toEqual({ speaker: "Alice", text: "Hello." })
+    expect(result![1]).toEqual({ speaker: "Bob", text: "Hi there." })
+  })
+
+  it("parses Speaker 1 / Speaker 2 format", () => {
+    const text = "Speaker 1: Welcome to the show.\nSpeaker 2: Thanks for having me."
+    const result = parseTranscriptSegments(text)
+    expect(result).toHaveLength(2)
+    expect(result![0].speaker).toBe("Speaker 1")
+    expect(result![1].speaker).toBe("Speaker 2")
+  })
+
+  it("accumulates multi-line continuation into the same segment", () => {
+    const text = "Alice: First line.\nSecond line.\nBob: Hello."
+    const result = parseTranscriptSegments(text)
+    expect(result).toHaveLength(2)
+    expect(result![0].text).toBe("First line.\nSecond line.")
+    expect(result![1].text).toBe("Hello.")
+  })
+})
+
+describe("TranscriptBlock – speaker segmentation rendering", () => {
+  it("renders each speaker name in its own element for a segmented transcript", () => {
+    const text = "Alice: Hello everyone.\nBob: Hi there, nice to meet you."
+    render(<TranscriptBlock text={text} />)
+    expect(screen.getByText("Alice")).toBeInTheDocument()
+    expect(screen.getByText("Bob")).toBeInTheDocument()
+    expect(screen.getByText("Hello everyone.")).toBeInTheDocument()
+    expect(screen.getByText("Hi there, nice to meet you.")).toBeInTheDocument()
+  })
+
+  it("renders as plain text block when no speaker labels present", () => {
+    const text = "This is a plain transcript without speakers."
+    render(<TranscriptBlock text={text} />)
+    expect(screen.getByText("Transcript")).toBeInTheDocument()
+    expect(screen.getByText(text)).toBeInTheDocument()
+    // No speaker-name elements
+    expect(screen.queryByText("Alice")).toBeNull()
+  })
+
+  it("shows Show more / Show less for a long segmented transcript", async () => {
+    const { userEvent } = await import("@testing-library/user-event")
+    const user = userEvent.setup()
+    const long = "Alice: " + "a".repeat(200) + "\nBob: " + "b".repeat(200)
+    render(<TranscriptBlock text={long} />)
+    expect(screen.getByText("Show more")).toBeInTheDocument()
+    await user.click(screen.getByText("Show more"))
+    expect(screen.getByText("Show less")).toBeInTheDocument()
+  })
+
+  it("shows Show more / Show less for a long plain transcript", async () => {
+    const { userEvent } = await import("@testing-library/user-event")
+    const user = userEvent.setup()
+    const long = "x".repeat(400)
+    render(<TranscriptBlock text={long} />)
+    expect(screen.getByText("Show more")).toBeInTheDocument()
+    await user.click(screen.getByText("Show more"))
+    expect(screen.getByText("Show less")).toBeInTheDocument()
+  })
+
+  it("always renders the Transcript label", () => {
+    render(<TranscriptBlock text="Alice: Hi.\nBob: Hey." />)
+    expect(screen.getByText("Transcript")).toBeInTheDocument()
   })
 })

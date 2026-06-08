@@ -1,6 +1,6 @@
 "use client"
 
-import { Network } from "lucide-react"
+import { Network, Loader2 } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -16,6 +16,7 @@ export function GraphPane() {
   const selectedNode = useGraphStore((s) => s.selectedNode)
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
+  const loadingNeighbors = useGraphStore((s) => s.loadingNeighborRefs.size > 0)
   const schemas = useSchemaStore((s) => s.schemas)
 
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
@@ -32,11 +33,11 @@ export function GraphPane() {
   const workflowsOpen = useAppStore((s) => s.workflowsOpen)
   const toggleWorkflows = useAppStore((s) => s.toggleWorkflows)
 
-  // Canvas clicks only update `selectedNode` (drives the preview panel).
-  // `sidebarSelectedNode` stays for sidebar-list selections, which gate the
-  // 1-hop neighbor fetch (use-sidebar-neighbor-fetch). Re-firing the fetch
-  // on every canvas click re-parented absorbed members across rebuilds and
-  // sent the camera to stale positions.
+  // Canvas clicks update `selectedNode` (drives the preview panel). Both
+  // selectedNode and sidebarSelectedNode now gate the 1-hop neighbor fetch
+  // (use-neighbor-fetch), so clicking a node anywhere appends its related
+  // nodes/edges into the graph. The append goes through addNodes, which does
+  // not bump dataVersion — the current view is kept, not reset.
   function onSelect(node: GraphNode) {
     setSelectedNode(node)
   }
@@ -98,10 +99,16 @@ export function GraphPane() {
           </div>
         )}
 
-        <div className="absolute top-4 left-5 z-20 pointer-events-none">
+        <div className="absolute top-4 left-5 z-20 pointer-events-none flex items-center gap-2">
           <div className="font-mono text-[9px] tracking-[0.22em] uppercase text-muted-foreground/70">
             {nodes.length}n · {edges.length}e
           </div>
+          {loadingNeighbors && (
+            <div className="flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[9px] tracking-[0.18em] uppercase text-primary">
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              Loading connections
+            </div>
+          )}
         </div>
 
         <div className="absolute top-4 right-5 z-30">
