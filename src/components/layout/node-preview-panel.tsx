@@ -706,6 +706,9 @@ export function ParentBreadcrumbs({ nodeRefId, schemas }: ParentBreadcrumbsProps
 
 export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProps) {
   const [currentNode, setCurrentNode] = useState<GraphNode>(node)
+  // Derived up-front so it's in scope throughout the (long) component body —
+  // referencing it lower down (or from a debugger) won't hit the TDZ.
+  const props = currentNode.properties
   const [history, setHistory] = useState<GraphNode[]>([])
   const [unlockState, setUnlockState] = useState<UnlockState>("loading")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
@@ -860,7 +863,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const schema = schemas.find((s) => s.type === nodeType)
   const paidProperties = schema?.paid_properties ?? []
 
-  const props = currentNode.properties
   const nodeIsBlocked = isBlockedStatus(props?.status)
   const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
   // Legacy pubkey/route_hint for the admin direct-keysend path; phase-4d removes them.

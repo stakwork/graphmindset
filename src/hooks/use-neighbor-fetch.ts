@@ -48,8 +48,7 @@ export function useNeighborFetch(): void {
 
       const controller = new AbortController()
       controllers.set(refId, controller)
-      const store = useGraphStore.getState()
-      store.beginNeighborLoad(refId)
+      useGraphStore.getState().beginNeighborLoad(refId)
       ;(async () => {
         try {
           const result = await getNode(refId, "edges", controller.signal)
