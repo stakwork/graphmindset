@@ -21,9 +21,16 @@ export interface AgentMessage {
   isStreaming?: boolean
 }
 
+export interface AgentContext {
+  selectedRefId: string
+  nodeType: string
+  title?: string
+}
+
 export interface StreamAgentOpts {
   sessionId?: string
   signal?: AbortSignal
+  context?: AgentContext
   onChunk: (text: string) => void
   onToolCall: (event: ToolCallEvent) => void
   onDone: (result: { answer: string; cited_ref_ids: string[] }) => void
@@ -44,7 +51,9 @@ async function buildSignedUrl(path: string): Promise<string> {
 // Mock SSE stream for development
 async function mockStreamAgent(
   prompt: string,
-  opts: StreamAgentOpts
+  opts: StreamAgentOpts,
+  // context accepted but unused in mock mode
+  _context?: AgentContext
 ): Promise<void> {
   const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -102,7 +111,7 @@ export async function streamAgent(
   opts: StreamAgentOpts
 ): Promise<void> {
   if (isMocksEnabled()) {
-    return mockStreamAgent(prompt, opts)
+    return mockStreamAgent(prompt, opts, opts.context)
   }
 
   const doRequest = async (isRetry = false): Promise<void> => {
@@ -123,6 +132,7 @@ export async function streamAgent(
         body: JSON.stringify({
           prompt,
           sessionId: opts.sessionId,
+          ...(opts.context ? { context: opts.context } : {}),
         }),
         signal: opts.signal,
       })

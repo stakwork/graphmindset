@@ -344,12 +344,27 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
         properties: {
           name: "Jack Dorsey on Bitcoin — embedded video",
           media_url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+          transcript: "Jack Dorsey: Bitcoin is the most important invention since the internet. The separation of money and state is the key idea — governments cannot stop it.\n\nInterviewer: Why do you think it matters so much?\n\nJack Dorsey: Because for the first time we have a currency that is not controlled by any single entity. It is open, it is neutral, and it is accessible to everyone on the planet.",
         },
       },
     ],
     edges: [
       { source: "n2", target: "n2-episode", edge_type: "HAS_EPISODE" },
     ],
+  },
+  "n2-episode": {
+    nodes: [
+      {
+        ref_id: "n2-episode",
+        node_type: "Episode",
+        properties: {
+          name: "Jack Dorsey on Bitcoin — embedded video",
+          media_url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+          transcript: "Jack Dorsey: Bitcoin is the most important invention since the internet. The separation of money and state is the key idea — governments cannot stop it.\n\nInterviewer: Why do you think it matters so much?\n\nJack Dorsey: Because for the first time we have a currency that is not controlled by any single entity. It is open, it is neutral, and it is accessible to everyone on the planet.",
+        },
+      },
+    ],
+    edges: [],
   },
   n3: {
     nodes: [
