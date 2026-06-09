@@ -8,6 +8,7 @@ import { Vector3 } from "three"
 import * as THREE from "three"
 import type CameraControlsImpl from "camera-controls"
 import {
+  adaptiveRadius,
   buildGraph,
   computeRadialLayout,
   extractInitialSubgraph,
@@ -77,7 +78,7 @@ const SEARCH_LABEL_CAP = 15
 //   MENTIONED_IN  Product/Topic → Section (Section is the container, parent of the mention)
 const INVERT_FOR_HIERARCHY = new Set(["SOURCE", "MENTIONED_IN"])
 
-function apiToGraph(
+export function apiToGraph(
   nodes: ApiNode[],
   edges: ApiEdge[],
   schemas: SchemaNode[]
@@ -141,30 +142,21 @@ function apiToGraph(
   const orphans = nodes.filter((n) => !reached.has(n.ref_id))
 
   // ─── 2. Decide which types get a __group_<type> ────────────────────────
-  // A type gets its own synthetic group node when it either has orphans or
-  // — under the existing crowd-control rule — when there are >10 roots and
-  // the type has ≥2 leaf-like roots. "Leaf-like" = none of the type's roots
-  // have outgoing edges to known nodes. This keeps hierarchy parents (e.g.
-  // Episode, which has outgoing HAS → Chapter) surfacing as individuals
-  // instead of being collapsed into __group_Episode.
+  // A type gets its own synthetic group node when it has orphans, OR when it
+  // has ≥ CLUSTER_THRESHOLD top-level (parentless / root) nodes in the CURRENT
+  // payload. Crowd-grouping keys purely on count: no overall root-count gate
+  // and no "leaf-like" filter — a parentless node is top-level *right now*
+  // regardless of whether it has children loaded or a parent that exists only
+  // in the DB. (The DB hierarchy is irrelevant; only what's on screen counts.)
   const orphanTypes = new Set(orphans.map((o) => o.node_type || "Unknown"))
-  const hasKnownOut = new Set<string>()
-  for (const e of edges) {
-    if (incomingCount.has(e.source) && incomingCount.has(e.target)) {
-      hasKnownOut.add(e.source)
-    }
+  const rootCountByType = new Map<string, number>()
+  for (const r of roots) {
+    const type = r.node_type || "Unknown"
+    rootCountByType.set(type, (rootCountByType.get(type) ?? 0) + 1)
   }
   const crowdGroupedTypes = new Set<string>()
-  if (roots.length > 10) {
-    const leafRootCountByType = new Map<string, number>()
-    for (const r of roots) {
-      if (hasKnownOut.has(r.ref_id)) continue
-      const type = r.node_type || "Unknown"
-      leafRootCountByType.set(type, (leafRootCountByType.get(type) ?? 0) + 1)
-    }
-    for (const [type, count] of leafRootCountByType) {
-      if (count >= 2) crowdGroupedTypes.add(type)
-    }
+  for (const [type, count] of rootCountByType) {
+    if (count >= CLUSTER_THRESHOLD) crowdGroupedTypes.add(type)
   }
   const groupedTypes = new Set([...orphanTypes, ...crowdGroupedTypes])
 
@@ -357,10 +349,10 @@ function applyLayout(graph: Graph) {
 // Default ring radius for appended children when their parent has no existing
 // children to size against — matches MIN_R1 / the R1 ring a freshly clicked
 // node's children land on after rescale, so a fetch attaches at the same scale.
-const APPEND_CHILD_R = 22
+const APPEND_CHILD_R = 33
 // Small per-depth vertical drop so appended children tier below their parent,
 // mirroring computeRadialLayout's y-offset feel without recomputing it.
-const APPEND_Y_DROP = 3
+const APPEND_Y_DROP = 4.5
 
 // Place a batch of freshly-appended `kids` on a ring around their already-placed
 // `parent`, updating the derived layout structures (depth, originals, tree
@@ -380,11 +372,14 @@ function placeChildren(
 
   const existingKids = childrenOf.get(parent) ?? []
   const existingCount = existingKids.length
+  const total = existingCount + kids.length
 
-  // Radius: average the parent's existing children if any (keeps appended nodes
-  // on the same ring the parent's subtree already uses, rescaled or not),
-  // otherwise fall back to the default R1.
-  let R = APPEND_CHILD_R
+  // Radius sized by the total child count — same adaptiveRadius hop-1 uses — so
+  // a parent that fetches many neighbors gets a proportionally larger ring
+  // instead of crowding them all onto a fixed-radius circle (the center-clump
+  // bug). If the parent already has placed children, average their radius
+  // instead so appended nodes stay on the subtree's established ring.
+  let R = Math.max(APPEND_CHILD_R, adaptiveRadius(total))
   if (existingCount > 0) {
     let sum = 0
     let cnt = 0
@@ -400,7 +395,6 @@ function placeChildren(
   // Fan outward (away from origin), continuing past any existing children so
   // new arrivals don't stack on top of them.
   const outward = Math.atan2(pPos.z, pPos.x) || 0
-  const total = existingCount + kids.length
   const step = (Math.PI * 2) / Math.max(total, 1)
 
   if (!childrenOf.has(parent)) childrenOf.set(parent, [])
@@ -449,7 +443,7 @@ interface AppendResult {
 // with a fixed index — no cross-rebuild identity drift, which is what sank the
 // old position-cache attempts. Existing nodes (and their existing clustering)
 // are never re-evaluated.
-function appendToGraph(
+export function appendToGraph(
   model: GraphModel,
   apiNodes: ApiNode[],
   apiEdges: ApiEdge[],
@@ -462,7 +456,40 @@ function appendToGraph(
   const indexMap = new Map(model.indexMap)
 
   // ── New real nodes (members). Append-only: existing indices stay put. ──
-  const newApiNodes = apiNodes.filter((n) => !refIdToIndex.has(n.ref_id))
+  // Drill-down rule: a fetched node is kept ONLY if it can attach as a
+  // descendant of something already on screen — i.e. it is reachable, through
+  // the freshly-fetched edges, from an existing node. New nodes that connect
+  // only to other new nodes with no path back into the current graph are
+  // strays that don't belong under the selected node's hierarchy, so they are
+  // dropped outright (not parked on an outer ring). Reachability is undirected
+  // — we are grafting the new material below the selection, regardless of the
+  // original edge direction.
+  const existingRefIds = new Set(refIdToIndex.keys())
+  const refAdj = new Map<string, string[]>()
+  const linkRef = (a: string, b: string) => {
+    const l = refAdj.get(a)
+    if (l) l.push(b)
+    else refAdj.set(a, [b])
+  }
+  for (const e of apiEdges) {
+    linkRef(e.source, e.target)
+    linkRef(e.target, e.source)
+  }
+  const reachableNew = new Set<string>()
+  const visited = new Set<string>(existingRefIds)
+  const queue: string[] = []
+  for (const ref of existingRefIds) if (refAdj.has(ref)) queue.push(ref)
+  for (let qi = 0; qi < queue.length; qi++) {
+    for (const nb of refAdj.get(queue[qi]) ?? []) {
+      if (visited.has(nb)) continue
+      visited.add(nb)
+      reachableNew.add(nb) // existing refs were pre-seeded, so nb is always new
+      queue.push(nb)
+    }
+  }
+  const newApiNodes = apiNodes.filter(
+    (n) => !refIdToIndex.has(n.ref_id) && reachableNew.has(n.ref_id)
+  )
   const memberObjs: VizNode[] = newApiNodes.map((n, k) => ({
     id: oldCount + k,
     label: truncateLabel(nodeLabel(n, schemas)),
@@ -486,7 +513,15 @@ function appendToGraph(
     dst: number
     edge_type: string
   }
-  const seen = new Set(prev.edges.map((e) => `${e.src} ${e.dst}`))
+  // Dedup against BOTH live edges and cluster-absorbed originals. The absorbed
+  // source→member edges live in extraEdges (pulled out of graph.edges when the
+  // cluster formed); if we don't count them here, a re-fetch that returns the
+  // same source→member edge re-adds it as a live direct edge, bypassing the
+  // proxy and flattening the hierarchy (chapters/locations jump back to hop-1).
+  const seen = new Set([
+    ...prev.edges.map((e) => `${e.src} ${e.dst}`),
+    ...(prev.extraEdges ?? []).map((e) => `${e.src} ${e.dst}`),
+  ])
   const candidates: Cand[] = []
   for (const raw of apiEdges) {
     const e = INVERT_FOR_HIERARCHY.has(raw.edge_type)
@@ -503,9 +538,7 @@ function appendToGraph(
 
   if (memberObjs.length === 0 && candidates.length === 0) return null
 
-  // ── Bundle fresh child edges by (source, edge_type, target_type). A bundle
-  //    that crosses the threshold becomes a `_cluster` proxy. Only the new
-  //    batch is grouped — existing children are left untouched. ──
+  // ── Bundle fresh child edges by (source, edge_type, target_type). ──
   const bundles = new Map<
     string,
     { src: number; edge_type: string; tgtType: string; edges: Cand[] }
@@ -522,26 +555,97 @@ function appendToGraph(
     b.edges.push(c)
   }
 
+  // ── Reconcile each bundle against what the source ALREADY has for the same
+  //    key, so a relationship never ends up split across direct edges + one-or-
+  //    more proxies (the cluster-bypass bug). Two things get merged in:
+  //      • an existing `_cluster` proxy for the key → reuse it (no second
+  //        proxy); new members route through it.
+  //      • the source's existing *direct leaf* children of the key → absorb
+  //        them: their direct edge moves to extraEdges and they re-home onto
+  //        the proxy ring (a localized move of just those leaves).
+  //    A key clusters when existing-direct + existing-proxy-members + new
+  //    members together cross the threshold — not just the fresh batch. ──
+  const edgeLabelOf = new Map<string, string>()
+  for (const e of prev.edges) edgeLabelOf.set(`${e.src} ${e.dst}`, e.label ?? "")
+  const isSynthetic = (i: number): boolean => {
+    const t = i < oldCount ? prev.nodes[i].nodeType : typeOf(i)
+    return t === "_cluster" || t === "_group"
+  }
+  const isProxyChild = (i: number): boolean =>
+    (prev.inAdj[i] ?? []).some((p) => p < oldCount && prev.nodes[p].nodeType === "_cluster")
+  // Real, non-synthetic leaf (no real children of its own) — safe to re-home
+  // onto a proxy without stranding a subtree underneath it.
+  const isAbsorbableLeaf = (i: number): boolean => {
+    if (i >= oldCount || isSynthetic(i)) return false
+    for (const ch of prev.outAdj[i] ?? []) if (!isSynthetic(ch)) return false
+    return true
+  }
+
+  // Existing same-key proxies in the prev graph, keyed exactly like `bundles`.
+  const existingProxyByKey = new Map<string, number>()
+  for (let i = 0; i < oldCount; i++) {
+    if (prev.nodes[i].nodeType !== "_cluster") continue
+    const psrc = (prev.inAdj[i] ?? [])[0]
+    if (psrc === undefined) continue
+    const et = edgeLabelOf.get(`${psrc} ${i}`) ?? ""
+    const tt = prev.nodes[i].clusterMemberType ?? ""
+    existingProxyByKey.set(`${psrc} ${et} ${tt}`, i)
+  }
+
   const absorbed = new Set<Cand>()
   const proxyObjs: VizNode[] = []
-  const proxyRouting: { proxy: number; src: number; members: number[]; edge_type: string }[] = []
+  const proxyRouting: {
+    proxy: number
+    src: number
+    members: number[]
+    absorb: number[]
+    edge_type: string
+    isExisting: boolean
+  }[] = []
   let proxyCursor = oldCount + memberObjs.length
   for (const b of bundles.values()) {
-    if (b.edges.length < CLUSTER_THRESHOLD) continue
-    const proxy = proxyCursor++
-    proxyObjs.push({
-      id: proxy,
-      label: `${b.tgtType} × ${b.edges.length} · ${b.edge_type}`,
-      position: { x: 0, y: 0, z: 0 },
-      degree: 0,
-      nodeType: "_cluster",
-      clusterMemberType: b.tgtType,
-    })
+    const key = `${b.src} ${b.edge_type} ${b.tgtType}`
+    const existingProxy = existingProxyByKey.get(key)
+
+    // Source's existing direct leaf children of the same key, eligible to absorb.
+    const absorb: number[] = []
+    for (const m of prev.outAdj[b.src] ?? []) {
+      if (!isAbsorbableLeaf(m)) continue
+      if (typeOf(m) !== b.tgtType) continue
+      if ((edgeLabelOf.get(`${b.src} ${m}`) ?? "") !== b.edge_type) continue
+      if (isProxyChild(m)) continue
+      absorb.push(m)
+    }
+
+    const existingMembers =
+      existingProxy !== undefined ? (prev.outAdj[existingProxy]?.length ?? 0) : 0
+    const prospective = b.edges.length + absorb.length + existingMembers
+
+    // No existing proxy and not enough to form one → leave as direct edges.
+    if (existingProxy === undefined && prospective < CLUSTER_THRESHOLD) continue
+
+    let proxy: number
+    if (existingProxy !== undefined) {
+      proxy = existingProxy
+    } else {
+      proxy = proxyCursor++
+      proxyObjs.push({
+        id: proxy,
+        label: "", // finalized from the true member count once edges are wired
+        position: { x: 0, y: 0, z: 0 },
+        degree: 0,
+        nodeType: "_cluster",
+        clusterMemberType: b.tgtType,
+      })
+    }
+
     proxyRouting.push({
       proxy,
       src: b.src,
       members: b.edges.map((e) => e.dst),
+      absorb,
       edge_type: b.edge_type,
+      isExisting: existingProxy !== undefined,
     })
     for (const e of b.edges) absorbed.add(e)
   }
@@ -554,6 +658,13 @@ function appendToGraph(
 
   const nodes: VizNode[] = [...prev.nodes, ...memberObjs, ...proxyObjs]
   const total = nodes.length
+
+  // Absorbed existing leaves get re-positioned, and reused existing proxies get
+  // a fresh label/degree — clone those node objects so prev's stay untouched.
+  for (const r of proxyRouting) {
+    if (r.isExisting) nodes[r.proxy] = { ...nodes[r.proxy] }
+    for (const m of r.absorb) nodes[m] = { ...nodes[m] }
+  }
 
   // ── Adjacency: copy existing rows, empty rows for new members + proxies ──
   const adj: number[][] = new Array(total)
@@ -574,14 +685,42 @@ function appendToGraph(
     outAdj[src].push(dst)
     inAdj[dst].push(src)
   }
+  const removeOne = (arr: number[], val: number) => {
+    const k = arr.indexOf(val)
+    if (k !== -1) arr.splice(k, 1)
+  }
+  // Strip the direct edge between two nodes (either direction) from the live
+  // edge list + adjacency, so an absorbed leaf no longer connects to its old
+  // source — its relation lives on the proxy spoke + extraEdges instead.
+  const detachDirect = (s: number, d: number) => {
+    for (let k = edges.length - 1; k >= 0; k--) {
+      const e = edges[k]
+      if ((e.src === s && e.dst === d) || (e.src === d && e.dst === s)) edges.splice(k, 1)
+    }
+    removeOne(adj[s], d)
+    removeOne(adj[d], s)
+    removeOne(outAdj[s], d)
+    removeOne(inAdj[d], s)
+    removeOne(outAdj[d], s)
+    removeOne(inAdj[s], d)
+  }
 
   // Proxy routing: source → proxy → members in the layout; the absorbed
   // source → member originals move to extraEdges (surfaced on hover/select,
   // matching apiToGraph). GraphView drops the proxy → member spokes from the
   // render automatically (edges out of a `_cluster` node).
   for (const r of proxyRouting) {
-    addEdge(r.src, r.proxy, r.edge_type)
+    // Reused proxies already carry the source → proxy edge; only new ones need it.
+    if (!r.isExisting) addEdge(r.src, r.proxy, r.edge_type)
     for (const m of r.members) {
+      addEdge(r.proxy, m, r.edge_type)
+      extraEdges.push({ src: r.src, dst: m, label: r.edge_type })
+    }
+    // Absorb existing direct leaves: cut the bypassing source → leaf edge and
+    // re-route it through the proxy (spoke + extraEdge), exactly like a new
+    // member, so nothing connects to the source except via the cluster.
+    for (const m of r.absorb) {
+      detachDirect(r.src, m)
       addEdge(r.proxy, m, r.edge_type)
       extraEdges.push({ src: r.src, dst: m, label: r.edge_type })
     }
@@ -596,6 +735,14 @@ function appendToGraph(
 
   for (let i = oldCount; i < total; i++) nodes[i].degree = adj[i].length
 
+  // Proxy label + degree reflect the FINAL member count (existing + absorbed +
+  // new) — outAdj[proxy] now holds every spoke, so its length IS the count.
+  for (const r of proxyRouting) {
+    const p = nodes[r.proxy]
+    p.label = `${p.clusterMemberType ?? ""} × ${outAdj[r.proxy].length} · ${r.edge_type}`
+    p.degree = adj[r.proxy].length
+  }
+
   // ── Clone derived structures so prev stays intact ──
   const childrenOf = new Map<number, number[]>()
   if (prev.childrenOf) for (const [k, v] of prev.childrenOf) childrenOf.set(k, v.slice())
@@ -603,16 +750,33 @@ function appendToGraph(
   const initialDepthMap = new Map(prev.initialDepthMap ?? [])
   const originalPositions = new Map(prev.originalPositions ?? [])
 
+  // Re-home absorbed leaves in the tree structures: drop their old source link
+  // so placeChildren re-attaches them under the proxy (with a fresh position)
+  // in the placement pass below.
+  const absorbSet = new Set<number>()
+  for (const r of proxyRouting) {
+    for (const m of r.absorb) {
+      absorbSet.add(m)
+      const sibs = childrenOf.get(r.src)
+      if (sibs) removeOne(sibs, m)
+      treeEdgeSet.delete(r.src < m ? `${r.src}-${m}` : `${m}-${r.src}`)
+    }
+  }
+
   // ── Place new nodes around an already-placed parent, in waves so chains of
-  //    new nodes (A→B→C) place parents before their children ──
+  //    new nodes (A→B→C) place parents before their children. Absorbed leaves
+  //    are treated like new nodes here so they re-home onto the proxy ring. ──
   const parentOf = new Map<number, number>()
   const placed = new Set<number>()
-  for (let i = 0; i < oldCount; i++) placed.add(i)
+  for (let i = 0; i < oldCount; i++) if (!absorbSet.has(i)) placed.add(i)
 
   // A clustered member must hang off its proxy, never a cross-edge neighbor —
   // so it waits for the proxy rather than falling back to inAdj/adj.
   const forcedParent = new Map<number, number>()
-  for (const r of proxyRouting) for (const m of r.members) forcedParent.set(m, r.proxy)
+  for (const r of proxyRouting) {
+    for (const m of r.members) forcedParent.set(m, r.proxy)
+    for (const m of r.absorb) forcedParent.set(m, r.proxy)
+  }
 
   const pickParent = (v: number): number | undefined => {
     const forced = forcedParent.get(v)
@@ -622,7 +786,11 @@ function appendToGraph(
     return undefined
   }
 
-  let pending = [...proxyObjs, ...memberObjs].map((n) => n.id)
+  let pending = [
+    ...proxyObjs.map((n) => n.id),
+    ...memberObjs.map((n) => n.id),
+    ...absorbSet,
+  ]
   let progress = true
   while (pending.length > 0 && progress) {
     progress = false
@@ -648,8 +816,10 @@ function appendToGraph(
     pending = stillPending
   }
 
-  // Strays: new nodes with no placed neighbor (disconnected from current graph).
-  // Park them on an outer ring so they stay visible and selectable.
+  // Defensive: true strays (new nodes with no path back to the graph) are now
+  // dropped upstream by the descendant-reachability filter, so this should be
+  // empty. Anything still here only reached the graph through a directed edge
+  // pickParent couldn't resolve — park it on an outer ring rather than lose it.
   if (pending.length > 0) {
     let maxR = APPEND_CHILD_R
     for (const pos of originalPositions.values()) {
@@ -722,6 +892,103 @@ function restoreOriginalPositions(graph: Graph) {
       graph.nodes[id].position = { x: orig.x, y: orig.y, z: orig.z }
     }
   }
+}
+
+// Debug helper: summarize a node's descendant subgraph (labels by depth) for
+// logging select / merge / recalculate steps.
+function describeSubgraph(
+  graph: Graph,
+  centerId: number,
+  useAdj: "directed" | "undirected" = "directed"
+) {
+  const lbl = (id: number) => graph.nodes[id]?.label ?? `#${id}`
+  const sub = extractSubgraph(graph, centerId, 1000, { useAdj })
+  return {
+    center: lbl(centerId),
+    total: sub.nodeIds.length,
+    depthCounts: sub.neighborsByDepth.map((ds) => ds.length),
+    byDepth: sub.neighborsByDepth.map(
+      (ds, i) => `d${i + 1} (${ds.length}): ${ds.map(lbl).join(", ")}`
+    ),
+  }
+}
+
+// Recompute ONLY the selected node's descendant subgraph as a fresh radial,
+// translated so the selected node stays exactly where it already is (camera
+// doesn't move). Ancestors and unrelated branches are left untouched. This is
+// the "add new node, recalculate the subgraph" model — after a fetch folds new
+// descendants in, we relay them out cleanly instead of patching positions in
+// place. Updates positions, originalPositions, the tree-edge set and depth map
+// for the recomputed nodes so rescale/reset/edge-rendering stay consistent.
+function recomputeDescendantLayout(graph: Graph, selectedId: number) {
+  const anchorNode = graph.nodes[selectedId]
+  if (!anchorNode) return
+
+  // Descendants only (directed BFS via outAdj) — never climbs to ancestors.
+  const sub = extractSubgraph(graph, selectedId, 1000, { useAdj: "directed" })
+  const { positions, treeEdgeSet, childrenOf } = computeRadialLayout(
+    selectedId,
+    sub.neighborsByDepth,
+    graph.edges
+  )
+
+  // Two scales coexist while a node is selected:
+  //  • LIVE positions (what you see) — the spread-out view: computeRadialLayout
+  //    already emits this at R1 ring scale, so new nodes match the existing
+  //    spread-out children.
+  //  • originalPositions (the collapse target on deselect) — the compact global
+  //    layout, where a depth-`d` node's rings are shrunk by DEPTH_SHRINK^d.
+  // Writing the spread value to BOTH (the old bug) bakes the spread in so
+  // deselect can't collapse. So: live = full spread, original = spread × shrink.
+  const depth = Math.max(0, graph.initialDepthMap?.get(selectedId) ?? 0)
+  const shrink = Math.pow(DEPTH_SHRINK, depth)
+
+  console.log(
+    "[recalc] recomputed descendant subgraph",
+    { depth, shrink, ...describeSubgraph(graph, selectedId, "directed") }
+  )
+
+  // The selected node doesn't move on select (rescale anchors it), so its live
+  // and collapsed positions coincide — use it as the anchor for both.
+  const anchor = { ...anchorNode.position }
+  const origin = positions.get(selectedId) ?? { x: 0, y: 0, z: 0 }
+  for (const [id, p] of positions) {
+    if (id < 0 || id >= graph.nodes.length) continue
+    const dx = p.x - origin.x
+    const dy = p.y - origin.y
+    const dz = p.z - origin.z
+    // Live: full spread-out scale.
+    graph.nodes[id].position = { x: anchor.x + dx, y: anchor.y + dy, z: anchor.z + dz }
+    // Collapse target: same layout shrunk to the layer's compact scale.
+    graph.originalPositions?.set(id, {
+      x: anchor.x + dx * shrink,
+      y: anchor.y + dy * shrink,
+      z: anchor.z + dz * shrink,
+    })
+  }
+
+  // Tree edges within the recomputed subgraph: drop the stale ones touching
+  // these nodes, add the fresh set, so straight-vs-curved edge rendering tracks
+  // the new hierarchy.
+  if (graph.treeEdgeSet) {
+    const inSub = new Set(positions.keys())
+    for (const k of [...graph.treeEdgeSet]) {
+      const [a, b] = k.split("-").map(Number)
+      if (inSub.has(a) && inSub.has(b)) graph.treeEdgeSet.delete(k)
+    }
+    for (const k of treeEdgeSet) graph.treeEdgeSet.add(k)
+  }
+
+  // Global depth = selected node's global depth + local subgraph depth, so a
+  // later click's rescale keys off the right tier.
+  if (graph.initialDepthMap) {
+    const baseDepth = graph.initialDepthMap.get(selectedId) ?? 0
+    for (const [id, d] of sub.depthMap) {
+      if (id >= 0 && id < graph.nodes.length) graph.initialDepthMap.set(id, baseDepth + d)
+    }
+  }
+
+  if (graph.childrenOf) for (const [k, v] of childrenOf) graph.childrenOf.set(k, v)
 }
 
 interface CamTarget {
@@ -982,6 +1249,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // attached nodes inside the active subgraph focus.
   const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
 
+  // Current selection, mirrored into a ref so the append effect can recompute
+  // the right subgraph without taking viewState as a dependency (which would
+  // re-fire it on every camera/visibility change).
+  const selectedIdRef = useRef<number | null>(null)
+  selectedIdRef.current =
+    viewState.mode === "subgraph" ? viewState.selectedNodeId : null
+
   // Full rebuild (apiToGraph + global radial layout) only on a NEW dataset
   // (dataVersion bump from setGraphData) or a schema change — never on addNodes
   // appends. Rebuilding on every nodes/edges change is the reshuffle we avoid;
@@ -1024,6 +1298,27 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
     const res = appendToGraph(model, nodes, edges, schemas)
     if (!res) return
+
+    console.log(
+      "[merge] appended",
+      res.newNodeIds.length,
+      "nodes:",
+      res.newNodeIds.map((id) => res.model.graph.nodes[id]?.label),
+      "| clusters now:",
+      res.model.graph.nodes
+        .filter((n) => n.nodeType === "_cluster" || n.nodeType === "_group")
+        .map((n) => n.label)
+    )
+
+    // "Add new node, recalculate": once the new descendants are folded in,
+    // relay out the selected node's descendant subgraph as a clean radial
+    // anchored on the selection — no incremental patching, no reshuffle of
+    // ancestors or other branches, no camera motion.
+    const sel = selectedIdRef.current
+    if (sel != null && res.model.graph.nodes[sel]) {
+      recomputeDescendantLayout(res.model.graph, sel)
+    }
+
     setAppendModel(res.model)
 
     // When focused on a subgraph, GraphView hides anything outside
@@ -1242,6 +1537,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       rescaleAroundAnchor(graph, nodeId, scale)
 
       const sub = extractSubgraph(graph, nodeId, 30, { useAdj: "undirected" })
+
+      console.log(
+        "[select] node:",
+        graph.nodes[nodeId]?.label,
+        "| descendant subgraph:",
+        describeSubgraph(graph, nodeId, "directed")
+      )
 
       // Intentionally do NOT promote extraEdge (cluster-absorbed) endpoints
       // to depth 1. The cluster proxy is the 1-hop stand-in for its members;
