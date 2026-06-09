@@ -27,11 +27,13 @@ export function MediaPlayer() {
     volume,
     host,
     isExpanded,
+    pendingSeekTime,
     setIsPlaying,
     setCurrentTime,
     setDuration,
     setVolume,
     setIsExpanded,
+    clearPendingSeek,
     stop,
   } = usePlayerStore()
 
@@ -119,6 +121,17 @@ export function MediaPlayer() {
     if (media) media.volume = volume
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [volume, isVideo])
+
+  useEffect(() => {
+    if (pendingSeekTime === null) return
+    const media = getMedia()
+    if (!media) return
+    media.currentTime = pendingSeekTime
+    setIsPlaying(true)
+    media.play().catch(() => setIsPlaying(false))
+    clearPendingSeek()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSeekTime])
 
   const handleTimeUpdate = useCallback(() => {
     const media = getMedia()
