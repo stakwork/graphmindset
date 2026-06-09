@@ -52,6 +52,10 @@ interface GraphViewProps {
   recentNodes?: Map<number, number>;
   /** Cluster proxy node ID that is currently expanded in place */
   expandedClusterId?: number | null;
+  /** Bumps only on a full layout rebuild (new dataset / schema). Lets the snap
+   *  effect tell a rebuild (snap everything) from an in-place append (animate
+   *  existing nodes to their new spots, fly new ones in from their parent). */
+  layoutGeneration?: number;
   /** External hovered node instance index (from sidebar hover) */
   externalHoveredId?: number | null;
   /** External selected node instance index (from sidebar click) */
@@ -73,13 +77,6 @@ interface GraphViewProps {
 
 const tmpObj = new THREE.Object3D();
 const tmpColor = new THREE.Color();
-
-function smoothstep(t: number): number {
-  const c = Math.max(0, Math.min(1, t));
-  // Quintic smoothstep — smoother acceleration and deceleration
-  return c * c * c * (c * (c * 6 - 15) + 10);
-}
-
 
 // --------- Billboard glow shader (tiny nodes become dim blobs) ---------
 const glowVertexShader = /* glsl */ `
@@ -298,6 +295,12 @@ const RING_EDGE_TYPE = "__ring__";
 const RING_COLOR: RGB = { r: 0.42, g: 0.55, b: 0.58 };
 const RING_ALPHA = 0.26;
 const RING_MIN_MEMBERS = 5;
+
+// Node move/scale/color easing rate (per second). Nodes close this fraction of
+// the remaining distance to their target each second, frame-rate independent:
+// t = 1 - exp(-delta * rate). Higher = snappier; ~6 ≈ settles in ~0.5s. This is
+// the single knob for how fast repositioning + fly-in animations feel.
+const NODE_EASE_RATE = 6;
 function rgbToCss(c: RGB, alpha = 1): string {
   return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${alpha})`;
 }
@@ -446,7 +449,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, layoutGeneration = 0, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -867,44 +870,77 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     return m;
   }, [highlightedEdges, hovered, selectedId]);
 
-  // Transition
-  const transitionProgress = useRef(1);
-  useEffect(() => {
-    transitionProgress.current = 0;
-  }, [targets, nodeCount]);
-
   // Snap all animation state to targets on mount and when graph structure changes
   const prevGraphRef = useRef(graph);
   const prevSnapNodeCount = useRef(nodeCount);
+  const prevLayoutGen = useRef(layoutGeneration);
+  const didMount = useRef(false);
   useEffect(() => {
-    // Always snap on mount; also snap when the graph object itself changes (rebuild)
-    // or when nodeCount increased (graph mutated in-place by appendToGraph)
-    const graphChanged = prevGraphRef.current !== graph;
-    const nodeCountGrew = nodeCount > prevSnapNodeCount.current;
+    const isMount = !didMount.current;
+    didMount.current = true;
+    // A rebuild (new dataset/schema) bumps layoutGeneration → snap everything,
+    // since node identities are reassigned and animating them is meaningless.
+    const isRebuild = layoutGeneration !== prevLayoutGen.current;
+    prevLayoutGen.current = layoutGeneration;
+    const oldCount = prevSnapNodeCount.current;
+    const nodeCountGrew = nodeCount > oldCount;
     prevGraphRef.current = graph;
-    const oldSnapCount = prevSnapNodeCount.current;
     prevSnapNodeCount.current = nodeCount;
-    if (!graphChanged && !nodeCountGrew && currentPos.current.length >= nodeCount * 3) return; // skip if just targets changed
 
-    console.log(`[GV] SNAP: graphChanged=${graphChanged} nodeCountGrew=${nodeCountGrew} (${oldSnapCount}→${nodeCount})`);
-    // Count how many nodes are visible (scale > 0) in the targets
-    let visCount = 0;
-    for (let i = 0; i < nodeCount; i++) { if (targets.scales[i] > 0.01) visCount++; }
-    console.log(`[GV] SNAP: ${visCount}/${nodeCount} nodes visible in targets`);
+    const snapAll = isMount || isRebuild;
 
-    for (let i = 0; i < nodeCount; i++) {
-      const i3 = i * 3;
-      currentPos.current[i3] = targets.positions[i3];
-      currentPos.current[i3 + 1] = targets.positions[i3 + 1];
-      currentPos.current[i3 + 2] = targets.positions[i3 + 2];
-      currentScale.current[i] = targets.scales[i];
-      currentColor.current[i3] = targets.colors[i3];
-      currentColor.current[i3 + 1] = targets.colors[i3 + 1];
-      currentColor.current[i3 + 2] = targets.colors[i3 + 2];
-      currentAlpha.current[i] = targets.alphas[i];
+    if (!snapAll && !nodeCountGrew && currentPos.current.length >= nodeCount * 3) {
+      return; // just targets changed → let useFrame lerp existing nodes there
     }
-    setLabelPos(new Float32Array(currentPos.current));
-  }, [graph, targets, nodeCount]);
+
+    if (snapAll) {
+      for (let i = 0; i < nodeCount; i++) {
+        const i3 = i * 3;
+        currentPos.current[i3] = targets.positions[i3];
+        currentPos.current[i3 + 1] = targets.positions[i3 + 1];
+        currentPos.current[i3 + 2] = targets.positions[i3 + 2];
+        currentScale.current[i] = targets.scales[i];
+        currentColor.current[i3] = targets.colors[i3];
+        currentColor.current[i3 + 1] = targets.colors[i3 + 1];
+        currentColor.current[i3 + 2] = targets.colors[i3 + 2];
+        currentAlpha.current[i] = targets.alphas[i];
+      }
+      setLabelPos(new Float32Array(currentPos.current));
+      return;
+    }
+
+    // In-place append: existing nodes [0, oldCount) keep their current values so
+    // useFrame animates them to their new targets. New nodes [oldCount, ...) are
+    // seeded at their PARENT's position with scale/alpha 0, so the same lerp
+    // flies them out to their ring spot while they grow + fade in.
+    const startFor = (i: number): [number, number, number] => {
+      const parent = graph.inAdj[i]?.[0];
+      const ref =
+        parent !== undefined && parent < nodeCount
+          ? parent
+          : viewState.mode === "subgraph"
+            ? viewState.selectedNodeId
+            : undefined;
+      if (ref === undefined || ref >= nodeCount) return [0, 0, 0];
+      const r3 = ref * 3;
+      // Parent that already exists on screen → fly from where it currently is;
+      // a freshly-added parent (e.g. a new proxy) → fly from its final spot.
+      const src = ref < oldCount ? currentPos.current : targets.positions;
+      return [src[r3], src[r3 + 1], src[r3 + 2]];
+    };
+    for (let i = oldCount; i < nodeCount; i++) {
+      const i3 = i * 3;
+      const [sx, sy, sz] = startFor(i);
+      currentPos.current[i3] = sx;
+      currentPos.current[i3 + 1] = sy;
+      currentPos.current[i3 + 2] = sz;
+      currentScale.current[i] = 0;
+      currentColor.current[i3] = 0;
+      currentColor.current[i3 + 1] = 0;
+      currentColor.current[i3 + 2] = 0;
+      currentAlpha.current[i] = 0;
+    }
+  }, [graph, targets, nodeCount, layoutGeneration, viewState]);
 
   // Attach per-instance progress attribute (runs on mesh recreation AND buffer growth)
   useEffect(() => {
@@ -1056,10 +1092,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
     }
 
-    if (transitionProgress.current < 1) {
-      transitionProgress.current = Math.min(1, transitionProgress.current + delta / 1.2);
-    }
-    const t = smoothstep(transitionProgress.current);
+    // Frame-rate-independent ease-out toward target: close NODE_EASE_RATE of the
+    // remaining distance per second. Predictable glide, no dependence on a global
+    // transition clock (which made appends snap-or-rush depending on timing).
+    const t = 1 - Math.exp(-delta * NODE_EASE_RATE);
 
     // Expand cluster members when their proxy is explicitly expanded
     const selectedProxyMembers = new Set<number>();
