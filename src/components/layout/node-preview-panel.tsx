@@ -28,6 +28,8 @@ import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
+import { TranscriptChatWidget } from "../agent/transcript-chat"
+import type { AgentChatContext } from "../agent/transcript-chat"
 import { AttachableEmbeds } from "./attachable-embeds"
 import { formatDateAbsolute, formatDateRelative } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
@@ -1100,6 +1102,14 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     return null
   }, [unlockState, hasTweet, graphNodes, graphEdges, currentNode.ref_id])
 
+  // Transcript Q&A eligibility
+  const transcriptContextRefId =
+    tweetEpisodeNode?.ref_id ?? (hasTranscript || hasMedia ? currentNode.ref_id : null)
+  const transcriptContextNodeType =
+    (tweetEpisodeNode?.node_type ?? nodeType) as string
+  const hasTranscriptContext =
+    unlockState === "unlocked" && transcriptContextRefId !== null
+
   // Edge fetch for admin/contributor probe path on tweet nodes.
   // The paid-unlock path (unlockNode) already calls ?expand=edges and populates
   // the store, so tweetEpisodeNode will be non-null before this runs — guarded
@@ -1505,6 +1515,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 </a>
               )}
               {hasTranscript && <TranscriptBlock text={fp.transcript as string} />}
+
+              {hasTranscriptContext && (
+                <TranscriptChatWidget
+                  context={{
+                    selectedRefId: transcriptContextRefId!,
+                    nodeType: transcriptContextNodeType,
+                    title: title ?? undefined,
+                  } satisfies AgentChatContext}
+                />
+              )}
 
               {/* Ordered child content — shown when outgoing edges carry properties.index */}
               {edges.some((e) => e.source === currentNode.ref_id && e.properties?.index !== undefined) && (

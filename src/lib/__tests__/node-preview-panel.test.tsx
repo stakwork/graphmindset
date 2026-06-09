@@ -1972,3 +1972,124 @@ describe("TranscriptBlock – speaker segmentation rendering", () => {
     expect(screen.getByText("Transcript")).toBeInTheDocument()
   })
 })
+
+// ─── TranscriptChatWidget mock (used in visibility tests below) ───────────────
+vi.mock("@/components/agent/transcript-chat", () => ({
+  TranscriptChatWidget: ({ context }: { context: { selectedRefId: string } }) => (
+    <div data-testid="transcript-chat-widget" data-ref-id={context.selectedRefId} />
+  ),
+}))
+
+// ─── NodePreviewPanel – TranscriptChatWidget visibility ──────────────────────
+
+describe("NodePreviewPanel – TranscriptChatWidget visibility", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = {}
+    mockGraphNodes = []
+    mockGraphEdges = []
+    mockGetLatestStakworkRun.mockResolvedValue(null)
+  })
+
+  it("renders TranscriptChatWidget for unlocked Episode node with transcript", async () => {
+    const node: GraphNode = {
+      ref_id: "ep-1",
+      node_type: "Episode",
+      properties: {
+        episode_title: "Test Episode",
+        media_url: "https://example.com/audio.mp3",
+        transcript: "Alice: Hello.\nBob: Hi.",
+      },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("transcript-chat-widget")).toBeInTheDocument()
+    })
+    expect(screen.getByTestId("transcript-chat-widget").getAttribute("data-ref-id")).toBe("ep-1")
+  })
+
+  it("renders TranscriptChatWidget for unlocked Video node with media_url (no transcript)", async () => {
+    const node: GraphNode = {
+      ref_id: "vid-1",
+      node_type: "Video",
+      properties: {
+        name: "My Video",
+        media_url: "https://example.com/video.mp4",
+      },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("transcript-chat-widget")).toBeInTheDocument()
+    })
+    expect(screen.getByTestId("transcript-chat-widget").getAttribute("data-ref-id")).toBe("vid-1")
+  })
+
+  it("renders TranscriptChatWidget with tweetEpisodeNode ref_id for tweet with connected Episode", async () => {
+    const tweetNode: GraphNode = {
+      ref_id: "tweet-99",
+      node_type: "Tweet",
+      properties: {
+        name: "Jack",
+        twitter_handle: "jack",
+        text: "Bitcoin is freedom.",
+        tweet_id: "tweetid123",
+      },
+    }
+    const episodeNode: GraphNode = {
+      ref_id: "tweet-99-ep",
+      node_type: "Episode",
+      properties: {
+        name: "Jack on Bitcoin",
+        media_url: "https://example.com/video.mp4",
+      },
+    }
+    mockGraphNodes = [episodeNode]
+    mockGraphEdges = [{ source: "tweet-99", target: "tweet-99-ep", edge_type: "HAS_EPISODE" }]
+    mockApiGet.mockResolvedValue({ nodes: [tweetNode], edges: [] })
+    render(<NodePreviewPanel node={tweetNode} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("transcript-chat-widget")).toBeInTheDocument()
+    })
+    expect(screen.getByTestId("transcript-chat-widget").getAttribute("data-ref-id")).toBe("tweet-99-ep")
+  })
+
+  it("does NOT render TranscriptChatWidget for unlocked Topic node without media", async () => {
+    const node: GraphNode = {
+      ref_id: "topic-1",
+      node_type: "Topic",
+      properties: { name: "Some Topic" },
+    }
+    mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Connections")).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId("transcript-chat-widget")).toBeNull()
+  })
+
+  it("does NOT render TranscriptChatWidget when node is in locked/preview state (402)", async () => {
+    const node: GraphNode = {
+      ref_id: "ep-locked",
+      node_type: "Episode",
+      properties: { episode_title: "Locked Episode" },
+    }
+    mockApiGet.mockRejectedValue(
+      new Response(JSON.stringify({ price: 10 }), {
+        status: 402,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /unlock for 10 sats/i })).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId("transcript-chat-widget")).toBeNull()
+  })
+})
