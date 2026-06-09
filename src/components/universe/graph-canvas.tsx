@@ -920,16 +920,24 @@ function describeSubgraph(
 // descendants in, we relay them out cleanly instead of patching positions in
 // place. Updates positions, originalPositions, the tree-edge set and depth map
 // for the recomputed nodes so rescale/reset/edge-rendering stay consistent.
-function recomputeDescendantLayout(graph: Graph, selectedId: number) {
+function recomputeDescendantLayout(graph: Graph, selectedId: number, oldCount: number) {
   const anchorNode = graph.nodes[selectedId]
   if (!anchorNode) return
 
   // Descendants only (directed BFS via outAdj) — never climbs to ancestors.
   const sub = extractSubgraph(graph, selectedId, 1000, { useAdj: "directed" })
+  // If the fetch surfaced the selected node's hierarchical PARENT for the first
+  // time (e.g. clicking a parentless Claim pulls in its Chapter, which is
+  // chapter→claim, so the chapter is the claim's parent / inAdj), hand it to
+  // computeRadialLayout as the parentId so it lands in the dedicated parent slot
+  // opposite the children — not grafted as a stray. Only a BRAND-NEW parent is
+  // placed; an ancestor already on screen is left where it is.
+  const newParentId = graph.inAdj[selectedId]?.find((p) => p >= oldCount)
   const { positions, treeEdgeSet, childrenOf } = computeRadialLayout(
     selectedId,
     sub.neighborsByDepth,
-    graph.edges
+    graph.edges,
+    newParentId !== undefined ? { parentId: newParentId } : undefined
   )
 
   // Two scales coexist while a node is selected:
@@ -948,22 +956,100 @@ function recomputeDescendantLayout(graph: Graph, selectedId: number) {
     { depth, shrink, ...describeSubgraph(graph, selectedId, "directed") }
   )
 
-  // The selected node doesn't move on select (rescale anchors it), so its live
-  // and collapsed positions coincide — use it as the anchor for both.
+  // Stable placement so existing nodes are *trackable* across the relayout.
+  // Walk the recomputed tree from the selected node (which stays fixed at its
+  // current spot). For each parent, its children share one ring — common radius
+  // + y-offset, evenly-spaced angle slots. Assign each EXISTING child to the
+  // slot nearest its CURRENT angle, and give NEW children the leftover slots.
+  // Existing nodes drift to the closest spot (small, followable move) instead of
+  // being reshuffled; new nodes fall into the gaps and fly in.
   const anchor = { ...anchorNode.position }
-  const origin = positions.get(selectedId) ?? { x: 0, y: 0, z: 0 }
-  for (const [id, p] of positions) {
+  const angDiff = (a: number, b: number) =>
+    Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
+  type P3 = { x: number; y: number; z: number }
+  const live = new Map<number, P3>()
+  live.set(selectedId, anchor)
+
+  const queue: number[] = [selectedId]
+  while (queue.length > 0) {
+    const P = queue.shift()!
+    const kids = childrenOf.get(P) ?? []
+    if (kids.length === 0) continue
+    const Pnew = positions.get(P)
+    const Pfin = live.get(P)
+    if (!Pnew || !Pfin) continue
+
+    // Each kid's recompute offset from its parent → (radius, y-delta, slot angle).
+    const slot = kids.map((k) => {
+      const pk = positions.get(k) ?? Pnew
+      const dx = pk.x - Pnew.x, dy = pk.y - Pnew.y, dz = pk.z - Pnew.z
+      return { r: Math.hypot(dx, dz), y: dy, angle: Math.atan2(dz, dx) }
+    })
+
+    const assigned = new Array<number>(kids.length).fill(-1)
+    const freeSlots = new Set(kids.map((_, i) => i))
+    const existing: number[] = []
+    kids.forEach((k, i) => {
+      if (k < oldCount) existing.push(i)
+    })
+
+    // Greedy global nearest-slot match for existing kids (minimizes total angular
+    // movement); whatever's left goes to new kids in order.
+    const pairs: { ki: number; si: number; d: number }[] = []
+    for (const ki of existing) {
+      const c = graph.nodes[kids[ki]].position
+      const a = Math.atan2(c.z - Pfin.z, c.x - Pfin.x)
+      for (let si = 0; si < kids.length; si++) {
+        pairs.push({ ki, si, d: angDiff(a, slot[si].angle) })
+      }
+    }
+    pairs.sort((p, q) => p.d - q.d)
+    for (const { ki, si } of pairs) {
+      if (assigned[ki] !== -1 || !freeSlots.has(si)) continue
+      assigned[ki] = si
+      freeSlots.delete(si)
+    }
+    const leftovers = [...freeSlots]
+    let li = 0
+    for (let i = 0; i < kids.length; i++) {
+      if (assigned[i] === -1) assigned[i] = leftovers[li++]
+    }
+
+    kids.forEach((k, i) => {
+      const s = slot[assigned[i]]
+      live.set(k, {
+        x: Pfin.x + Math.cos(s.angle) * s.r,
+        y: Pfin.y + s.y,
+        z: Pfin.z + Math.sin(s.angle) * s.r,
+      })
+      queue.push(k)
+    })
+  }
+
+  // Place the brand-new parent (if any) at its dedicated back slot, translated
+  // to the anchor like everything else, so it reads as "above" the selection.
+  if (newParentId !== undefined) {
+    const pp = positions.get(newParentId)
+    const origin = positions.get(selectedId) ?? { x: 0, y: 0, z: 0 }
+    if (pp) {
+      live.set(newParentId, {
+        x: anchor.x + (pp.x - origin.x),
+        y: anchor.y + (pp.y - origin.y),
+        z: anchor.z + (pp.z - origin.z),
+      })
+    }
+  }
+
+  // Two scales coexist while selected: LIVE = the stabilized spread-out layout;
+  // originalPositions = the same layout scaled toward the selected node by the
+  // layer's DEPTH_SHRINK^depth factor (the compact view deselect collapses to).
+  for (const [id, p] of live) {
     if (id < 0 || id >= graph.nodes.length) continue
-    const dx = p.x - origin.x
-    const dy = p.y - origin.y
-    const dz = p.z - origin.z
-    // Live: full spread-out scale.
-    graph.nodes[id].position = { x: anchor.x + dx, y: anchor.y + dy, z: anchor.z + dz }
-    // Collapse target: same layout shrunk to the layer's compact scale.
+    graph.nodes[id].position = { x: p.x, y: p.y, z: p.z }
     graph.originalPositions?.set(id, {
-      x: anchor.x + dx * shrink,
-      y: anchor.y + dy * shrink,
-      z: anchor.z + dz * shrink,
+      x: anchor.x + (p.x - anchor.x) * shrink,
+      y: anchor.y + (p.y - anchor.y) * shrink,
+      z: anchor.z + (p.z - anchor.z) * shrink,
     })
   }
 
@@ -1267,6 +1353,12 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes/edges read at build time but intentionally NOT deps; see comment above
   }, [dataVersion, schemas])
 
+  // Bumps once per full rebuild (new baseModel). GraphView uses it to snap on
+  // rebuild but ANIMATE in-place appends (where node identities are preserved).
+  const layoutGenRef = useRef(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- baseModel identity IS the trigger; we bump per rebuild, not per value read
+  const layoutGeneration = useMemo(() => ++layoutGenRef.current, [baseModel])
+
   // `appendModel` accumulates incremental appends on top of the last full
   // build. On a full rebuild (baseModel changes) we use baseModel directly for
   // THIS render to avoid a one-frame flash of stale data, then resync
@@ -1316,7 +1408,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     // ancestors or other branches, no camera motion.
     const sel = selectedIdRef.current
     if (sel != null && res.model.graph.nodes[sel]) {
-      recomputeDescendantLayout(res.model.graph, sel)
+      // Nodes with index >= the pre-append count are the freshly added ones.
+      recomputeDescendantLayout(res.model.graph, sel, model.graph.nodes.length)
     }
 
     setAppendModel(res.model)
@@ -1646,6 +1739,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           searchTerm={searchTerm}
           nodeTypeIcons={nodeTypeIcons}
           onResetView={handleReset}
+          layoutGeneration={layoutGeneration}
           suppressHover={cameraInteracting}
           onGraphClick={() => {
             useGraphStore.getState().setSidebarSelectedNode(null)
