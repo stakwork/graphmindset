@@ -18,6 +18,7 @@ let playerState: {
   volume: number
   host: null
   isExpanded: boolean
+  pendingSeekTime: number | null
   setPlayingNode: ReturnType<typeof vi.fn>
   setIsPlaying: ReturnType<typeof vi.fn>
   setCurrentTime: ReturnType<typeof vi.fn>
@@ -25,6 +26,8 @@ let playerState: {
   setVolume: ReturnType<typeof vi.fn>
   setHost: ReturnType<typeof vi.fn>
   setIsExpanded: ReturnType<typeof vi.fn>
+  seekTo: ReturnType<typeof vi.fn>
+  clearPendingSeek: ReturnType<typeof vi.fn>
   stop: ReturnType<typeof vi.fn>
 }
 
@@ -43,6 +46,8 @@ function makeNode(id: string, mediaUrl = "https://example.com/video.mp4") {
   }
 }
 
+const mockClearPendingSeek = vi.fn()
+
 function resetPlayerState(node: Record<string, unknown> | null = null) {
   playerState = {
     playingNode: node,
@@ -52,6 +57,7 @@ function resetPlayerState(node: Record<string, unknown> | null = null) {
     volume: 0.8,
     host: null,
     isExpanded: false,
+    pendingSeekTime: null,
     setPlayingNode: vi.fn(),
     setIsPlaying: mockSetIsPlaying,
     setCurrentTime: mockSetCurrentTime,
@@ -59,6 +65,8 @@ function resetPlayerState(node: Record<string, unknown> | null = null) {
     setVolume: vi.fn(),
     setHost: vi.fn(),
     setIsExpanded: vi.fn(),
+    seekTo: vi.fn(),
+    clearPendingSeek: mockClearPendingSeek,
     stop: mockStop,
   }
 }
@@ -210,6 +218,46 @@ describe("MediaPlayer", () => {
 
     expect(videoCurrentTime).toBe(0)
     expect(mockSetCurrentTime).toHaveBeenCalledWith(0)
+  })
+
+  it("seekTo sets media.currentTime and triggers play", async () => {
+    // Start with no pending seek so the effect is a no-op on initial render
+    resetPlayerState(makeNode("clip-seek"))
+    playerState.pendingSeekTime = null
+
+    const { usePlayerStore } = await import("@/stores/player-store")
+    const mockStore = vi.mocked(usePlayerStore)
+    mockStore.mockImplementation((selector?: (s: typeof playerState) => unknown) => {
+      if (selector) return selector(playerState)
+      return playerState
+    })
+
+    mockClearPendingSeek.mockClear()
+    mockSetIsPlaying.mockClear()
+
+    const { container, rerender } = render(<MediaPlayer />)
+    const video = container.querySelector("video") as HTMLVideoElement
+
+    // Intercept currentTime before triggering the seek effect
+    Object.defineProperty(video, "currentTime", {
+      get: () => videoCurrentTime,
+      set: (val: number) => { videoCurrentTime = val },
+      configurable: true,
+    })
+
+    // Now simulate seekTo(90) by updating pendingSeekTime and re-rendering
+    act(() => {
+      playerState.pendingSeekTime = 90
+      mockStore.mockImplementation((selector?: (s: typeof playerState) => unknown) => {
+        if (selector) return selector(playerState)
+        return playerState
+      })
+    })
+    rerender(<MediaPlayer />)
+
+    expect(videoCurrentTime).toBe(90)
+    expect(mockSetIsPlaying).toHaveBeenCalledWith(true)
+    expect(mockClearPendingSeek).toHaveBeenCalled()
   })
 
   it("handleSeek sets media.currentTime to the correct ratio-derived value (regression guard)", async () => {
