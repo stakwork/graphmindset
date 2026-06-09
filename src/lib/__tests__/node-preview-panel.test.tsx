@@ -104,12 +104,12 @@ vi.mock("@/stores/graph-store", () => ({
   ),
 }))
 
-type PlayerStoreState = { isPlaying: boolean; playingNode: { ref_id: string } | null; setPlayingNode: () => void; setIsPlaying: () => void }
+type PlayerStoreState = { isPlaying: boolean; playingNode: { ref_id: string } | null; setPlayingNode: () => void; setIsPlaying: () => void; seekTo: (s: number) => void; clearPendingSeek: () => void; pendingSeekTime: number | null }
 let playerStoreOverrides: Partial<PlayerStoreState> = {}
 
 vi.mock("@/stores/player-store", () => ({
   usePlayerStore: (sel: (s: PlayerStoreState) => unknown) =>
-    sel({ isPlaying: false, playingNode: null, setPlayingNode: vi.fn(), setIsPlaying: vi.fn(), ...playerStoreOverrides }),
+    sel({ isPlaying: false, playingNode: null, setPlayingNode: vi.fn(), setIsPlaying: vi.fn(), seekTo: vi.fn(), clearPendingSeek: vi.fn(), pendingSeekTime: null, ...playerStoreOverrides }),
 }))
 
 // --- schema icons ---
@@ -520,8 +520,8 @@ describe("NodePreviewPanel – SummaryBlock", () => {
     expect(screen.queryByText("Summary")).toBeNull()
   })
 
-  it("truncates long summary at 300 chars and shows 'Show more' toggle", async () => {
-    const longSummary = "A".repeat(350)
+  it("truncates long summary at 800 chars and shows 'Show more' toggle", async () => {
+    const longSummary = "A".repeat(900)
     const node = makeMediaNode({ summary: longSummary })
     mockApiGet.mockResolvedValue({ nodes: [node], edges: [] })
 
@@ -533,7 +533,7 @@ describe("NodePreviewPanel – SummaryBlock", () => {
 
     // Truncated text ends with ellipsis
     const summaryText = screen.getByText(/A+…/)
-    expect(summaryText.textContent?.length).toBeLessThan(350)
+    expect(summaryText.textContent?.length).toBeLessThan(900)
 
     // Show more button present
     expect(screen.getByRole("button", { name: /show more/i })).toBeInTheDocument()
@@ -1903,12 +1903,12 @@ describe("parseTranscriptSegments", () => {
     expect(parseTranscriptSegments("Alice: Hello everyone.")).toBeNull()
   })
 
-  it("parses two speaker segments correctly", () => {
+  it("parses two speaker segments correctly without timestamps", () => {
     const text = "Alice: Hello.\nBob: Hi there."
     const result = parseTranscriptSegments(text)
     expect(result).toHaveLength(2)
-    expect(result![0]).toEqual({ speaker: "Alice", text: "Hello." })
-    expect(result![1]).toEqual({ speaker: "Bob", text: "Hi there." })
+    expect(result![0]).toEqual({ speaker: "Alice", text: "Hello.", timestampSeconds: undefined })
+    expect(result![1]).toEqual({ speaker: "Bob", text: "Hi there.", timestampSeconds: undefined })
   })
 
   it("parses Speaker 1 / Speaker 2 format", () => {
@@ -1925,6 +1925,32 @@ describe("parseTranscriptSegments", () => {
     expect(result).toHaveLength(2)
     expect(result![0].text).toBe("First line.\nSecond line.")
     expect(result![1].text).toBe("Hello.")
+  })
+
+  it("parses [MM:SS] timestamp prefix and converts to seconds", () => {
+    const text = "[01:45] Alice: Something important.\n[02:10] Bob: Indeed."
+    const result = parseTranscriptSegments(text)
+    expect(result).toHaveLength(2)
+    expect(result![0].speaker).toBe("Alice")
+    expect(result![0].timestampSeconds).toBe(105)
+    expect(result![1].speaker).toBe("Bob")
+    expect(result![1].timestampSeconds).toBe(130)
+  })
+
+  it("parses [H:MM:SS] timestamp prefix and converts to seconds", () => {
+    const text = "[1:02:30] Alice: Long session.\n[1:03:00] Bob: Yes."
+    const result = parseTranscriptSegments(text)
+    expect(result).toHaveLength(2)
+    expect(result![0].timestampSeconds).toBe(3750)
+    expect(result![1].timestampSeconds).toBe(3780)
+  })
+
+  it("handles mixed: some segments with timestamps, some without", () => {
+    const text = "[00:00] Alice: Start.\nBob: No timestamp here."
+    const result = parseTranscriptSegments(text)
+    expect(result).toHaveLength(2)
+    expect(result![0].timestampSeconds).toBe(0)
+    expect(result![1].timestampSeconds).toBeUndefined()
   })
 })
 
@@ -1947,24 +1973,81 @@ describe("TranscriptBlock – speaker segmentation rendering", () => {
     expect(screen.queryByText("Alice")).toBeNull()
   })
 
-  it("shows Show more / Show less for a long segmented transcript", async () => {
+  it("shows Show more / Show less for a long segmented transcript (>3 segments)", async () => {
     const { userEvent } = await import("@testing-library/user-event")
     const user = userEvent.setup()
-    const long = "Alice: " + "a".repeat(200) + "\nBob: " + "b".repeat(200)
+    const long = "Alice: First.\nBob: Second.\nCarol: Third.\nDave: Fourth."
     render(<TranscriptBlock text={long} />)
     expect(screen.getByText("Show more")).toBeInTheDocument()
     await user.click(screen.getByText("Show more"))
     expect(screen.getByText("Show less")).toBeInTheDocument()
   })
 
-  it("shows Show more / Show less for a long plain transcript", async () => {
+  it("collapsed view shows only first 3 segments when >3 segments present", () => {
+    const text = "Alice: First.\nBob: Second.\nCarol: Third.\nDave: Fourth."
+    render(<TranscriptBlock text={text} />)
+    expect(screen.getByText("Alice")).toBeInTheDocument()
+    expect(screen.getByText("Bob")).toBeInTheDocument()
+    expect(screen.getByText("Carol")).toBeInTheDocument()
+    expect(screen.queryByText("Dave")).toBeNull()
+  })
+
+  it("expanded view shows all segments after clicking Show more", async () => {
     const { userEvent } = await import("@testing-library/user-event")
     const user = userEvent.setup()
-    const long = "x".repeat(400)
+    const text = "Alice: First.\nBob: Second.\nCarol: Third.\nDave: Fourth."
+    render(<TranscriptBlock text={text} />)
+    await user.click(screen.getByText("Show more"))
+    expect(screen.getByText("Dave")).toBeInTheDocument()
+  })
+
+  it("does not show Show more when 3 or fewer segments", () => {
+    const text = "Alice: First.\nBob: Second.\nCarol: Third."
+    render(<TranscriptBlock text={text} />)
+    expect(screen.queryByText("Show more")).toBeNull()
+  })
+
+  it("shows Show more / Show less for a long plain transcript (>800 chars)", async () => {
+    const { userEvent } = await import("@testing-library/user-event")
+    const user = userEvent.setup()
+    const long = "x".repeat(900)
     render(<TranscriptBlock text={long} />)
     expect(screen.getByText("Show more")).toBeInTheDocument()
     await user.click(screen.getByText("Show more"))
     expect(screen.getByText("Show less")).toBeInTheDocument()
+  })
+
+  it("does not show Show more for plain transcript under 800 chars", () => {
+    const text = "x".repeat(400)
+    render(<TranscriptBlock text={text} />)
+    expect(screen.queryByText("Show more")).toBeNull()
+  })
+
+  it("renders timestamp chip as button when onTimestampClick provided", () => {
+    const onTimestampClick = vi.fn()
+    const text = "[01:45] Alice: Something.\n[02:10] Bob: Indeed."
+    render(<TranscriptBlock text={text} onTimestampClick={onTimestampClick} />)
+    const chip = screen.getByRole("button", { name: "[01:45]" })
+    expect(chip).toBeInTheDocument()
+  })
+
+  it("calls onTimestampClick with correct seconds when timestamp chip clicked", async () => {
+    const { userEvent } = await import("@testing-library/user-event")
+    const user = userEvent.setup()
+    const onTimestampClick = vi.fn()
+    const text = "[01:45] Alice: Something.\n[02:10] Bob: Indeed."
+    render(<TranscriptBlock text={text} onTimestampClick={onTimestampClick} />)
+    await user.click(screen.getByRole("button", { name: "[01:45]" }))
+    expect(onTimestampClick).toHaveBeenCalledWith(105)
+  })
+
+  it("renders timestamp as plain text (not button) when onTimestampClick is absent", () => {
+    const text = "[01:45] Alice: Something.\n[02:10] Bob: Indeed."
+    render(<TranscriptBlock text={text} />)
+    // Timestamp text should be present
+    expect(screen.getByText("[01:45]")).toBeInTheDocument()
+    // But not as a button
+    expect(screen.queryByRole("button", { name: "[01:45]" })).toBeNull()
   })
 
   it("always renders the Transcript label", () => {

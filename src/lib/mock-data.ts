@@ -344,7 +344,7 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
         properties: {
           name: "Jack Dorsey on Bitcoin — embedded video",
           media_url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-          transcript: "Jack Dorsey: Bitcoin is the most important invention since the internet. The separation of money and state is the key idea — governments cannot stop it.\n\nInterviewer: Why do you think it matters so much?\n\nJack Dorsey: Because for the first time we have a currency that is not controlled by any single entity. It is open, it is neutral, and it is accessible to everyone on the planet.",
+          transcript: "[00:00] Jack Dorsey: Bitcoin is the most important invention since the internet. The separation of money and state is the key idea — governments cannot stop it.\n\n[01:45] Interviewer: Why do you think it matters so much?\n\n[02:10] Jack Dorsey: Because for the first time we have a currency that is not controlled by any single entity. It is open, it is neutral, and it is accessible to everyone on the planet.",
         },
       },
     ],
@@ -360,7 +360,7 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
         properties: {
           name: "Jack Dorsey on Bitcoin — embedded video",
           media_url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-          transcript: "Jack Dorsey: Bitcoin is the most important invention since the internet. The separation of money and state is the key idea — governments cannot stop it.\n\nInterviewer: Why do you think it matters so much?\n\nJack Dorsey: Because for the first time we have a currency that is not controlled by any single entity. It is open, it is neutral, and it is accessible to everyone on the planet.",
+          transcript: "[00:00] Jack Dorsey: Bitcoin is the most important invention since the internet. The separation of money and state is the key idea — governments cannot stop it.\n\n[01:45] Interviewer: Why do you think it matters so much?\n\n[02:10] Jack Dorsey: Because for the first time we have a currency that is not controlled by any single entity. It is open, it is neutral, and it is accessible to everyone on the planet.",
         },
       },
     ],
@@ -397,7 +397,7 @@ export const MOCK_FULL_NODES: Record<string, GraphData> = {
           show_title: "What Bitcoin Did",
           date: "2024-08-12",
           image_url: "https://picsum.photos/seed/wbd412/120",
-          transcript: "Peter: Welcome to What Bitcoin Did. Today we\u2019re talking about Lightning, the Layer 2 scaling solution that\u2019s changing how we think about Bitcoin payments.\n\nGuest: Thanks for having me, Peter. Lightning is really about making Bitcoin usable for everyday transactions. The base layer gives us security and settlement, but Lightning gives us speed and low fees.\n\nPeter: Can you explain how it works for someone who\u2019s new to this?\n\nGuest: Sure. Imagine you and I open a payment channel. We lock some Bitcoin on-chain, and then we can send payments back and forth instantly, off-chain. When we\u2019re done, we settle back on the main chain. The magic is that these channels connect into a network, so I can pay anyone, not just you.",
+          transcript: "[00:00] Peter: Welcome to What Bitcoin Did. Today we\u2019re talking about Lightning, the Layer 2 scaling solution that\u2019s changing how we think about Bitcoin payments.\n\n[00:42] Guest: Thanks for having me, Peter. Lightning is really about making Bitcoin usable for everyday transactions. The base layer gives us security and settlement, but Lightning gives us speed and low fees.\n\n[01:30] Peter: Can you explain how it works for someone who\u2019s new to this?\n\n[01:48] Guest: Sure. Imagine you and I open a payment channel. We lock some Bitcoin on-chain, and then we can send payments back and forth instantly, off-chain. When we\u2019re done, we settle back on the main chain. The magic is that these channels connect into a network, so I can pay anyone, not just you.",
         },
       },
       {
