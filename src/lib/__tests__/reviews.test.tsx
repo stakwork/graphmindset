@@ -548,6 +548,394 @@ describe("ReviewRow", () => {
     expect(container.querySelector("svg")).toBeTruthy()
     expect(getByText(/Hide Orphaned Topic/)).toBeTruthy()
   })
+
+  // ── add_node ─────────────────────────────────────────────────────────────
+
+  it("renders add_node row without crashing with valid payload", () => {
+    const { container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-node-1",
+          type: "add_node_candidate",
+          action_name: "add_node",
+          action_payload: { node_type: "Topic", properties: { name: "Lightning DeFi", description: "DeFi on Lightning" } },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Topic: Lightning DeFi",
+          icon: "plus-square",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(container.querySelector("svg")).toBeTruthy()
+  })
+
+  it("add_node expanded panel shows proposed node type and properties", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-node-1",
+          type: "add_node_candidate",
+          action_name: "add_node",
+          action_payload: { node_type: "Topic", properties: { name: "Lightning DeFi", description: "DeFi on Lightning" } },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add Topic: Lightning DeFi",
+          icon: "plus-square",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Add Topic: Lightning DeFi"))
+    expect(getByText("Proposed Node")).toBeTruthy()
+    expect(getByText("Topic")).toBeTruthy()
+    expect(getByText("Lightning DeFi")).toBeTruthy()
+  })
+
+  it("add_node expanded panel renders gracefully with missing payload fields", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          action_name: "add_node",
+          action_payload: {},
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add node (incomplete)",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Add node (incomplete)"))
+    expect(getByText("Proposed Node")).toBeTruthy()
+  })
+
+  // ── add_edge ─────────────────────────────────────────────────────────────
+
+  it("renders add_edge row without crashing with valid payload", () => {
+    const { container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-edge-1",
+          type: "add_edge_candidate",
+          action_name: "add_edge",
+          action_payload: { source_ref_id: "n3", target_ref_id: "n6", edge_type: "AUTHORED_BY" },
+          subject_ids: ["n3", "n6"],
+          subject_nodes: [
+            { ref_id: "n3", node_type: "Person", properties: { name: "Satoshi Nakamoto" } },
+            { ref_id: "n6", node_type: "Topic", properties: { name: "Bitcoin Whitepaper" } },
+          ],
+          display_label: "Add edge: AUTHORED_BY",
+          icon: "share-2",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(container.querySelector("svg")).toBeTruthy()
+  })
+
+  it("add_edge expanded panel shows edge type and nodes", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-edge-1",
+          type: "add_edge_candidate",
+          action_name: "add_edge",
+          action_payload: { source_ref_id: "n3", target_ref_id: "n6", edge_type: "AUTHORED_BY" },
+          subject_ids: ["n3", "n6"],
+          subject_nodes: [
+            { ref_id: "n3", node_type: "Person", properties: { name: "Satoshi Nakamoto" } },
+            { ref_id: "n6", node_type: "Topic", properties: { name: "Bitcoin Whitepaper" } },
+          ],
+          display_label: "Add edge: AUTHORED_BY",
+          icon: "share-2",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    // Compact row shows rowLabel "Add new edge" (not display_label) when subject_nodes is non-empty
+    await user.click(getByText("Add new edge"))
+    expect(getByText("Proposed Edge")).toBeTruthy()
+    expect(getByText("AUTHORED_BY")).toBeTruthy()
+  })
+
+  it("add_edge with empty subject_nodes shows Deleted fallback — no crash", async () => {
+    const user = userEvent.setup()
+    const { getByText, getAllByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-edge-deleted",
+          type: "add_edge_candidate",
+          action_name: "add_edge",
+          action_payload: { source_ref_id: "deleted-n1", target_ref_id: "deleted-n2", edge_type: "LINKED_TO" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add edge: LINKED_TO",
+          icon: "share-2",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Add edge: LINKED_TO"))
+    expect(getAllByText(/Deleted/).length).toBeGreaterThan(0)
+  })
+
+  // ── edit_node ─────────────────────────────────────────────────────────────
+
+  it("renders edit_node row without crashing with valid payload", () => {
+    const { container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-edit-node-1",
+          type: "edit_node_candidate",
+          action_name: "edit_node",
+          action_payload: { ref_id: "n8", node_type: "Episode", properties: { name: "Bitcoin Explained" } },
+          subject_ids: ["n8"],
+          subject_nodes: [{ ref_id: "n8", node_type: "Clip", properties: { name: "Bitcoin Explained (Clip)" } }],
+          display_label: "Edit node: Clip → Episode",
+          icon: "pencil",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(container.querySelector("svg")).toBeTruthy()
+  })
+
+  it("edit_node expanded panel shows type-change indicator when node_type differs", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-edit-node-1",
+          type: "edit_node_candidate",
+          action_name: "edit_node",
+          action_payload: { ref_id: "n8", node_type: "Episode", properties: { name: "Bitcoin Explained" } },
+          subject_ids: ["n8"],
+          subject_nodes: [{ ref_id: "n8", node_type: "Clip", properties: { name: "Bitcoin Explained (Clip)" } }],
+          display_label: "Edit node: Clip → Episode",
+          icon: "pencil",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    // Compact row uses rowLabel: "Edit Bitcoin Explained (Clip)" from subject node name
+    await user.click(getByText(/Edit Bitcoin Explained/))
+    expect(getByText("Type Change")).toBeTruthy()
+    expect(getByText("Clip")).toBeTruthy()
+    expect(getByText("Episode")).toBeTruthy()
+  })
+
+  it("edit_node expanded panel renders gracefully with missing payload fields", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          action_name: "edit_node",
+          action_payload: { ref_id: "n8" },
+          subject_ids: ["n8"],
+          subject_nodes: [{ ref_id: "n8", node_type: "Clip", properties: { name: "Some Clip" } }],
+          display_label: "Edit Some Clip",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Edit Some Clip"))
+    expect(getByText("Node Being Edited")).toBeTruthy()
+  })
+
+  // ── add_schema_node_type ──────────────────────────────────────────────────
+
+  it("renders add_schema_node_type row without crashing with valid payload", () => {
+    const { container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-schema-type-1",
+          type: "add_schema_type_candidate",
+          action_name: "add_schema_node_type",
+          action_payload: {
+            type: "Framework",
+            parent: "Topic",
+            color: "#7C3AED",
+            icon: "layers",
+            attributes: [{ key: "name", type: "text", required: true }],
+          },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add type: Framework",
+          icon: "layers",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(container.querySelector("svg")).toBeTruthy()
+  })
+
+  it("add_schema_node_type expanded panel shows type name, parent, color swatch, and attributes", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-schema-type-1",
+          type: "add_schema_type_candidate",
+          action_name: "add_schema_node_type",
+          action_payload: {
+            type: "Framework",
+            parent: "Topic",
+            color: "#7C3AED",
+            icon: "layers",
+            attributes: [
+              { key: "name", type: "text", required: true },
+              { key: "version", type: "text", required: false },
+            ],
+          },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add type: Framework",
+          icon: "layers",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Add type: Framework"))
+    expect(getByText("Proposed Schema Type")).toBeTruthy()
+    // "Framework" appears in both type name display and parent breadcrumb — just assert at least one
+    expect(screen.getAllByText("Framework").length).toBeGreaterThanOrEqual(1)
+    expect(getByText("Parent Hierarchy")).toBeTruthy()
+    expect(getByText("Attributes")).toBeTruthy()
+    expect(getByText("name")).toBeTruthy()
+    expect(getByText("required")).toBeTruthy()
+  })
+
+  it("add_schema_node_type expanded panel renders gracefully with empty payload", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          action_name: "add_schema_node_type",
+          action_payload: {},
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add schema type (incomplete)",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Add schema type (incomplete)"))
+    expect(getByText("Proposed Schema Type")).toBeTruthy()
+  })
+
+  // ── add_schema_edge_type ──────────────────────────────────────────────────
+
+  it("renders add_schema_edge_type row without crashing with valid payload", () => {
+    const { container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-schema-edge-1",
+          type: "add_schema_edge_candidate",
+          action_name: "add_schema_edge_type",
+          action_payload: { edge_type: "MENTIONS", source: "*", target: "*" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add schema edge: MENTIONS (wildcard)",
+          icon: "network",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    expect(container.querySelector("svg")).toBeTruthy()
+  })
+
+  it("add_schema_edge_type expanded panel renders '*' source/target as 'Any type' badge", async () => {
+    const user = userEvent.setup()
+    const { getAllByText, queryByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-schema-edge-1",
+          type: "add_schema_edge_candidate",
+          action_name: "add_schema_edge_type",
+          action_payload: { edge_type: "MENTIONS", source: "*", target: "*" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add schema edge: MENTIONS (wildcard)",
+          icon: "network",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getAllByText("Add schema edge: MENTIONS (wildcard)")[0])
+    expect(getAllByText("Any type").length).toBeGreaterThanOrEqual(2)
+    expect(queryByText("*")).toBeNull()
+  })
+
+  it("add_schema_edge_type expanded panel shows edge_type label", async () => {
+    const user = userEvent.setup()
+    const { getByText, getAllByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          ref_id: "mock-add-schema-edge-named",
+          type: "add_schema_edge_candidate",
+          action_name: "add_schema_edge_type",
+          action_payload: { edge_type: "RELATED_TO", source: "Topic", target: "Episode" },
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add schema edge: RELATED_TO",
+          icon: "network",
+          status: "pending",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getAllByText("Add schema edge: RELATED_TO")[0])
+    expect(getByText("Proposed Schema Edge")).toBeTruthy()
+    expect(getByText("RELATED_TO")).toBeTruthy()
+  })
+
+  it("add_schema_edge_type expanded panel renders gracefully with missing payload fields", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          action_name: "add_schema_edge_type",
+          action_payload: {},
+          subject_ids: [],
+          subject_nodes: [],
+          display_label: "Add schema edge (incomplete)",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Add schema edge (incomplete)"))
+    expect(getByText("Proposed Schema Edge")).toBeTruthy()
+  })
 })
 
 // ── ReviewsPage page-fallback guard (pure logic) ─────────────────────────────

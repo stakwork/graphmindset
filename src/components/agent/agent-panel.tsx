@@ -1,16 +1,10 @@
 "use client"
 
-import { useCallback, useRef } from "react"
+import { useRef } from "react"
 import { X, Bot, Send, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { MessageList } from "./message-list"
 import { useAgentChat } from "./use-agent-chat"
-
-const EXAMPLE_QUESTIONS = [
-  "What are the most discussed topics?",
-  "Who talks about Bitcoin?",
-  "Summarise recent clips about AI",
-]
 
 interface AgentPanelProps {
   onClose: () => void
@@ -20,15 +14,6 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const { messages, input, setInput, streaming, handleSubmit, handleKeyDown } =
     useAgentChat()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  const handleExampleClick = useCallback(
-    (question: string) => {
-      setInput(question)
-      textareaRef.current?.focus()
-      handleSubmit(question)
-    },
-    [handleSubmit, setInput]
-  )
 
   const isEmpty = messages.length === 0
 
@@ -40,7 +25,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           <Bot className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm leading-none">Ask the Graph</p>
+          <p className="font-semibold text-sm leading-none">Graph Agent</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">AI-powered knowledge explorer</p>
         </div>
         <button
@@ -68,22 +53,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 w-full max-w-xs">
-              {EXAMPLE_QUESTIONS.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => handleExampleClick(q)}
-                  className={cn(
-                    "text-left text-xs px-3 py-2.5 rounded-lg border border-border/60",
-                    "bg-muted/30 hover:bg-muted/60 text-foreground/80 hover:text-foreground",
-                    "transition-colors leading-relaxed"
-                  )}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
+
           </div>
         ) : (
           <MessageList messages={messages} />

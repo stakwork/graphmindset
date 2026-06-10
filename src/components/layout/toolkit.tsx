@@ -185,7 +185,7 @@ export function Toolkit({
       <ToolkitButton icon={Plus} ariaLabel="Add to graph" onClick={() => openAdd("source")} />
       <ToolkitButton
         icon={MessageSquare}
-        ariaLabel="Ask the Graph"
+        ariaLabel="Graph Agent"
         onClick={onToggleAgent}
         active={agentOpen}
       />
@@ -318,7 +318,7 @@ export function ToolkitFAB({
             {/* Action buttons — icon + label */}
             {[
               { icon: Plus, label: "Add to graph", action: () => openAdd("source"), active: false },
-              { icon: MessageSquare, label: "Ask the Graph", action: onToggleAgent ?? (() => {}), active: agentOpen ?? false },
+              { icon: MessageSquare, label: "Graph Agent", action: onToggleAgent ?? (() => {}), active: agentOpen ?? false },
               { icon: BookMarked, label: "My Content", action: onToggleMyContent, active: myContentOpen },
               { icon: Heart, label: "Following", action: onToggleFollowing, active: followingOpen },
               { icon: Layers, label: "Sources", action: onToggleSources, active: sourcesOpen },
