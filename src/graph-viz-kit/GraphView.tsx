@@ -454,6 +454,47 @@ function sampleBezier(
   };
 }
 
+// --------- Hierarchical edge bundling (cross-edges) ---------
+// Cross-edges route along the BFS tree between their endpoints instead of
+// flying point-to-point (Holten-style bundling), so edges that share
+// structure merge into a few legible ribbons rather than criss-crossing as
+// independent curves — additive blending then reads as ribbon thickness
+// instead of hairball fog.
+const BUNDLE_BETA = 0.8; // 1 = hug the tree path, 0 = straight chord
+const MAX_BUNDLE_CTRL = 6; // tree paths downsampled to ≤ this many points
+const CROSS_SUBDIVS = 16; // segments per cross-edge curve (bundled or direct)
+
+// Scratch for the β-blended control polyline (xyz-flat) and the sampled
+// point. Module-level like tmpObj/tmpColor — only used within one callback.
+const bundleCtrl = new Float32Array(MAX_BUNDLE_CTRL * 3);
+const bundlePoint = { x: 0, y: 0, z: 0 };
+
+// Evaluate a C1 piecewise-quadratic B-spline through the first `k` control
+// points of `ctrl` at global t ∈ [0,1]. Midpoint scheme with doubled
+// endpoints: piece i runs mid(Qi,Qi+1) → mid(Qi+1,Qi+2) with Qi+1 as the
+// Bézier control, where Q(j) = P(clamp(j-1)) — so the curve starts exactly
+// at P0 and ends at P(k-1). Writes into `bundlePoint` to stay allocation-free.
+function sampleBundleCurve(ctrl: Float32Array, k: number, t: number): void {
+  const pieces = k;
+  let idx = Math.floor(t * pieces);
+  if (idx > pieces - 1) idx = pieces - 1;
+  const s = t * pieces - idx;
+  const clampP = (j: number) => (j < 1 ? 0 : j - 1 > k - 1 ? k - 1 : j - 1) * 3;
+  const a = clampP(idx);
+  const b = clampP(idx + 1);
+  const c = clampP(idx + 2);
+  const sx = (ctrl[a] + ctrl[b]) * 0.5;
+  const sy = (ctrl[a + 1] + ctrl[b + 1]) * 0.5;
+  const sz = (ctrl[a + 2] + ctrl[b + 2]) * 0.5;
+  const ex = (ctrl[b] + ctrl[c]) * 0.5;
+  const ey = (ctrl[b + 1] + ctrl[c + 1]) * 0.5;
+  const ez = (ctrl[b + 2] + ctrl[c + 2]) * 0.5;
+  const omt = 1 - s;
+  bundlePoint.x = omt * omt * sx + 2 * omt * s * ctrl[b] + s * s * ex;
+  bundlePoint.y = omt * omt * sy + 2 * omt * s * ctrl[b + 1] + s * s * ey;
+  bundlePoint.z = omt * omt * sz + 2 * omt * s * ctrl[b + 2] + s * s * ez;
+}
+
 // Splits `label` around case-insensitive occurrences of `term` and bolds the
 // matching substrings so the user can see which part of the label triggered
 // the search hit. Color is inherited from the parent label style.
@@ -596,6 +637,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const crossEdgeAlphaRef = useRef<Float32Array>(new Float32Array(256 * 2));
   // Per-node pulse intensity scratch buffer — only touched while pulses run
   const pulseIntensityRef = useRef<Float32Array>(new Float32Array(0));
+  // Motion-quiet: ambient cross-edges fade toward 0 while the camera is being
+  // driven and ease back at rest, so orbiting reads structure, not hairball.
+  const crossQuietRef = useRef(1);
 
   // Grow edge buffers when edge count increases
   const edgeCount = graph.edges.length;
@@ -796,6 +840,85 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     const lanes = computeLaneInfo(cross);
     return { treeEdges: tree, crossEdges: cross, targetEdges: allEdges, edgeLaneInfo: lanes };
   }, [graph, viewState, expandedClusterId]);
+
+  // Tree path per cross-edge for bundling (node ids, endpoints included,
+  // downsampled to MAX_BUNDLE_CTRL). Keyed by edgeKey — the highlight overlay
+  // holds different edge objects for the same logical edge and must find the
+  // same path so it tracks the dim curve exactly. Edges with no tree path
+  // (disconnected components) are absent and fall back to the direct Bézier.
+  const bundlePaths = useMemo(() => {
+    const paths = new Map<string, number[]>();
+    if (crossEdges.length === 0) return paths;
+
+    // Undirected adjacency over the rendered tree edges. Ring-chain synthetic
+    // edges may introduce cycles — BFS just takes the shortest route through.
+    const adj = new Map<number, number[]>();
+    const link = (a: number, b: number) => {
+      let l = adj.get(a);
+      if (!l) {
+        l = [];
+        adj.set(a, l);
+      }
+      l.push(b);
+    };
+    for (const e of treeEdges) {
+      link(e.src, e.dst);
+      link(e.dst, e.src);
+    }
+
+    // One BFS per unique source covers every cross-edge sharing it.
+    const bySrc = new Map<number, GraphEdge[]>();
+    for (const e of crossEdges) {
+      let l = bySrc.get(e.src);
+      if (!l) {
+        l = [];
+        bySrc.set(e.src, l);
+      }
+      l.push(e);
+    }
+
+    const prev = new Map<number, number>();
+    for (const [src, edgesFromSrc] of bySrc) {
+      prev.clear();
+      prev.set(src, src);
+      let frontier: number[] = [src];
+      while (frontier.length > 0) {
+        const next: number[] = [];
+        for (const n of frontier) {
+          const neighbors = adj.get(n);
+          if (!neighbors) continue;
+          for (const m of neighbors) {
+            if (prev.has(m)) continue;
+            prev.set(m, n);
+            next.push(m);
+          }
+        }
+        frontier = next;
+      }
+      for (const e of edgesFromSrc) {
+        if (!prev.has(e.dst)) continue;
+        const path: number[] = [e.dst];
+        let cur = e.dst;
+        while (cur !== src) {
+          cur = prev.get(cur)!;
+          path.push(cur);
+        }
+        path.reverse();
+        // A 2-node path is the chord itself — direct Bézier handles it.
+        if (path.length < 3) continue;
+        if (path.length > MAX_BUNDLE_CTRL) {
+          const ds: number[] = [];
+          for (let i = 0; i < MAX_BUNDLE_CTRL; i++) {
+            ds.push(path[Math.round((i * (path.length - 1)) / (MAX_BUNDLE_CTRL - 1))]);
+          }
+          paths.set(edgeKey(e.src, e.dst), ds);
+        } else {
+          paths.set(edgeKey(e.src, e.dst), path);
+        }
+      }
+    }
+    return paths;
+  }, [crossEdges, treeEdges]);
 
   const selectedId = viewState.mode === "subgraph" ? viewState.selectedNodeId : null;
   const navigationHistory = viewState.mode === "subgraph" ? viewState.navigationHistory : [];
@@ -1335,12 +1458,20 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       geom.setDrawRange(0, edgeCount * 2);
     }
 
-    // Cross-edges (Bézier curves — 8 line segments per edge)
+    // Cross-edges — bundled along the tree where a path exists, direct Bézier
+    // otherwise. The whole layer fades out while the camera is being driven.
+    const quietTarget = suppressHover ? 0 : 1;
+    crossQuietRef.current += (quietTarget - crossQuietRef.current) * (1 - Math.exp(-delta * 8));
+    const crossQuiet = crossQuietRef.current;
+
     const crossLines = crossLinesRef.current;
-    if (crossLines) {
-      const SUBDIVS = 8;
+    if (crossLines && crossQuiet < 0.01) {
+      // Fully quieted — skip the sampling work entirely
+      (crossLines.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
+    } else if (crossLines) {
+      const crossGeom = crossLines.geometry as THREE.BufferGeometry;
       const crossCount = crossEdges.length;
-      const segCount = crossCount * SUBDIVS;
+      const segCount = crossCount * CROSS_SUBDIVS;
       let cPos = crossEdgePosRef.current;
       if (cPos.length < segCount * 6) {
         cPos = new Float32Array(segCount * 6);
@@ -1359,41 +1490,68 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         const ax = currentPos.current[s3], ay = currentPos.current[s3 + 1], az = currentPos.current[s3 + 2];
         const bx = currentPos.current[d3], by = currentPos.current[d3 + 1], bz = currentPos.current[d3 + 2];
 
-        // Control point: midpoint with curvature proportional to edge length, plus
-        // a perpendicular lane offset so parallel edges fan out into distinct curves.
-        const lane = edgeLaneInfo.get(e)?.lane ?? 0;
-        const { cx, cy, cz, edgeLen } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
-
         // Progressive disclosure: bright on hover, dim otherwise
         const nodeAlpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
         const isHoverEdge = (e.src === hovered || e.dst === hovered);
         const isSelectedEdge = (e.src === selectedId || e.dst === selectedId);
         const interactionFactor = isHoverEdge ? 1.0 : isSelectedEdge ? 0.4 : 0.15;
-        const alpha = nodeAlpha * interactionFactor;
-        const baseIdx = i * SUBDIVS;
+        const alpha = nodeAlpha * interactionFactor * crossQuiet;
+        const baseIdx = i * CROSS_SUBDIVS;
 
-        for (let s = 0; s < SUBDIVS; s++) {
-          const t0 = s / SUBDIVS;
-          const t1 = (s + 1) / SUBDIVS;
-          // Quadratic Bézier: B(t) = (1-t)²A + 2(1-t)tC + t²B
-          const omt0 = 1 - t0, omt1 = 1 - t1;
-          const p0x = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
-          const p0y = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
-          const p0z = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
-          const p1x = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
-          const p1y = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
-          const p1z = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
+        const path = bundlePaths.get(edgeKey(e.src, e.dst));
+        if (path) {
+          // β-blend the tree-path control points toward the straight chord,
+          // then sample the spline. Bundles overlap on shared tree spans and
+          // additive blending sums them into one brighter ribbon.
+          const k = path.length;
+          const kInv = 1 / (k - 1);
+          for (let j = 0; j < k; j++) {
+            const p3 = path[j] * 3;
+            const f = j * kInv;
+            const lx = ax + (bx - ax) * f;
+            const ly = ay + (by - ay) * f;
+            const lz = az + (bz - az) * f;
+            bundleCtrl[j * 3] = lx + (currentPos.current[p3] - lx) * BUNDLE_BETA;
+            bundleCtrl[j * 3 + 1] = ly + (currentPos.current[p3 + 1] - ly) * BUNDLE_BETA;
+            bundleCtrl[j * 3 + 2] = lz + (currentPos.current[p3 + 2] - lz) * BUNDLE_BETA;
+          }
+          sampleBundleCurve(bundleCtrl, k, 0);
+          let px = bundlePoint.x, py = bundlePoint.y, pz = bundlePoint.z;
+          for (let s = 0; s < CROSS_SUBDIVS; s++) {
+            sampleBundleCurve(bundleCtrl, k, (s + 1) / CROSS_SUBDIVS);
+            const vi = (baseIdx + s) * 6;
+            cPos[vi] = px; cPos[vi + 1] = py; cPos[vi + 2] = pz;
+            cPos[vi + 3] = bundlePoint.x; cPos[vi + 4] = bundlePoint.y; cPos[vi + 5] = bundlePoint.z;
+            px = bundlePoint.x; py = bundlePoint.y; pz = bundlePoint.z;
+            const ai = (baseIdx + s) * 2;
+            cAlpha[ai] = alpha;
+            cAlpha[ai + 1] = alpha;
+          }
+        } else {
+          // No tree path (disconnected / adjacent) — direct quadratic Bézier
+          // with the perpendicular lane offset so parallel chords separate.
+          const lane = edgeLaneInfo.get(e)?.lane ?? 0;
+          const { cx, cy, cz } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
 
-          const vi = (baseIdx + s) * 6;
-          cPos[vi] = p0x; cPos[vi + 1] = p0y; cPos[vi + 2] = p0z;
-          cPos[vi + 3] = p1x; cPos[vi + 4] = p1y; cPos[vi + 5] = p1z;
-          const ai = (baseIdx + s) * 2;
-          cAlpha[ai] = alpha;
-          cAlpha[ai + 1] = alpha;
+          for (let s = 0; s < CROSS_SUBDIVS; s++) {
+            const t0 = s / CROSS_SUBDIVS;
+            const t1 = (s + 1) / CROSS_SUBDIVS;
+            // Quadratic Bézier: B(t) = (1-t)²A + 2(1-t)tC + t²B
+            const omt0 = 1 - t0, omt1 = 1 - t1;
+            const vi = (baseIdx + s) * 6;
+            cPos[vi] = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
+            cPos[vi + 1] = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
+            cPos[vi + 2] = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
+            cPos[vi + 3] = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
+            cPos[vi + 4] = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
+            cPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
+            const ai = (baseIdx + s) * 2;
+            cAlpha[ai] = alpha;
+            cAlpha[ai + 1] = alpha;
+          }
         }
       }
 
-      const crossGeom = crossLines.geometry as THREE.BufferGeometry;
       syncAttribute(crossGeom, "position", cPos, 3);
       syncAttribute(crossGeom, "alpha", cAlpha, 1);
       crossGeom.setDrawRange(0, segCount * 2);
@@ -1411,8 +1569,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         : highlightedEdges;
       const hlCount = combinedEdges.length;
       if (hlCount > 0) {
-        // Cross-edges need Bézier segments, so allocate for worst case (8 segs per edge)
-        const HL_SUBDIVS = 8;
+        // Cross-edges need curve segments, so allocate for the worst case
+        const HL_SUBDIVS = CROSS_SUBDIVS;
         const maxSegs = hlCount * HL_SUBDIVS;
         let hlPos = hlEdgePosRef.current;
         if (hlPos.length < maxSegs * 6) {
@@ -1468,27 +1626,58 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
             segIdx++;
           } else {
-            // Bézier curve — match the cross-edge control point exactly so the
-            // highlight overlay tracks the dim curve and its lane offset.
-            const lane = edgeLaneInfo.get(e)?.lane ?? 0;
-            const { cx, cy, cz } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
+            // Curve — follow the same bundled tree path (or direct Bézier
+            // fallback) as the dim cross-edge so the overlay tracks it exactly.
+            const path = bundlePaths.get(edgeKey(e.src, e.dst));
+            if (path) {
+              const k = path.length;
+              const kInv = 1 / (k - 1);
+              for (let j = 0; j < k; j++) {
+                const p3 = path[j] * 3;
+                const f = j * kInv;
+                const lx = ax + (bx - ax) * f;
+                const ly = ay + (by - ay) * f;
+                const lz = az + (bz - az) * f;
+                bundleCtrl[j * 3] = lx + (currentPos.current[p3] - lx) * BUNDLE_BETA;
+                bundleCtrl[j * 3 + 1] = ly + (currentPos.current[p3 + 1] - ly) * BUNDLE_BETA;
+                bundleCtrl[j * 3 + 2] = lz + (currentPos.current[p3 + 2] - lz) * BUNDLE_BETA;
+              }
+              sampleBundleCurve(bundleCtrl, k, 0);
+              let px = bundlePoint.x, py = bundlePoint.y, pz = bundlePoint.z;
+              for (let s = 0; s < HL_SUBDIVS; s++) {
+                sampleBundleCurve(bundleCtrl, k, (s + 1) / HL_SUBDIVS);
+                const vi = segIdx * 6;
+                hlPos[vi] = px; hlPos[vi + 1] = py; hlPos[vi + 2] = pz;
+                hlPos[vi + 3] = bundlePoint.x; hlPos[vi + 4] = bundlePoint.y; hlPos[vi + 5] = bundlePoint.z;
+                px = bundlePoint.x; py = bundlePoint.y; pz = bundlePoint.z;
+                const ai = segIdx * 2;
+                hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+                const ci = segIdx * 6;
+                hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+                hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
+                segIdx++;
+              }
+            } else {
+              const lane = edgeLaneInfo.get(e)?.lane ?? 0;
+              const { cx, cy, cz } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
 
-            for (let s = 0; s < HL_SUBDIVS; s++) {
-              const t0 = s / HL_SUBDIVS, t1 = (s + 1) / HL_SUBDIVS;
-              const omt0 = 1 - t0, omt1 = 1 - t1;
-              const vi = segIdx * 6;
-              hlPos[vi] = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
-              hlPos[vi + 1] = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
-              hlPos[vi + 2] = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
-              hlPos[vi + 3] = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
-              hlPos[vi + 4] = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
-              hlPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
-              const ai = segIdx * 2;
-              hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
-              const ci = segIdx * 6;
-              hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
-              hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
-              segIdx++;
+              for (let s = 0; s < HL_SUBDIVS; s++) {
+                const t0 = s / HL_SUBDIVS, t1 = (s + 1) / HL_SUBDIVS;
+                const omt0 = 1 - t0, omt1 = 1 - t1;
+                const vi = segIdx * 6;
+                hlPos[vi] = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
+                hlPos[vi + 1] = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
+                hlPos[vi + 2] = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
+                hlPos[vi + 3] = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
+                hlPos[vi + 4] = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
+                hlPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
+                const ai = segIdx * 2;
+                hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+                const ci = segIdx * 6;
+                hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+                hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
+                segIdx++;
+              }
             }
           }
         }
