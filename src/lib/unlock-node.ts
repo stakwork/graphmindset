@@ -3,7 +3,7 @@ import { useGraphStore } from "@/stores/graph-store"
 import { usePlayerStore } from "@/stores/player-store"
 
 /**
- * Shared unlock helper used by both AddContentModal (cache-hit branch) and
+ * Shared unlock helper used by both AddSourceForm (cache-hit branch) and
  * NodePreviewPanel's unlock button.
  *
  * - Fetches GET /v2/nodes/:ref_id?expand=edges (L402 auto-attached via api.get)

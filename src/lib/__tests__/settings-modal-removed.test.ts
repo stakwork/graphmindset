@@ -17,7 +17,7 @@ beforeEach(() => {
 describe("modal-store – settings removed", () => {
   it("valid modal ids do not include 'settings'", () => {
     // Open each remaining valid modal and verify they work
-    const validIds = ["addContent", "budget", "addNode", "editNode", "addEdge"] as const
+    const validIds = ["add", "budget", "editNode"] as const
 
     for (const id of validIds) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,7 +33,7 @@ describe("modal-store – settings removed", () => {
 
   it("close() resets activeModal to null", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    useModalStore.getState().open("addContent" as any)
+    useModalStore.getState().open("add" as any)
     useModalStore.getState().close()
     expect(useModalStore.getState().activeModal).toBeNull()
   })

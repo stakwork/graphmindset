@@ -8,6 +8,7 @@ import { resolveNodeTitle } from "@/lib/node-display"
 import { searchNodes, type GraphNode } from "@/lib/graph-api"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useSchemaStore } from "@/stores/schema-store"
+import { AnchoredPopover } from "@/components/ui/anchored-popover"
 
 interface NodeSearchInputProps {
   value: GraphNode | null
@@ -34,27 +35,21 @@ export function NodeSearchInput({
 
   const debouncedQuery = useDebounce(query, 300)
 
-  // Outside-click closes dropdown
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    if (open) {
-      document.addEventListener("mousedown", handleClickOutside)
-      return () => document.removeEventListener("mousedown", handleClickOutside)
-    }
-  }, [open])
+  // Outside-click is handled by AnchoredPopover (which knows about the portal),
+  // so no separate listener is needed here.
 
   // Debounced search
   useEffect(() => {
     if (value !== null) return // don't search in selected state
 
     if (debouncedQuery.trim() === "") {
+      // Sync the result list with the (debounced, async) search query — clearing
+      // when the query empties is the resting state, not a cascading render.
+      /* eslint-disable react-hooks/set-state-in-effect */
       setResults([])
       setFetched(false)
       setOpen(false)
+      /* eslint-enable react-hooks/set-state-in-effect */
       return
     }
 
@@ -160,8 +155,15 @@ export function NodeSearchInput({
         )}
       </div>
 
-      {showDropdown && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border border-border/50 bg-popover py-1 shadow-lg shadow-black/20 max-h-[200px] overflow-y-auto">
+      {/* Rendered in a portal so results float above (and aren't clipped by) a
+          modal's scroll container. */}
+      <AnchoredPopover
+        anchorRef={containerRef}
+        open={showDropdown}
+        onClose={() => setOpen(false)}
+        className="rounded-lg border border-border/50 bg-popover py-1 shadow-lg shadow-black/20"
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {loading && results.length === 0 ? null : fetched && results.length === 0 ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">No nodes found</div>
           ) : (
@@ -193,7 +195,7 @@ export function NodeSearchInput({
             })
           )}
         </div>
-      )}
+      </AnchoredPopover>
     </div>
   )
 }
