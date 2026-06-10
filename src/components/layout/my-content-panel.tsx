@@ -49,7 +49,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const { pubKey, isAdmin } = useUserStore()
   const myContentRefreshKey = useAppStore((s) => s.myContentRefreshKey)
   const schemas = useSchemaStore((s) => s.schemas)
-  const openModal = useModalStore((s) => s.open)
+  const openAdd = useModalStore((s) => s.openAdd)
   const setHoveredNode = useGraphStore((s) => s.setHoveredNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
   const mocksEnabled = isMocksEnabled()
@@ -379,7 +379,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                       Add content and start earning money for contributing
                     </p>
                     <button
-                      onClick={() => openModal("addContent")}
+                      onClick={() => openAdd("source")}
                       className="mt-1 text-xs font-medium text-primary hover:text-primary/80 transition-colors underline underline-offset-2"
                     >
                       Add Content

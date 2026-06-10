@@ -18,9 +18,10 @@ vi.mock("@/stores/user-store", () => ({
 }))
 
 const modalOpen = vi.fn()
+const modalOpenAdd = vi.fn()
 vi.mock("@/stores/modal-store", () => ({
   useModalStore: (sel?: (s: unknown) => unknown) => {
-    const state = { open: modalOpen }
+    const state = { open: modalOpen, openAdd: modalOpenAdd }
     return sel ? sel(state) : state
   },
 }))
@@ -93,11 +94,10 @@ describe("ToolkitFAB", () => {
     const fab = screen.getByRole("button", { name: "Open menu" })
     fireEvent.click(fab)
 
-    expect(screen.getByText("Add Content")).toBeInTheDocument()
+    expect(screen.getByText("Add to graph")).toBeInTheDocument()
     expect(screen.getByText("My Content")).toBeInTheDocument()
     expect(screen.getByText("Sources")).toBeInTheDocument()
     expect(screen.getByText("Following")).toBeInTheDocument()
-    expect(screen.getByText("Add Node")).toBeInTheDocument()
   })
 
   it("clicking FAB again (Close menu) closes the popup", async () => {
@@ -105,10 +105,10 @@ describe("ToolkitFAB", () => {
     render(<ToolkitFAB {...defaultProps} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
-    expect(screen.getByText("Add Content")).toBeInTheDocument()
+    expect(screen.getByText("Add to graph")).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Close menu" }))
-    expect(screen.queryByText("Add Content")).not.toBeInTheDocument()
+    expect(screen.queryByText("Add to graph")).not.toBeInTheDocument()
   })
 
   it("clicking backdrop closes the popup", async () => {
@@ -116,13 +116,13 @@ describe("ToolkitFAB", () => {
     const { container } = render(<ToolkitFAB {...defaultProps} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
-    expect(screen.getByText("Add Content")).toBeInTheDocument()
+    expect(screen.getByText("Add to graph")).toBeInTheDocument()
 
     // The backdrop is a fixed inset-0 div rendered before the wrapper
     const backdrop = container.querySelector(".fixed.inset-0.z-40")
     expect(backdrop).not.toBeNull()
     fireEvent.click(backdrop!)
-    expect(screen.queryByText("Add Content")).not.toBeInTheDocument()
+    expect(screen.queryByText("Add to graph")).not.toBeInTheDocument()
   })
 
   it("clicking an action button triggers the action and closes popup", async () => {
@@ -130,10 +130,10 @@ describe("ToolkitFAB", () => {
     render(<ToolkitFAB {...defaultProps} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
-    fireEvent.click(screen.getByText("Add Content"))
+    fireEvent.click(screen.getByText("Add to graph"))
 
-    expect(modalOpen).toHaveBeenCalledWith("addContent")
-    expect(screen.queryByText("Add Content")).not.toBeInTheDocument()
+    expect(modalOpenAdd).toHaveBeenCalledWith("source")
+    expect(screen.queryByText("Add to graph")).not.toBeInTheDocument()
   })
 
   it("Sources button calls onToggleSources and closes popup", async () => {
