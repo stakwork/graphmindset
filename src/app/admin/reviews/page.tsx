@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRightLeft, GitMerge, Search, Trash2, X } from "lucide-react"
+import { ArrowLeft, ArrowRightLeft, GitMerge, Search, Share2, Trash2, X } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { Input } from "@/components/ui/input"
 import type { LucideIcon } from "lucide-react"
@@ -30,6 +30,7 @@ const ACTION_CHIPS: { label: string; value: string; icon?: LucideIcon }[] = [
   { label: "Hide", value: "soft_delete", icon: Trash2 },
   { label: "Merge", value: "merge_nodes", icon: GitMerge },
   { label: "Replace", value: "supersede", icon: ArrowRightLeft },
+  { label: "Add Handle", value: "add_social_handle", icon: Share2 },
 ]
 
 const SORT_OPTIONS = [
