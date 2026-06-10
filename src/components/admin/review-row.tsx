@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, PlusCircle, Share2, Trash2, type LucideIcon } from "lucide-react"
+import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, Layers, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
@@ -239,6 +239,31 @@ const ACTION_LABELS: Record<string, ActionLabels> = {
     rowLabel: () => "Add social handle",
     approvePrompt: () => "Write this social handle to the Person node?",
   },
+  add_node: {
+    approve: "Add",
+    rowLabel: (s) => `Add ${s.displayName ?? s.typeLabel}`,
+    approvePrompt: (s) => `Add this ${s.typeLabel} to the graph?`,
+  },
+  add_edge: {
+    approve: "Connect",
+    rowLabel: () => "Add new edge",
+    approvePrompt: () => "Create this edge between the two nodes?",
+  },
+  edit_node: {
+    approve: "Apply",
+    rowLabel: (s) => `Edit ${s.displayName ?? s.typeLabel}`,
+    approvePrompt: (s) => `Apply proposed changes to ${s.displayName ?? `this ${s.typeLabel}`}?`,
+  },
+  add_schema_node_type: {
+    approve: "Create",
+    rowLabel: () => "Add new schema type",
+    approvePrompt: () => "Create this node type in the ontology?",
+  },
+  add_schema_edge_type: {
+    approve: "Register",
+    rowLabel: () => "Add schema edge type",
+    approvePrompt: () => "Register this edge type in the schema?",
+  },
 }
 
 // ── Confirm action popover (used for both Approve and Dismiss) ────────────────
@@ -420,6 +445,10 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "arrow-right-left": ArrowRightLeft,
   "plus-circle": PlusCircle,
   "share-2": Share2,
+  "plus-square": PlusSquare,
+  "pencil": Pencil,
+  "layers": Layers,
+  "network": Network,
 }
 
 // ── Main ReviewRow ────────────────────────────────────────────────────────────
@@ -710,6 +739,228 @@ export function ReviewRow({
                         {Math.round(p.confidence * 100)}% confidence
                       </span>
                     )}
+                  </div>
+                </div>
+              )
+            })()
+          ) : review.action_name === "add_node" && review.action_payload ? (
+            (() => {
+              const p = review.action_payload as { node_type?: string; properties?: Record<string, unknown> }
+              const SYSTEM_KEYS = new Set(["ref_id", "namespace", "date_added_to_graph"])
+              const props = p.properties ?? {}
+              const entries = Object.entries(props).filter(([k]) => !SYSTEM_KEYS.has(k))
+              return (
+                <div>
+                  <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Proposed Node
+                  </div>
+                  {p.node_type && (
+                    <span className="mb-2 inline-flex items-center rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium">
+                      {p.node_type}
+                    </span>
+                  )}
+                  {entries.length > 0 && (
+                    <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
+                      {entries.map(([k, v]) => (
+                        <>
+                          <span key={`k-${k}`} className="text-muted-foreground">{k}</span>
+                          <span key={`v-${k}`} className="break-all text-foreground/90">{String(v)}</span>
+                        </>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })()
+          ) : review.action_name === "add_edge" && review.action_payload ? (
+            (() => {
+              const p = review.action_payload as { source_ref_id?: string; target_ref_id?: string; edge_type?: string }
+              const sourceNode = p.source_ref_id ? subjectMap.get(p.source_ref_id) : undefined
+              const targetNode = p.target_ref_id ? subjectMap.get(p.target_ref_id) : undefined
+              return (
+                <div>
+                  <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Proposed Edge
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {p.source_ref_id && (
+                      <InlineChip refId={p.source_ref_id} subject={sourceNode} schemas={schemas} />
+                    )}
+                    {p.edge_type && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <ArrowRight className="h-3 w-3 shrink-0" />
+                        <span className="font-mono font-semibold text-foreground/80">{p.edge_type}</span>
+                        <ArrowRight className="h-3 w-3 shrink-0" />
+                      </span>
+                    )}
+                    {p.target_ref_id && (
+                      <InlineChip refId={p.target_ref_id} subject={targetNode} schemas={schemas} emphasis />
+                    )}
+                  </div>
+                </div>
+              )
+            })()
+          ) : review.action_name === "edit_node" && review.action_payload ? (
+            (() => {
+              const p = review.action_payload as {
+                ref_id?: string
+                node_type?: string
+                properties?: Record<string, unknown>
+                delete_properties?: string[]
+              }
+              const subject = review.subject_nodes[0]
+              const currentType = subject?.node_type
+              const typeChanged = p.node_type && currentType && p.node_type !== currentType
+              const changedEntries = p.properties ? Object.entries(p.properties) : []
+              const deletedProps = p.delete_properties ?? []
+              return (
+                <div className="flex flex-col gap-3">
+                  {subject && (
+                    <div>
+                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Node Being Edited
+                      </div>
+                      <SubjectListItem
+                        refId={subject.ref_id}
+                        resolved={subject}
+                        schemas={schemas}
+                        onClick={() => router.push(`/?ref=${subject.ref_id}`)}
+                      />
+                    </div>
+                  )}
+                  {typeChanged && (
+                    <div>
+                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Type Change
+                      </div>
+                      <div className="flex items-center gap-2 text-[12px]">
+                        <span className="rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px]">{currentType}</span>
+                        <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                        <span className="rounded border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{p.node_type}</span>
+                      </div>
+                    </div>
+                  )}
+                  {changedEntries.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Proposed Changes
+                      </div>
+                      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
+                        {changedEntries.map(([k, v]) => (
+                          <>
+                            <span key={`k-${k}`} className="text-muted-foreground">{k}</span>
+                            <span key={`v-${k}`} className="break-all text-foreground/90">{String(v)}</span>
+                          </>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {deletedProps.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Remove Properties
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {deletedProps.map((k) => (
+                          <span key={k} className="inline-flex items-center rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-mono text-red-400">
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()
+          ) : review.action_name === "add_schema_node_type" && review.action_payload ? (
+            (() => {
+              const p = review.action_payload as {
+                type?: string
+                parent?: string
+                color?: string
+                icon?: string
+                attributes?: { key: string; type: string; required?: boolean }[]
+              }
+              return (
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      Proposed Schema Type
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {p.color && (
+                        <span
+                          className="inline-block h-3 w-3 shrink-0 rounded-full border border-border/60"
+                          style={{ backgroundColor: p.color }}
+                        />
+                      )}
+                      <span className="font-semibold text-[13px]">{p.type}</span>
+                    </div>
+                  </div>
+                  {p.parent && (
+                    <div>
+                      <div className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Parent Hierarchy
+                      </div>
+                      <div className="flex items-center gap-2 text-[12px]">
+                        <span className="rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px]">{p.parent}</span>
+                        <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                        <span className="rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px]">{p.type}</span>
+                      </div>
+                    </div>
+                  )}
+                  {p.attributes && p.attributes.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Attributes
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {p.attributes.map((attr) => (
+                          <div key={attr.key} className="flex items-center gap-2 text-[12px]">
+                            <span className="font-mono text-foreground/90">{attr.key}</span>
+                            <span className="text-muted-foreground">({attr.type})</span>
+                            {attr.required && (
+                              <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-400">required</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()
+          ) : review.action_name === "add_schema_edge_type" && review.action_payload ? (
+            (() => {
+              const p = review.action_payload as { edge_type?: string; source?: string; target?: string }
+              function EdgeTypeNode({ value }: { value?: string }) {
+                if (!value) return <span className="text-muted-foreground">—</span>
+                if (value === "*") {
+                  return (
+                    <span className="inline-flex items-center rounded border border-border/60 bg-muted/30 px-2 py-0.5 text-[11px] font-medium italic text-muted-foreground">
+                      Any type
+                    </span>
+                  )
+                }
+                return (
+                  <span className="inline-flex items-center rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium">
+                    {value}
+                  </span>
+                )
+              }
+              return (
+                <div>
+                  <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Proposed Schema Edge
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap text-[12px]">
+                    <EdgeTypeNode value={p.source} />
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <ArrowRight className="h-3 w-3 shrink-0" />
+                      <span className="font-mono font-semibold text-foreground/80">{p.edge_type ?? "—"}</span>
+                      <ArrowRight className="h-3 w-3 shrink-0" />
+                    </span>
+                    <EdgeTypeNode value={p.target} />
                   </div>
                 </div>
               )
