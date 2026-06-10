@@ -40,7 +40,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           <Bot className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm leading-none">Ask the Graph</p>
+          <p className="font-semibold text-sm leading-none">Graph Agent</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">AI-powered knowledge explorer</p>
         </div>
         <button
