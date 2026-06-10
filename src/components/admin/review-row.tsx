@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, PlusCircle, Trash2, type LucideIcon } from "lucide-react"
+import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, PlusCircle, Share2, Trash2, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { approveReview, dismissReview } from "@/lib/graph-api"
@@ -234,6 +234,11 @@ const ACTION_LABELS: Record<string, ActionLabels> = {
     rowLabel: () => "Add new source",
     approvePrompt: () => "Add this source to the radar?",
   },
+  add_social_handle: {
+    approve: "Add Handle",
+    rowLabel: () => "Add social handle",
+    approvePrompt: () => "Write this social handle to the Person node?",
+  },
 }
 
 // ── Confirm action popover (used for both Approve and Dismiss) ────────────────
@@ -414,6 +419,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "trash-2": Trash2,
   "arrow-right-left": ArrowRightLeft,
   "plus-circle": PlusCircle,
+  "share-2": Share2,
 }
 
 // ── Main ReviewRow ────────────────────────────────────────────────────────────
@@ -670,6 +676,44 @@ export function ReviewRow({
                 </div>
               </div>
             </div>
+          ) : review.action_name === "add_social_handle" && review.action_payload ? (
+            (() => {
+              const p = review.action_payload as {
+                platform: string
+                handle: string
+                source_url?: string
+                confidence?: number
+              }
+              return (
+                <div>
+                  <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Social Handle
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                    <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium capitalize">
+                      {p.platform}
+                    </span>
+                    <span className="font-mono text-foreground">{p.handle}</span>
+                    {p.source_url && (
+                      <a
+                        href={p.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate text-primary underline-offset-2 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {p.source_url}
+                      </a>
+                    )}
+                    {p.confidence !== undefined && (
+                      <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {Math.round(p.confidence * 100)}% confidence
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })()
           ) : (
             <div>
               <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
