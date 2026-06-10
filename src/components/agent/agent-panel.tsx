@@ -1,16 +1,10 @@
 "use client"
 
-import { useCallback, useRef } from "react"
+import { useRef } from "react"
 import { X, Bot, Send, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { MessageList } from "./message-list"
 import { useAgentChat } from "./use-agent-chat"
-
-const EXAMPLE_QUESTIONS = [
-  "What are the most discussed topics?",
-  "Who talks about Bitcoin?",
-  "Summarise recent clips about AI",
-]
 
 interface AgentPanelProps {
   onClose: () => void
@@ -20,15 +14,6 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const { messages, input, setInput, streaming, handleSubmit, handleKeyDown } =
     useAgentChat()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  const handleExampleClick = useCallback(
-    (question: string) => {
-      setInput(question)
-      textareaRef.current?.focus()
-      handleSubmit(question)
-    },
-    [handleSubmit, setInput]
-  )
 
   const isEmpty = messages.length === 0
 
@@ -68,22 +53,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 w-full max-w-xs">
-              {EXAMPLE_QUESTIONS.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => handleExampleClick(q)}
-                  className={cn(
-                    "text-left text-xs px-3 py-2.5 rounded-lg border border-border/60",
-                    "bg-muted/30 hover:bg-muted/60 text-foreground/80 hover:text-foreground",
-                    "transition-colors leading-relaxed"
-                  )}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
+
           </div>
         ) : (
           <MessageList messages={messages} />
