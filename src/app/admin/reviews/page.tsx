@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRightLeft, GitMerge, Search, Share2, Trash2, X } from "lucide-react"
+import { ArrowLeft, ArrowRightLeft, GitMerge, Layers, Network, Pencil, PlusSquare, Search, Share2, Trash2, X } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { Input } from "@/components/ui/input"
 import type { LucideIcon } from "lucide-react"
@@ -31,6 +31,11 @@ const ACTION_CHIPS: { label: string; value: string; icon?: LucideIcon }[] = [
   { label: "Merge", value: "merge_nodes", icon: GitMerge },
   { label: "Replace", value: "supersede", icon: ArrowRightLeft },
   { label: "Add Handle", value: "add_social_handle", icon: Share2 },
+  { label: "Add Node", value: "add_node", icon: PlusSquare },
+  { label: "Add Edge", value: "add_edge", icon: Share2 },
+  { label: "Edit Node", value: "edit_node", icon: Pencil },
+  { label: "Add Schema Type", value: "add_schema_node_type", icon: Layers },
+  { label: "Add Schema Edge", value: "add_schema_edge_type", icon: Network },
 ]
 
 const SORT_OPTIONS = [
