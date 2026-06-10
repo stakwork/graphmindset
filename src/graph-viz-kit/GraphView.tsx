@@ -78,6 +78,27 @@ interface GraphViewProps {
 const tmpObj = new THREE.Object3D();
 const tmpColor = new THREE.Color();
 
+// Bind a typed array to a geometry attribute, recreating the BufferAttribute
+// only when the backing array was swapped for a bigger one. A fresh attribute
+// object makes three.js allocate a brand-new GPU buffer, so calling
+// `setAttribute(new BufferAttribute(...))` per frame churns VBOs and garbage;
+// when the array is unchanged a needsUpdate flag re-uploads in place.
+function syncAttribute(
+  geom: THREE.BufferGeometry,
+  name: string,
+  array: Float32Array,
+  itemSize: number,
+) {
+  const existing = geom.getAttribute(name) as THREE.BufferAttribute | undefined;
+  if (existing && existing.array === array) {
+    existing.needsUpdate = true;
+  } else {
+    const attr = new THREE.BufferAttribute(array, itemSize);
+    attr.needsUpdate = true;
+    geom.setAttribute(name, attr);
+  }
+}
+
 // --------- Billboard glow shader (tiny nodes become dim blobs) ---------
 const glowVertexShader = /* glsl */ `
   attribute float instanceProgress;
@@ -573,6 +594,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   // Cross-edge Bézier buffers (8 segments per edge)
   const crossEdgePosRef = useRef<Float32Array>(new Float32Array(256 * 6));
   const crossEdgeAlphaRef = useRef<Float32Array>(new Float32Array(256 * 2));
+  // Per-node pulse intensity scratch buffer — only touched while pulses run
+  const pulseIntensityRef = useRef<Float32Array>(new Float32Array(0));
 
   // Grow edge buffers when edge count increases
   const edgeCount = graph.edges.length;
@@ -1080,9 +1103,15 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
     const now = Date.now();
 
-    // Build per-node pulse intensity (0 = none, 1 = full)
-    const pulseIntensity = new Float32Array(nodeCount);
+    // Build per-node pulse intensity (0 = none, 1 = full). Null when no pulses
+    // are running so the idle path skips the buffer entirely.
+    let pulseIntensity: Float32Array | null = null;
     if (pulses && pulses.length > 0) {
+      if (pulseIntensityRef.current.length < nodeCount) {
+        pulseIntensityRef.current = new Float32Array(nodeCount);
+      }
+      pulseIntensity = pulseIntensityRef.current;
+      pulseIntensity.fill(0, 0, nodeCount);
       for (const p of pulses) {
         // Sharp flash: source peaks fast then fades, destination peaks at arrival
         const srcI = p.progress < 0.3 ? 1 : Math.max(0, 1 - (p.progress - 0.3) / 0.3);
@@ -1250,7 +1279,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       // Pulse: hot white flash with scale burst
-      const pi = pulseIntensity[i];
+      const pi = pulseIntensity ? pulseIntensity[i] : 0;
       if (pi > 0) {
         const flash = pi * pi; // sharper falloff
         tmpColor.r += (1.5 - tmpColor.r) * flash;
@@ -1301,10 +1330,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       const geom = lines.geometry as THREE.BufferGeometry;
-      geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      geom.setAttribute("alpha", new THREE.BufferAttribute(eAlpha, 1));
-      geom.attributes.position.needsUpdate = true;
-      geom.attributes.alpha.needsUpdate = true;
+      syncAttribute(geom, "position", pos, 3);
+      syncAttribute(geom, "alpha", eAlpha, 1);
       geom.setDrawRange(0, edgeCount * 2);
     }
 
@@ -1367,10 +1394,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       const crossGeom = crossLines.geometry as THREE.BufferGeometry;
-      crossGeom.setAttribute("position", new THREE.BufferAttribute(cPos, 3));
-      crossGeom.setAttribute("alpha", new THREE.BufferAttribute(cAlpha, 1));
-      crossGeom.attributes.position.needsUpdate = true;
-      crossGeom.attributes.alpha.needsUpdate = true;
+      syncAttribute(crossGeom, "position", cPos, 3);
+      syncAttribute(crossGeom, "alpha", cAlpha, 1);
       crossGeom.setDrawRange(0, segCount * 2);
     }
 
@@ -1469,12 +1494,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         }
 
         const hlGeom = hl.geometry as THREE.BufferGeometry;
-        hlGeom.setAttribute("position", new THREE.BufferAttribute(hlPos, 3));
-        hlGeom.setAttribute("alpha", new THREE.BufferAttribute(hlAlpha, 1));
-        hlGeom.setAttribute("vertexColor", new THREE.BufferAttribute(hlColor, 3));
-        hlGeom.attributes.position.needsUpdate = true;
-        hlGeom.attributes.alpha.needsUpdate = true;
-        hlGeom.attributes.vertexColor.needsUpdate = true;
+        syncAttribute(hlGeom, "position", hlPos, 3);
+        syncAttribute(hlGeom, "alpha", hlAlpha, 1);
+        syncAttribute(hlGeom, "vertexColor", hlColor, 3);
         hlGeom.setDrawRange(0, segIdx * 2);
       } else {
         (hl.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
@@ -1502,10 +1524,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         tAlpha[1] = 0.6;
 
         const tGeom = trail.geometry as THREE.BufferGeometry;
-        tGeom.setAttribute("position", new THREE.BufferAttribute(tPos, 3));
-        tGeom.setAttribute("alpha", new THREE.BufferAttribute(tAlpha, 1));
-        tGeom.attributes.position.needsUpdate = true;
-        tGeom.attributes.alpha.needsUpdate = true;
+        syncAttribute(tGeom, "position", tPos, 3);
+        syncAttribute(tGeom, "alpha", tAlpha, 1);
         tGeom.setDrawRange(0, 2);
       } else {
         (trail.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
@@ -1646,10 +1666,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       const totalVerts = vi / 3;
-      orbitGeom.setAttribute("position", new THREE.BufferAttribute(posBuf, 3));
-      orbitGeom.setAttribute("alpha", new THREE.BufferAttribute(alphaBuf, 1));
-      orbitGeom.attributes.position.needsUpdate = true;
-      orbitGeom.attributes.alpha.needsUpdate = true;
+      syncAttribute(orbitGeom, "position", posBuf, 3);
+      syncAttribute(orbitGeom, "alpha", alphaBuf, 1);
       orbitGeom.setDrawRange(0, totalVerts);
     }
 
