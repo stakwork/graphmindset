@@ -11,6 +11,9 @@ export interface GraphNode {
   degree: number;
   link?: string;
   icon?: string;
+  /** Thumbnail/avatar URL (e.g. image_url property). Revealed as a circular
+   *  photo over the node glyph when the camera moves close (zoom-dependent). */
+  imageUrl?: string;
   status?: "executing" | "done" | "idle";
   progress?: number; // 0–1 for executing nodes
   content?: string; // descriptive text for detail view

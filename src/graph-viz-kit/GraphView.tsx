@@ -330,6 +330,82 @@ function rgbToCss(c: RGB, alpha = 1): string {
   return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${alpha})`;
 }
 
+// --------- Zoom-dependent node avatars ---------
+// Nodes carrying an imageUrl swap in a circular photo when the camera moves
+// close — overview stays clean glyphs, zoomed-in regions become recognizable.
+// The reveal set is recomputed on the throttled label tick (not per frame) and
+// hard-capped, so idle/overview cost is zero and worst case is a handful of
+// browser-cached <img> elements.
+//
+// Camera-to-node distance that reveals an avatar. Calibrated against the
+// overview framing: fitCameraHeight ≈ maxRadius × 2.25 (≈74 for the minimum
+// R1=33 layout), so 65 means "zoomed past overview into a neighborhood".
+const AVATAR_REVEAL_DIST = 65;
+// Exit at REVEAL × this factor (hysteresis) so avatars don't flicker at the
+// boundary while the camera drifts.
+const AVATAR_EXIT_FACTOR = 1.3;
+// Hard cap on simultaneously revealed avatars (nearest win).
+const AVATAR_MAX = 12;
+// Avatar screen size scales like a world-anchored object (∝ 1/distance) even
+// though node glyphs stay screen-constant — this is what makes "zoom in to see
+// the photo" actually pay off. Size in px = AVATAR_SIZE_K / distance, clamped.
+// K is chosen so an avatar at the reveal boundary starts at ~26px.
+const AVATAR_SIZE_K = AVATAR_REVEAL_DIST * 26;
+const AVATAR_MIN_PX = 24;
+const AVATAR_MAX_PX = 120;
+// Hovered/selected node's avatar gets a mild boost on top of the curve.
+const AVATAR_FOCUS_BOOST = 1.25;
+
+// URLs that already failed to load this session — never re-requested.
+const failedAvatarUrls = new Set<string>();
+
+function NodeAvatar({ url, ring, dimmed, registerEl }: {
+  url: string;
+  ring: RGB;
+  dimmed: boolean;
+  /** Hands the <img> element to GraphView so the throttled tick can write
+   *  `--av-size` imperatively (same pattern as the label planner's --lbl-*). */
+  registerEl: (el: HTMLImageElement | null) => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(() => failedAvatarUrls.has(url));
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      ref={registerEl}
+      src={url}
+      alt=""
+      draggable={false}
+      onLoad={() => setLoaded(true)}
+      onError={() => {
+        failedAvatarUrls.add(url);
+        setFailed(true);
+      }}
+      style={{
+        // Distance-driven: the tick writes --av-size each frame-batch; the
+        // var() fallback covers the first ~33ms before the element registers.
+        width: "var(--av-size, 26px)",
+        height: "var(--av-size, 26px)",
+        // Tailwind preflight sets img { max-width: 100% } and the drei <Html>
+        // wrapper has no intrinsic width — without this the avatar collapses
+        // to a ~0-wide sliver.
+        maxWidth: "none",
+        borderRadius: "50%",
+        objectFit: "cover",
+        display: "block",
+        border: `1.5px solid ${rgbToCss(ring, 0.9)}`,
+        boxShadow: `0 0 10px ${rgbToCss(ring, 0.35)}, 0 1px 4px rgba(0,0,0,0.8)`,
+        background: "rgba(8, 12, 22, 0.9)",
+        opacity: loaded ? (dimmed ? 0.15 : 1) : 0,
+        transition: "opacity 250ms ease-out, width 120ms ease-out, height 120ms ease-out",
+        pointerEvents: "none",
+        userSelect: "none",
+      }}
+    />
+  );
+}
+
 // --------- Edge glow material (matches ring style) ---------
 const edgeGlowVertexShader = /* glsl */ `
   attribute float alpha;
@@ -540,6 +616,23 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const [approachState, setApproachState] = useState<{ nodeId: number; progress: number }>({ nodeId: -1, progress: 0 });
 
   const nodeCount = graph.nodes.length;
+
+  // Zoom-dependent avatars: ids of nodes currently close enough to the camera
+  // to reveal their photo. Recomputed on the throttled label tick; the ref
+  // mirrors the state for hysteresis checks without re-render reads.
+  const [avatarIds, setAvatarIds] = useState<number[]>([]);
+  const avatarSetRef = useRef<Set<number>>(new Set());
+  // Live <img> elements, keyed by node id — sized imperatively each tick.
+  const avatarElsRef = useRef<Map<number, HTMLImageElement>>(new Map());
+  // Indices of nodes that even have an image — scan only these, not all nodes.
+  // graph.nodes is mutated in place on appends, so key on nodeCount too.
+  const imageNodeIndices = useMemo(() => {
+    const out: number[] = [];
+    for (let i = 0; i < nodeCount; i++) {
+      if (graph.nodes[i].imageUrl) out.push(i);
+    }
+    return out;
+  }, [graph, nodeCount]);
 
   // Capacity rounds up to next 1000 — mesh is recreated only at these boundaries
   const meshCapacity = Math.ceil(Math.max(nodeCount, 1) / 1000) * 1000;
@@ -1879,6 +1972,54 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       setLabelPos(lp);
       // Sync approach indicator to React state
       setApproachState({ ...approachRef.current });
+
+      // Zoom-dependent avatars: pick the nearest image-bearing nodes within
+      // reveal distance. Runs on this throttled tick only, scans only nodes
+      // that have an image, and re-renders only when membership changes.
+      if (!minimap) {
+        const prevSet = avatarSetRef.current;
+        const cand: { id: number; dist: number }[] = [];
+        for (const id of imageNodeIndices) {
+          if (visibleNodes && !visibleNodes.has(id)) continue;
+          if (targets.scales[id] < 0.01) continue;
+          // Skip faded-out nodes (e.g. collapsed cloud members)
+          if (currentAlpha.current[id] < 0.25) continue;
+          const i3 = id * 3;
+          const dx = currentPos.current[i3] - camera.position.x;
+          const dy = currentPos.current[i3 + 1] - camera.position.y;
+          const dz = currentPos.current[i3 + 2] - camera.position.z;
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          // Hysteresis: already-shown avatars survive out to a wider radius
+          const limit = prevSet.has(id)
+            ? AVATAR_REVEAL_DIST * AVATAR_EXIT_FACTOR
+            : AVATAR_REVEAL_DIST;
+          if (dist < limit) cand.push({ id, dist });
+        }
+        cand.sort((a, b) => a.dist - b.dist);
+        const kept = cand.slice(0, AVATAR_MAX);
+        const next = kept.map((c) => c.id);
+        if (next.length !== prevSet.size || next.some((id) => !prevSet.has(id))) {
+          avatarSetRef.current = new Set(next);
+          setAvatarIds(next);
+        }
+
+        // Size each shown avatar like a world-anchored object: px ∝ 1/dist,
+        // clamped, so zooming toward a node actually enlarges its photo while
+        // the glyphs stay screen-constant. Written imperatively (CSS var) —
+        // no React re-render; the CSS width/height transition smooths between
+        // tick updates.
+        const selId = viewState.mode === "subgraph" ? viewState.selectedNodeId : -1;
+        for (const c of kept) {
+          const el = avatarElsRef.current.get(c.id);
+          if (!el) continue;
+          const boost = c.id === hovered || c.id === selId ? AVATAR_FOCUS_BOOST : 1;
+          const px = Math.min(
+            AVATAR_MAX_PX,
+            Math.max(AVATAR_MIN_PX, (AVATAR_SIZE_K / Math.max(c.dist, 1)) * boost),
+          );
+          el.style.setProperty("--av-size", `${px.toFixed(0)}px`);
+        }
+      }
     }
 
     // Animate detail panel opacity
@@ -2331,6 +2472,39 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           );
         });
       })()}
+
+      {/* Zoom-dependent avatars — circular photos over the glyphs of the
+          nearest image-bearing nodes. Membership is computed on the throttled
+          label tick (see useFrame); this layer just renders the current set. */}
+      {!minimap && avatarIds.map((i) => {
+        const node = graph.nodes[i];
+        if (!node?.imageUrl) return null;
+        const i3 = i * 3;
+        const lx = i3 + 2 < labelPos.length ? labelPos[i3] : targets.positions[i3];
+        const ly = i3 + 2 < labelPos.length ? labelPos[i3 + 1] : targets.positions[i3 + 1];
+        const lz = i3 + 2 < labelPos.length ? labelPos[i3 + 2] : targets.positions[i3 + 2];
+        return (
+          <Html
+            key={`avatar-${node.id}`}
+            position={[lx, ly, lz]}
+            center
+            // Below the label layer's default range so a close-up photo never
+            // buries its own name/type pill — labels paint on top.
+            zIndexRange={[1000, 0]}
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            <NodeAvatar
+              url={node.imageUrl}
+              ring={colorForNodeType(node.nodeType)}
+              dimmed={wbNodeId !== null && i !== wbNodeId}
+              registerEl={(el) => {
+                if (el) avatarElsRef.current.set(i, el);
+                else avatarElsRef.current.delete(i);
+              }}
+            />
+          </Html>
+        );
+      })}
 
       {!minimap && graph.nodes.map((node, i) => {
         // Only show badge for loadable nodes that are actively loading
