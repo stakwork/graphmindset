@@ -5,6 +5,31 @@ import type { Graph, ViewState } from "./types";
 
 const MARGIN = 40;
 const MAX_INDICATORS = 30;
+// Per-edge cap: at most this many individual indicators hug one screen edge;
+// the rest collapse into a single "+N" pill so a dense neighborhood doesn't
+// wallpaper the border with pips and labels.
+const MAX_PER_EDGE = 6;
+
+type EdgeSide = "top" | "bottom" | "left" | "right";
+const EDGE_SIDES: readonly EdgeSide[] = ["top", "bottom", "left", "right"];
+
+// Which border a clamped indicator position hugs. Corners stick with the
+// vertical edge so labels (which extend horizontally) don't get pushed
+// across the canvas.
+function classifyEdge(cx: number, cy: number, w: number, h: number): EdgeSide {
+  const onLeft = cx <= MARGIN + 0.5;
+  const onRight = cx >= w - MARGIN - 0.5;
+  const onTop = cy <= MARGIN + 0.5;
+  const onBottom = cy >= h - MARGIN - 0.5;
+  if (onLeft && !onTop && !onBottom) return "left";
+  if (onRight && !onTop && !onBottom) return "right";
+  if (onTop && !onLeft && !onRight) return "top";
+  if (onBottom && !onLeft && !onRight) return "bottom";
+  if (onLeft) return "left";
+  if (onRight) return "right";
+  if (onTop) return "top";
+  return "bottom";
+}
 
 const _v3 = new THREE.Vector3();
 
@@ -43,9 +68,33 @@ const MIN_TARGET_CHANGE = 3;
 // reshuffles. 0.12s ≈ ~8 ticks/sec.
 const TARGET_UPDATE_INTERVAL = 0.12;
 
+// Ease an element's displayed position toward its target (frame-rate
+// independent via precomputed k). Snaps on first appearance so it doesn't
+// slide in from wherever the pooled element sat last.
+function chaseTarget(el: IndicatorDiv, k: number): void {
+  const tL = el.__targetLeft ?? 0;
+  const tT = el.__targetTop ?? 0;
+  const wasHidden = el.__wasHidden ?? true;
+  let cL: number;
+  let cT: number;
+  if (wasHidden || el.__currentLeft === undefined || el.__currentTop === undefined) {
+    cL = tL;
+    cT = tT;
+  } else {
+    cL = el.__currentLeft + (tL - el.__currentLeft) * k;
+    cT = el.__currentTop + (tT - el.__currentTop) * k;
+  }
+  el.__currentLeft = cL;
+  el.__currentTop = cT;
+  el.__wasHidden = false;
+  el.style.left = `${cL}px`;
+  el.style.top = `${cT}px`;
+}
+
 export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = null }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const indicatorsRef = useRef<HTMLDivElement[]>([]);
+  const pillsRef = useRef<Record<EdgeSide, IndicatorDiv> | null>(null);
   const onNodeClickRef = useRef(onNodeClick);
   const hoveredRef = useRef(hovered);
   useEffect(() => {
@@ -182,10 +231,38 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
     }
     indicatorsRef.current = indicators;
 
+    // One "+N" overflow pill per screen edge for indicators beyond the
+    // per-edge cap. Passive count cue — not clickable.
+    const pills = {} as Record<EdgeSide, IndicatorDiv>;
+    for (const edge of EDGE_SIDES) {
+      const pill = document.createElement("div") as IndicatorDiv;
+      Object.assign(pill.style, {
+        position: "absolute",
+        display: "none",
+        pointerEvents: "none",
+        transform: "translate(-50%, -50%)",
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: "10px",
+        fontWeight: "600",
+        letterSpacing: "0.5px",
+        color: "rgba(77, 217, 232, 0.9)",
+        background: "rgba(8, 18, 24, 0.78)",
+        border: "1px solid rgba(77, 217, 232, 0.35)",
+        borderRadius: "999px",
+        padding: "1px 7px",
+        whiteSpace: "nowrap",
+        boxShadow: "0 0 8px rgba(77, 217, 232, 0.15)",
+      });
+      container.appendChild(pill);
+      pills[edge] = pill;
+    }
+    pillsRef.current = pills;
+
     return () => {
       container.parentElement?.removeChild(container);
       containerRef.current = null;
       indicatorsRef.current = [];
+      pillsRef.current = null;
     };
   }, []);
 
@@ -195,6 +272,23 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
   useFrame((_, delta) => {
     const indicators = indicatorsRef.current as IndicatorDiv[];
     if (!indicators.length) return;
+
+    const pills = pillsRef.current;
+    const hidePills = () => {
+      if (!pills) return;
+      for (const edge of EDGE_SIDES) {
+        if (pills[edge].style.display !== "none") {
+          pills[edge].style.display = "none";
+          pills[edge].__wasHidden = true;
+        }
+      }
+    };
+    const chasePills = (k: number) => {
+      if (!pills) return;
+      for (const edge of EDGE_SIDES) {
+        if (pills[edge].style.display !== "none") chaseTarget(pills[edge], k);
+      }
+    };
 
     // Mode flips off → hide everything immediately, regardless of throttle.
     if (viewState.mode !== "subgraph") {
@@ -207,6 +301,7 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
         }
         activeCountRef.current = 0;
       }
+      hidePills();
       return;
     }
 
@@ -218,26 +313,8 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
       const count = activeCountRef.current;
       if (count > 0) {
         const k = 1 - Math.exp(-POSITION_LERP_RATE * delta);
-        for (let i = 0; i < count; i++) {
-          const el = indicators[i];
-          const tL = el.__targetLeft ?? 0;
-          const tT = el.__targetTop ?? 0;
-          const wasHidden = el.__wasHidden ?? true;
-          let cL: number;
-          let cT: number;
-          if (wasHidden || el.__currentLeft === undefined || el.__currentTop === undefined) {
-            cL = tL;
-            cT = tT;
-          } else {
-            cL = el.__currentLeft + (tL - el.__currentLeft) * k;
-            cT = el.__currentTop + (tT - el.__currentTop) * k;
-          }
-          el.__currentLeft = cL;
-          el.__currentTop = cT;
-          el.__wasHidden = false;
-          el.style.left = `${cL}px`;
-          el.style.top = `${cT}px`;
-        }
+        for (let i = 0; i < count; i++) chaseTarget(indicators[i], k);
+        chasePills(k);
       }
       return;
     }
@@ -252,16 +329,24 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
         indicators[i].__wasHidden = true;
       }
     }
+    hidePills();
 
     const w = size.width;
     const h = size.height;
     const selectedId = viewState.selectedNodeId;
     const depthMap = viewState.depthMap;
 
-    let count = 0;
-
+    // Phase 1: project every depth-1 node and collect offscreen candidates.
+    interface Cand {
+      nodeId: number;
+      clampX: number;
+      clampY: number;
+      angle: number;
+      dx: number;
+      edge: EdgeSide;
+    }
+    const cands: Cand[] = [];
     for (const [nodeId, depth] of depthMap) {
-      if (count >= MAX_INDICATORS) break;
       if (depth !== 1 || nodeId === selectedId) continue;
 
       const node = graph.nodes[nodeId];
@@ -303,6 +388,31 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
       clampX = Math.max(MARGIN, Math.min(w - MARGIN, clampX));
       clampY = Math.max(MARGIN, Math.min(h - MARGIN, clampY));
 
+      cands.push({ nodeId, clampX, clampY, angle, dx, edge: classifyEdge(clampX, clampY, w, h) });
+    }
+
+    // Phase 2: per-edge cap. Membership is stable (sorted by node id) so the
+    // set of individually-shown nodes doesn't churn while the camera orbits;
+    // everything past the cap is tallied into that edge's "+N" pill.
+    cands.sort((a, b) => a.nodeId - b.nodeId);
+    const overflowCount: Record<EdgeSide, number> = { top: 0, bottom: 0, left: 0, right: 0 };
+    const overflowTangentSum: Record<EdgeSide, number> = { top: 0, bottom: 0, left: 0, right: 0 };
+    const perEdgeShown: Record<EdgeSide, number> = { top: 0, bottom: 0, left: 0, right: 0 };
+    const shown: Cand[] = [];
+    for (const c of cands) {
+      if (perEdgeShown[c.edge] < MAX_PER_EDGE && shown.length < MAX_INDICATORS) {
+        perEdgeShown[c.edge]++;
+        shown.push(c);
+      } else {
+        overflowCount[c.edge]++;
+        overflowTangentSum[c.edge] += c.edge === "top" || c.edge === "bottom" ? c.clampX : c.clampY;
+      }
+    }
+
+    // Phase 3: drive the indicator pool from the capped list.
+    let count = 0;
+    for (const { nodeId, clampX, clampY, angle, dx } of shown) {
+      const node = graph.nodes[nodeId];
       const el = indicators[count];
       // Indicator pool slots get reassigned to different nodes as the view
       // changes. When that happens, snap so the lerp doesn't slide from the
@@ -413,12 +523,47 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
       count++;
     }
 
+    // Phase 4: overflow pills — one per edge, sitting at the mean tangent
+    // position of the indicators it absorbed (a directional hint, not just
+    // a count in a corner).
+    if (pills) {
+      for (const edge of EDGE_SIDES) {
+        const pill = pills[edge];
+        const n = overflowCount[edge];
+        if (n === 0) continue; // already hidden by the top-of-tick reset
+        const horizontal = edge === "top" || edge === "bottom";
+        const mean = overflowTangentSum[edge] / n;
+        const tx = horizontal
+          ? Math.max(MARGIN, Math.min(w - MARGIN, mean))
+          : edge === "left" ? MARGIN : w - MARGIN;
+        const ty = horizontal
+          ? edge === "top" ? MARGIN : h - MARGIN
+          : Math.max(MARGIN, Math.min(h - MARGIN, mean));
+        pill.textContent = `+${n}`;
+        pill.style.display = "block";
+        const prevTx = pill.__targetLeft;
+        const prevTy = pill.__targetTop;
+        const targetStale = pill.__wasHidden
+          || prevTx === undefined
+          || prevTy === undefined
+          || Math.abs(tx - prevTx) >= MIN_TARGET_CHANGE
+          || Math.abs(ty - prevTy) >= MIN_TARGET_CHANGE;
+        const targetX = targetStale ? tx : prevTx!;
+        const targetY = targetStale ? ty : prevTy!;
+        pill.style.left = `${targetX}px`;
+        pill.style.top = `${targetY}px`;
+        pill.__targetLeft = targetX;
+        pill.__targetTop = targetY;
+      }
+    }
+
     // De-overlap pass: indicators clamped to the same edge can stack on top of
     // each other (e.g. two left-edge indicators with their relation labels
     // colliding). Group active indicators by which edge they hug, sort along
     // the edge tangent, and greedily push later boxes outward until they no
-    // longer overlap their predecessor.
-    if (count > 1) {
+    // longer overlap their predecessor. Pills join their edge's group so a
+    // "+N" never sits on top of a pip's label.
+    if (count > 1 || (pills && EDGE_SIDES.some((e) => overflowCount[e] > 0))) {
       interface Active {
         el: IndicatorDiv;
         cx: number;
@@ -434,21 +579,7 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
         const el = indicators[i];
         const cx = el.__targetLeft ?? 0;
         const cy = el.__targetTop ?? 0;
-        const onLeft = cx <= MARGIN + 0.5;
-        const onRight = cx >= w - MARGIN - 0.5;
-        const onTop = cy <= MARGIN + 0.5;
-        const onBottom = cy >= h - MARGIN - 0.5;
-        let edge: Active["edge"];
-        if (onLeft && !onTop && !onBottom) edge = "left";
-        else if (onRight && !onTop && !onBottom) edge = "right";
-        else if (onTop && !onLeft && !onRight) edge = "top";
-        else if (onBottom && !onLeft && !onRight) edge = "bottom";
-        // Corners: stick with the vertical edge so labels (which extend
-        // horizontally) don't get pushed across the canvas.
-        else if (onLeft) edge = "left";
-        else if (onRight) edge = "right";
-        else if (onTop) edge = "top";
-        else edge = "bottom";
+        const edge = classifyEdge(cx, cy, w, h);
         // The indicator div itself is 0×0 (children are all position:absolute,
         // so they don't contribute to its content box). Measure the label
         // child directly and union with the pip's 8px extent around the
@@ -466,6 +597,24 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
         const t0 = horizontal ? bboxLeft : bboxTop;
         const t1 = horizontal ? bboxRight : bboxBottom;
         groups[edge].push({ el, cx, cy, edge, t0, t1 });
+      }
+
+      // Pills participate too — measured directly (they're real boxes).
+      if (pills) {
+        for (const edge of EDGE_SIDES) {
+          const pill = pills[edge];
+          if (pill.style.display === "none") continue;
+          const r = pill.getBoundingClientRect();
+          const horizontal = edge === "top" || edge === "bottom";
+          groups[edge].push({
+            el: pill,
+            cx: pill.__targetLeft ?? 0,
+            cy: pill.__targetTop ?? 0,
+            edge,
+            t0: horizontal ? r.left : r.top,
+            t1: horizontal ? r.right : r.bottom,
+          });
+        }
       }
 
       const GAP = 4;
@@ -510,26 +659,8 @@ export function OffscreenIndicators({ graph, viewState, onNodeClick, hovered = n
     // independent. On first appearance (or after being hidden), the indicator
     // snaps to its target so it doesn't slide in from wherever it sat last.
     const k = 1 - Math.exp(-POSITION_LERP_RATE * delta);
-    for (let i = 0; i < count; i++) {
-      const el = indicators[i];
-      const tL = el.__targetLeft ?? 0;
-      const tT = el.__targetTop ?? 0;
-      const wasHidden = el.__wasHidden ?? true;
-      let cL: number;
-      let cT: number;
-      if (wasHidden || el.__currentLeft === undefined || el.__currentTop === undefined) {
-        cL = tL;
-        cT = tT;
-      } else {
-        cL = el.__currentLeft + (tL - el.__currentLeft) * k;
-        cT = el.__currentTop + (tT - el.__currentTop) * k;
-      }
-      el.__currentLeft = cL;
-      el.__currentTop = cT;
-      el.__wasHidden = false;
-      el.style.left = `${cL}px`;
-      el.style.top = `${cT}px`;
-    }
+    for (let i = 0; i < count; i++) chaseTarget(indicators[i], k);
+    chasePills(k);
   });
 
   return null;

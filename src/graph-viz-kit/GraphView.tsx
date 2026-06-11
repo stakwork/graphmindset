@@ -163,7 +163,7 @@ const glowFragmentShader = /* glsl */ `
     float r = length(coord);
     bool isCluster = vShape >= 0.5;
 
-    float centerDot = 1.0 - smoothstep(0.06, 0.15, r);
+    float centerDot = 1.0 - smoothstep(0.09, 0.19, r);
     float ringDist = abs(r - 0.55);
     float ring = smoothstep(0.11, 0.0, ringDist);
     float ringGlow = exp(-ringDist * ringDist * 30.0) * 0.6;
@@ -229,7 +229,11 @@ const glowFragmentShader = /* glsl */ `
     float s = clamp((vScale - 0.5) / 0.1, 0.0, 1.0);
     ringGlow *= s;
     outerGlow *= s;
-    innerFill *= s;
+    // Soft always-on core fill so unselected nodes read as solid objects
+    // instead of hollow outlines. Clusters keep their own glyph; bare
+    // (unstructured) cloud dots stay bare via showRing.
+    float baseFill = isCluster ? 0.0 : (1.0 - smoothstep(0.0, 0.50, r)) * 0.12 * showRing;
+    innerFill = innerFill * s + baseFill;
     centerDot *= 0.8;
 
     float alpha = centerDot + ring + ringGlow + outerGlow + innerFill;
@@ -2034,6 +2038,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       {!minimap && (() => {
         // Build set of hover-neighbor labels to show (capped, closest first)
         const MAX_HOVER_LABELS = 6;
+        // Hard depth ceiling for hover-revealed labels, measured from the
+        // context root (overview root / selected node). Top-level nodes sit
+        // at depth 1, so 2 = "top level's children, nothing deeper".
+        const HOVER_LABEL_MAX_DEPTH = 2;
         const shownHoverNeighbors = new Set<number>();
         if (hovered !== null && hoveredRelated && hoveredRelated.size > MAX_HOVER_LABELS) {
           const hovPos = graph.nodes[hovered].position;
@@ -2064,9 +2072,20 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           // Label gating: show for depth 0-1, hovered + neighbors, cursor-revealed, recent
           const isSelected = viewState.mode === "subgraph" && i === viewState.selectedNodeId;
           const isHovered = i === hovered;
-          const isHoverNeighbor = useFilteredHover
+          // Hover reveals neighbor labels only within HOVER_LABEL_MAX_DEPTH
+          // of the context root (overview root / selected node) — hovering a
+          // top-level node shows its children, but hovering deeper nodes
+          // never unfurls text further down the subtree. Deeper related
+          // nodes keep the mesh color highlight, label-free.
+          const rawHoverNeighbor = useFilteredHover
             ? shownHoverNeighbors.has(i)
             : (hoveredRelated?.has(i) ?? false);
+          const hoverDepth = viewState.mode === "overview"
+            ? graph.initialDepthMap?.get(i)
+            : i === viewState.selectedNodeId ? 0 : viewState.depthMap.get(i);
+          const isHoverNeighbor = rawHoverNeighbor
+            && hoverDepth !== undefined
+            && hoverDepth <= HOVER_LABEL_MAX_DEPTH;
           const isSearchMatch = searchMatches?.has(i) ?? false;
           // Only the top-N hits (by score) earn a text label; the rest stay as
           // glyph spotlights. When the cap set is absent (e.g. tiny result sets)
@@ -2124,17 +2143,17 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const topTint = topRank === 0
             ? "rgba(255, 215, 80, 0.98)"   // gold for the best hit
             : "rgba(120, 200, 255, 0.95)"; // cool blue for ranks 1-2
-          const labelColor = isHovered ? "rgba(255,255,255,0.95)"
+          const labelColor = isHovered ? "rgba(255,255,255,0.98)"
             : isTopHit ? topTint
-              : isSelected ? "rgba(100,220,255,0.95)"
-                : isHoverNeighbor ? "rgba(200,200,200,0.85)"
+              : isSelected ? "rgba(100,220,255,0.98)"
+                : isHoverNeighbor ? "rgba(235,238,240,0.95)"
                   : isRecentNode ? `rgba(100,255,180,${(0.5 + 0.45 * recentOpacity).toFixed(2)})`
-                    : "rgba(190,200,210,0.75)";
+                    : "rgba(226,234,242,0.92)";
           const labelSize = isHovered || isSelected ? 15
             : isTopHit ? (topRank === 0 ? 17 : 15)
               : isRecentNode ? 14
                 : isHoverNeighbor ? 13
-                  : 12;
+                  : 13;
           const labelWeight = isHovered || isSelected || isExpandedProxy || isTopHit ? 700 : 500;
 
           // Placement priority: hovered > selected > top-hit > expanded-proxy >
@@ -2202,9 +2221,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                   style={{
                     // Baseline = label centered below the anchor (-50% x, +20 y).
                     // --lbl-ex / --lbl-ey are written each tick by the placement
-                    // planner to push the label into a non-colliding slot.
-                    transform: "translate(calc(-50% + var(--lbl-ex, 0px)), calc(20px + var(--lbl-ey, 0px)))",
-                    transition: "transform 180ms ease-out",
+                    // planner to push the label into a non-colliding slot;
+                    // --lbl-scale / --lbl-alpha attenuate by camera distance.
+                    transform: "translate(calc(-50% + var(--lbl-ex, 0px)), calc(20px + var(--lbl-ey, 0px))) scale(var(--lbl-scale, 1))",
+                    transformOrigin: "50% 0%",
+                    opacity: "var(--lbl-alpha, 1)",
+                    transition: "transform 180ms ease-out, opacity 180ms ease-out",
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
@@ -2218,7 +2240,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                   fontWeight: labelWeight,
                   letterSpacing: "0.3px",
                   whiteSpace: "nowrap",
-                  textShadow: "0 0 6px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.7)",
+                  textShadow: "0 1px 3px rgba(0,0,0,1), 0 0 8px rgba(0,0,0,0.95), 0 0 16px rgba(0,0,0,0.8)",
                 }}>
                   {isExpandedProxy
                     ? <span onClick={(e) => { e.stopPropagation(); onNodeClick(i); }}>{node.label}</span>

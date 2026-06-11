@@ -42,7 +42,21 @@ interface Entry {
   w: number;
   h: number;
   priority: number;
+  dist: number;
 }
+
+// Distance-aware presentation: labels scale down and fade as their node gets
+// farther from the camera, relative to the nearest labeled nodes this tick
+// (self-normalizing, so it behaves the same at any zoom level). A plateau
+// keeps everything within DIST_PLATEAU× the reference distance at full
+// size/opacity — only clearly-distant labels attenuate, and never below the
+// floors (a label that exists must stay readable). Prominent labels
+// (hovered/selected/search — priority ≥ 60) are exempt entirely.
+const DIST_PLATEAU = 1.6;
+const DIST_FALLOFF = 2.4;
+const DIST_SCALE_MIN = 0.75;
+const DIST_ALPHA_MIN = 0.55;
+const PROMINENT_PRIORITY = 60;
 
 interface Placed {
   x: number;
@@ -80,6 +94,7 @@ export function useLabelPlacement(opts: {
       const i3 = id * 3;
       if (i3 + 2 >= positions.length) continue;
       _v.set(positions[i3], positions[i3 + 1], positions[i3 + 2]);
+      const dist = _v.distanceTo(camera.position);
       _v.project(camera);
       if (_v.z > 1) continue;
       const sx = ((_v.x + 1) / 2) * W;
@@ -88,7 +103,15 @@ export function useLabelPlacement(opts: {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
       const priority = parseFloat(el.dataset.priority ?? "0");
-      entries.push({ id, el, sx, sy, w: rect.width, h: rect.height, priority });
+      entries.push({ id, el, sx, sy, w: rect.width, h: rect.height, priority, dist });
+    }
+
+    // Reference distance for scaling: a low percentile rather than the strict
+    // minimum, so one node hugging the camera doesn't shrink everything else.
+    let refDist = 0;
+    if (entries.length > 0) {
+      const dists = entries.map((e) => e.dist).sort((a, b) => a - b);
+      refDist = dists[Math.floor(0.15 * (dists.length - 1))];
     }
 
     // Sort by priority desc; ties broken by y so labels higher on screen win.
@@ -136,9 +159,22 @@ export function useLabelPlacement(opts: {
       const ex = dx;
       const ey = dy - (20 + e.h / 2);
 
+      // Distance attenuation: full presentation inside the plateau, easing
+      // down to the floors past it.
+      const ratio = refDist > 0 ? e.dist / refDist : 1;
+      const t = Math.min(Math.max((ratio - DIST_PLATEAU) / DIST_FALLOFF, 0), 1);
+      let scale = 1 - (1 - DIST_SCALE_MIN) * t;
+      let alpha = 1 - (1 - DIST_ALPHA_MIN) * t;
+      if (e.priority >= PROMINENT_PRIORITY) {
+        scale = 1;
+        alpha = 1;
+      }
+
       // Write-phase: imperative, no React re-render.
       e.el.style.setProperty("--lbl-ex", `${ex.toFixed(1)}px`);
       e.el.style.setProperty("--lbl-ey", `${ey.toFixed(1)}px`);
+      e.el.style.setProperty("--lbl-scale", scale.toFixed(3));
+      e.el.style.setProperty("--lbl-alpha", alpha.toFixed(3));
     }
 
     // GC: drop hysteresis entries for nodes no longer registered.
