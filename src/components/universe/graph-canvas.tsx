@@ -32,7 +32,7 @@ import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import type { SchemaNode } from "@/app/ontology/page"
 import { HoverPreviewCard } from "./hover-preview-card"
-import { DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
+import { DISPLAY_KEY_FALLBACKS, resolveNodeThumbnail } from "@/lib/node-display"
 
 function nodeLabel(node: ApiNode, schemas: SchemaNode[]): string {
   const props = node.properties
@@ -242,9 +242,11 @@ export function apiToGraph(
 
   const graph = buildGraph(rawNodes, rawEdges)
 
-  // Set nodeType on real nodes
+  // Set nodeType (and thumbnail, when present) on real nodes
   for (let i = 0; i < nodes.length; i++) {
     graph.nodes[i].nodeType = nodes[i].node_type
+    const thumb = resolveNodeThumbnail(nodes[i])
+    if (thumb) graph.nodes[i].imageUrl = thumb
   }
   // Mark synthetic nodes — clusters get their own marker so renderers can
   // distinguish them from the older top-level type bundlers (`_group`).
@@ -490,13 +492,17 @@ export function appendToGraph(
   const newApiNodes = apiNodes.filter(
     (n) => !refIdToIndex.has(n.ref_id) && reachableNew.has(n.ref_id)
   )
-  const memberObjs: VizNode[] = newApiNodes.map((n, k) => ({
-    id: oldCount + k,
-    label: truncateLabel(nodeLabel(n, schemas)),
-    position: { x: 0, y: 0, z: 0 },
-    degree: 0,
-    nodeType: n.node_type,
-  }))
+  const memberObjs: VizNode[] = newApiNodes.map((n, k) => {
+    const thumb = resolveNodeThumbnail(n)
+    return {
+      id: oldCount + k,
+      label: truncateLabel(nodeLabel(n, schemas)),
+      position: { x: 0, y: 0, z: 0 },
+      degree: 0,
+      nodeType: n.node_type,
+      ...(thumb != null && { imageUrl: thumb }),
+    }
+  })
   for (let k = 0; k < newApiNodes.length; k++) {
     const idx = oldCount + k
     refIdToIndex.set(newApiNodes[k].ref_id, idx)
