@@ -4,8 +4,10 @@ import React from "react"
 
 // --- invoice-utils mock ---
 const mockDecodeInvoiceExpiry = vi.fn().mockReturnValue(null)
+const mockDecodeInvoiceAmountSats = vi.fn().mockReturnValue(500)
 vi.mock("@/lib/invoice-utils", () => ({
   decodeInvoiceExpiry: (...args: unknown[]) => mockDecodeInvoiceExpiry(...args),
+  decodeInvoiceAmountSats: (...args: unknown[]) => mockDecodeInvoiceAmountSats(...args),
 }))
 
 // --- use-invoice-countdown mock (controlled in each test) ---
@@ -58,6 +60,11 @@ const mockFetchBuyLsatChallenge = vi.fn().mockResolvedValue({
   id: "lsatid123",
 })
 const mockFetchTransactionHistory = vi.fn().mockResolvedValue({ transactions: [], scope: "token" })
+const mockWithdraw = vi.fn().mockResolvedValue({ success: true })
+const mockTopUpStatus = vi.fn().mockResolvedValue(false)
+const mockSavePendingLsat = vi.fn().mockImplementation((c: unknown, a: unknown) => ({ ...(c as object), amount: a, createdAt: Date.now() }))
+const mockGetPendingLsat = vi.fn().mockReturnValue(null)
+const mockClearPendingLsat = vi.fn()
 
 vi.mock("@/lib/sphinx", () => ({
   isSphinx: () => mockIsSphinx(),
@@ -65,10 +72,15 @@ vi.mock("@/lib/sphinx", () => ({
   payInvoice: (...args: unknown[]) => mockPayInvoice(...args),
   payL402: (...args: unknown[]) => mockPayL402(...args),
   topUpLsat: (...args: unknown[]) => mockTopUpLsat(...args),
-  topUpConfirm: (...args: unknown[]) => mockTopUpConfirm(...args), // kept for compat but no longer called
+  topUpConfirm: (...args: unknown[]) => mockTopUpConfirm(...args),
+  topUpStatus: (...args: unknown[]) => mockTopUpStatus(...args),
   pollPaymentStatus: (...args: unknown[]) => mockPollPaymentStatus(...args),
   fetchBuyLsatChallenge: (...args: unknown[]) => mockFetchBuyLsatChallenge(...args),
   fetchTransactionHistory: (...args: unknown[]) => mockFetchTransactionHistory(...args),
+  savePendingLsat: (...args: unknown[]) => mockSavePendingLsat(...args),
+  getPendingLsat: () => mockGetPendingLsat(),
+  clearPendingLsat: () => mockClearPendingLsat(),
+  withdraw: (...args: unknown[]) => mockWithdraw(...args),
 }))
 
 // --- Mock data ---
@@ -717,5 +729,182 @@ describe("BudgetModal invoice countdown", () => {
     expect(screen.queryByText("Expired")).not.toBeInTheDocument()
     // Spinner still shown (expired=false)
     expect(screen.getByText("Waiting for payment...")).toBeInTheDocument()
+  })
+})
+
+describe("BudgetModal withdraw flow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 500
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockDecodeInvoiceAmountSats.mockReturnValue(200)
+    mockDecodeInvoiceExpiry.mockReturnValue(null)
+    mockUseInvoiceCountdown.mockReturnValue({ secondsLeft: 120, expired: false })
+    mockWithdraw.mockResolvedValue({ success: true })
+    cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
+  })
+
+  it("shows Withdraw button when hasExistingL402 is true", () => {
+    render(<BudgetModal />)
+    expect(screen.getByRole("button", { name: /Withdraw/i })).toBeInTheDocument()
+  })
+
+  it("navigates to withdraw step on Withdraw button click", async () => {
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+  })
+
+  it("Withdraw button is disabled when no L402 token", () => {
+    cookieStorage.removeItem("l402")
+    render(<BudgetModal />)
+    const btn = screen.getByRole("button", { name: /Withdraw/i })
+    expect(btn).toBeDisabled()
+  })
+
+  it("success path: shows success step and calls refreshBalance", async () => {
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Paste Lightning invoice/i), {
+      target: { value: "lnbc200u1test" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Withdrawal/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Withdrawal complete/i)).toBeInTheDocument()
+    )
+    expect(mockRefreshBalance).toHaveBeenCalled()
+  })
+
+  it("shows insufficient balance error when decoded amount exceeds budget", async () => {
+    mockDecodeInvoiceAmountSats.mockReturnValue(1000) // > budget of 500
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Paste Lightning invoice/i), {
+      target: { value: "lnbc1000u1test" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Withdrawal/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Insufficient balance for withdrawal/i)).toBeInTheDocument()
+    )
+    expect(mockWithdraw).not.toHaveBeenCalled()
+  })
+
+  it("shows below-minimum error when decoded amount < 100 sats", async () => {
+    mockDecodeInvoiceAmountSats.mockReturnValue(50)
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Paste Lightning invoice/i), {
+      target: { value: "lnbc50u1test" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Withdrawal/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Minimum withdrawal is 100 sats/i)).toBeInTheDocument()
+    )
+    expect(mockWithdraw).not.toHaveBeenCalled()
+  })
+
+  it("shows expired invoice error when invoice is expired", async () => {
+    const pastTimestamp = Math.floor(Date.now() / 1000) - 100
+    mockDecodeInvoiceExpiry.mockReturnValue(pastTimestamp)
+    mockDecodeInvoiceAmountSats.mockReturnValue(200)
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Paste Lightning invoice/i), {
+      target: { value: "lnbc200u1expired" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Withdrawal/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Invoice has expired/i)).toBeInTheDocument()
+    )
+    expect(mockWithdraw).not.toHaveBeenCalled()
+  })
+
+  it("shows amountless invoice error when decodeInvoiceAmountSats returns null", async () => {
+    mockDecodeInvoiceAmountSats.mockReturnValue(null)
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Paste Lightning invoice/i), {
+      target: { value: "lnbcamountless" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Withdrawal/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Invoice must specify an amount/i)).toBeInTheDocument()
+    )
+    expect(mockWithdraw).not.toHaveBeenCalled()
+  })
+
+  it("shows refund copy on PAYMENT_FAILED server error", async () => {
+    mockWithdraw.mockRejectedValue({ errorCode: "PAYMENT_FAILED" })
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Paste Lightning invoice/i), {
+      target: { value: "lnbc200u1test" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Withdrawal/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Payment failed — your balance has been refunded/i)).toBeInTheDocument()
+    )
+  })
+
+  it("back button from withdraw returns to balance", async () => {
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Go back/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText("Top Up")).toBeInTheDocument()
+    )
+    expect(screen.queryByPlaceholderText(/Paste Lightning invoice/i)).not.toBeInTheDocument()
   })
 })

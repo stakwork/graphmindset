@@ -2,6 +2,8 @@ import { Lsat } from "lsat-js"
 import { isSphinx } from "./detect"
 import { api } from "../api"
 import { cookieStorage } from "@/lib/cookie-storage"
+import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
+import { decodeInvoiceAmountSats } from "@/lib/invoice-utils"
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sphinx = require("sphinx-bridge")
@@ -274,4 +276,22 @@ export async function getPrice(
   } catch {
     return 0
   }
+}
+
+export async function withdraw(
+  payment_request: string
+): Promise<{ success: boolean }> {
+  if (isMocksEnabled()) {
+    const decoded = decodeInvoiceAmountSats(payment_request)
+    if (decoded) {
+      MOCK_TRANSACTIONS.transactions.unshift({
+        action: "withdrawal",
+        type: "debit",
+        amount: decoded,
+        created_at: new Date().toISOString(),
+      })
+    }
+    return { success: true }
+  }
+  return api.post<{ success: boolean }>("/withdraw", { payment_request })
 }
