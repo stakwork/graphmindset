@@ -457,7 +457,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
                       )
                     })}
                     {hasMore && (
-                      <div ref={sentinelRef} className="flex justify-center py-3">
+                      <div ref={sentinelRef} data-testid="sentinel" className="flex justify-center py-3">
                         {loadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                       </div>
                     )}

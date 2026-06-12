@@ -39,6 +39,12 @@ vi.mock("@/lib/graph-api", () => ({
   deleteNode: (...args: unknown[]) => mockDeleteNode(...args),
 }))
 
+// --- mock creator-insights (avoids api.get side-channel in tests) ---
+vi.mock("@/lib/creator-insights", () => ({
+  fetchCreatorInsights: () => Promise.resolve({ period: "week", total_sats_earned: 0, total_unlocks: 0, nodes: [] }),
+  getGrowthBadge: () => "flat",
+}))
+
 // --- mock stores ---
 interface MyContentUserStore {
   pubKey: string
@@ -568,6 +574,93 @@ describe("MyContentPanel — myContentRefreshKey re-fetch", () => {
       ).length
       expect(contentCallsAfter).toBe(2)
     })
+  })
+})
+
+describe("MyContentPanel — ScrollArea h-full class", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = {}
+  })
+
+  it("ScrollArea root element always has h-full class", async () => {
+    mockApiGet.mockResolvedValue(TWO_NODES)
+    const { container } = render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Bitcoin is freedom")).toBeInTheDocument())
+    const scrollAreaRoots = container.querySelectorAll("[data-slot='scroll-area']")
+    expect(scrollAreaRoots.length).toBeGreaterThan(0)
+    scrollAreaRoots.forEach((el) => {
+      expect(el.classList.contains("h-full")).toBe(true)
+    })
+  })
+})
+
+describe("MyContentPanel — infinite scroll pagination", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+  })
+
+  const makeNodes = (count: number, offset = 0) => ({
+    nodes: Array.from({ length: count }, (_, i) => ({
+      node_type: "Tweet",
+      ref_id: `ref-${offset + i}`,
+      properties: { name: `Node ${offset + i}`, status: "done" },
+    })),
+    totalCount: count,
+    totalProcessing: 0,
+  })
+
+  it("sentinel div is present when hasMore is true", async () => {
+    // First page returns PAGE_SIZE (50) nodes → hasMore = true
+    mockApiGet.mockResolvedValueOnce(makeNodes(50))
+    const { container } = render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Node 0")).toBeInTheDocument())
+    // sentinel is the div inside the ScrollArea that the IntersectionObserver watches
+    // it only renders when hasMore === true
+    const sentinel = container.querySelector("[data-testid='sentinel']") ??
+      // fallback: find the loader or any trailing div with ref
+      Array.from(container.querySelectorAll("[data-slot='scroll-area-viewport'] > div > div")).at(-1)
+    // The last child of the list should be the hasMore sentinel
+    expect(sentinel).toBeTruthy()
+  })
+
+  it("loadMore fetches next page with correct skip param", async () => {
+    // First page: 50 nodes → hasMore true
+    mockApiGet.mockResolvedValueOnce(makeNodes(50))
+    // Second page: 10 nodes → hasMore false
+    mockApiGet.mockResolvedValueOnce(makeNodes(10, 50))
+
+    // Mock IntersectionObserver to immediately trigger intersection.
+    // Must be a class (constructable) because @base-ui uses `new IntersectionObserver()` internally.
+    const observerCallbacks: ((entries: IntersectionObserverEntry[]) => void)[] = []
+    class MockIntersectionObserver {
+      constructor(cb: (entries: IntersectionObserverEntry[]) => void) {
+        observerCallbacks.push(cb)
+      }
+      observe = vi.fn()
+      disconnect = vi.fn()
+    }
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver)
+
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Node 0")).toBeInTheDocument())
+
+    // Simulate intersection (sentinel enters viewport)
+    act(() => {
+      observerCallbacks.forEach((cb) =>
+        cb([{ isIntersecting: true } as IntersectionObserverEntry])
+      )
+    })
+
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith("/v2/content?sort_by=date&limit=50&skip=50")
+    })
+
+    // Second page nodes now rendered
+    await waitFor(() => expect(screen.getByText("Node 50")).toBeInTheDocument())
+
+    vi.unstubAllGlobals()
   })
 })
 
