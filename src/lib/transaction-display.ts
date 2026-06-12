@@ -7,6 +7,7 @@ const ACTION_LABELS: Record<string, string> = {
   add_content: 'Add Content',
   add_source: 'Add Source',
   payout: 'Earnings',
+  withdrawal: 'Withdrawal',
   other: 'Other',
 }
 
@@ -19,6 +20,7 @@ const ACTION_BADGE_COLORS: Record<string, string> = {
   add_content: 'bg-emerald-500/10 text-emerald-400',
   add_source: 'bg-teal-500/10 text-teal-400',
   payout: 'bg-emerald-500/10 text-emerald-400',
+  withdrawal: 'bg-red-500/10 text-red-400',
   other: 'bg-muted/40 text-muted-foreground',
 }
 
