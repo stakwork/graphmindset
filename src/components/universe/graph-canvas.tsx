@@ -43,6 +43,12 @@ import {
   readStationLines,
   type StationState,
 } from "./metro-overlay"
+import {
+  StationHudScene,
+  StationZonePlate,
+  type SceneNeighbor,
+} from "./station-hud-scene"
+import type { EraId } from "@/data/station-timeline"
 
 // Max number of search hits that keep a text label at once. Beyond this the
 // view becomes an unreadable pile of overlapping labels; the rest of the hits
@@ -90,6 +96,33 @@ function computeCamTarget(graph: Graph, nodeId: number, currentAzimuth: number):
 const OVERVIEW_CAM: CamTarget = {
   posX: 0, posY: 80, posZ: 0.1,
   lookX: 0, lookY: 0, lookZ: 0,
+}
+
+// Camera pose for a selected metro Station — an angled tactical view instead
+// of the straight-overhead subgraph pose, so the diegetic station HUD (radar
+// rings on the ground, holo cards floating on beams) reads with depth like a
+// game map. Preserves the user's current orbit azimuth.
+const STATION_CAM_DIST = 19
+const STATION_CAM_ELEV = (38 * Math.PI) / 180
+
+function computeStationCamTarget(
+  graph: Graph,
+  nodeId: number,
+  currentAzimuth: number,
+): CamTarget {
+  const p = graph.nodes[nodeId].position
+  const horiz = STATION_CAM_DIST * Math.cos(STATION_CAM_ELEV)
+  const vert = STATION_CAM_DIST * Math.sin(STATION_CAM_ELEV)
+  return {
+    posX: p.x + Math.sin(currentAzimuth) * horiz,
+    posY: p.y + vert,
+    posZ: p.z + Math.cos(currentAzimuth) * horiz,
+    lookX: p.x,
+    // Aim a touch above the node so the floating cards sit comfortably in
+    // frame rather than crowding the top edge.
+    lookY: p.y + 2.2,
+    lookZ: p.z,
+  }
 }
 
 // Press-and-hold duration (ms) on the selected node to open the 2D case view.
@@ -1067,9 +1100,12 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // render — useful when pointing at a non-metro backend dataset.
   const metroEnabled = process.env.NEXT_PUBLIC_METRO_OVERLAY === "1"
 
-  // The metro overlay always renders from the local fixture so the
-  // schematic stays visible even when search replaces the graph store
-  // with results that don't include Station nodes.
+  // The metro overlay renders from the local fixture so the schematic stays
+  // visible even when search replaces the graph store with results that don't
+  // include Station nodes. Station node ref_ids are rewritten to their backend
+  // UUIDs (see STATION_BACKEND_REF_ID_MAP in metro.ts), so the fixture supplies
+  // the static map (positions + tunnels) while each station still resolves to
+  // its live DB record on click.
   const overlayNodes = metroEnabled ? (metroSeries.nodes as ApiNode[]) : []
   const overlayEdges = metroEnabled ? (metroSeries.edges as ApiEdge[]) : []
 
@@ -1431,6 +1467,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       })),
     [boardItems, morphSelectedRefId],
   )
+
   const [hoveredCardNode, setHoveredCardNode] = useState<ApiNode | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   // Metro overlay focus state — driven by hovering the lines (3D) or the
@@ -1492,6 +1529,41 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     camAnim.current.progress = 0
   }, [])
 
+  // Smooth orbital fly-to using camera-controls' own damped transition, which
+  // interpolates in SPHERICAL coordinates around the look-at point. Used for
+  // station selections: CameraSync's Cartesian lerp cuts a straight chord when
+  // the azimuth changes (the tunnel-axis re-orientation), which reads as a
+  // jump / unexpected rotation. Stations are fixed-position nodes, so the
+  // camera doesn't need CameraSync's lockstep with geometry inflation.
+  const defaultSmoothTimeRef = useRef<number | null>(null)
+  const flyCamTo = useCallback((target: CamTarget) => {
+    // Park CameraSync so its in-flight lerp can't fight this transition.
+    camAnim.current.progress = 1
+    const cam = cameraRef.current
+    if (!cam) return
+    // Lengthen the damping for the fly-in, then restore the original value
+    // (captured once) so user wheel/drag feel is untouched afterwards. Always
+    // restoring to the captured default keeps rapid successive clicks from
+    // permanently "locking in" the slow transition time.
+    if (defaultSmoothTimeRef.current === null) {
+      defaultSmoothTimeRef.current = cam.smoothTime
+    }
+    cam.smoothTime = 0.65
+    const transition = cam.setLookAt(
+      target.posX, target.posY, target.posZ,
+      target.lookX, target.lookY, target.lookZ,
+      true,
+    )
+    // setLookAt leaves theta un-normalized — after the user has orbited, the
+    // accumulated angle can differ from the destination by > π and the damped
+    // transition would swing the camera the long way around. Normalizing
+    // snaps both angles into the same revolution = shortest-path rotation.
+    cam.normalizeRotations()
+    void transition.finally(() => {
+      cam.smoothTime = defaultSmoothTimeRef.current!
+    })
+  }, [])
+
   // Reset view only on full data replacement (new search), not on appends
   // from sidebar-driven neighbor fetches — otherwise focusing the camera on
   // a clicked node would be undone every time a neighborhood arrives.
@@ -1514,6 +1586,48 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return effectiveNodeByRefId.get(refId) ?? nodeByRefId.get(refId) ?? null
   }, [viewState, indexMap, effectiveNodeByRefId, nodeByRefId])
 
+  // Diegetic station HUD — active whenever a Station node is the current
+  // selection on the metro map (and the full-screen morph isn't covering the
+  // scene). Renders radar rings + floating holo cards in the 3D scene itself.
+  const hudSceneActive =
+    metroEnabled && !morphOpen && viewState.mode === "subgraph" &&
+    selectedApiNode?.node_type === "Station"
+
+  // Tunnel-linked station neighbors of the selected station, with their graph
+  // indices so the holo cards can both anchor at node positions and navigate
+  // on click. Non-station neighbors keep their regular GraphView labels.
+  const sceneNeighbors = useMemo<SceneNeighbor[]>(() => {
+    if (!hudSceneActive || !selectedApiNode) return []
+    const out: SceneNeighbor[] = []
+    const seen = new Set<string>([selectedApiNode.ref_id])
+    for (const e of effectiveEdges) {
+      let nb: string | null = null
+      if (e.source === selectedApiNode.ref_id) nb = e.target
+      else if (e.target === selectedApiNode.ref_id) nb = e.source
+      if (!nb || seen.has(nb)) continue
+      seen.add(nb)
+      const node = effectiveNodeByRefId.get(nb)
+      if (!node || node.node_type !== "Station") continue
+      const idx = refIdToIndex.get(nb)
+      if (idx === undefined) continue
+      out.push({ node, idx, edgeLabel: e.edge_type })
+    }
+    return out
+  }, [hudSceneActive, selectedApiNode, effectiveEdges, effectiveNodeByRefId, refIdToIndex])
+
+  // Time-dial era for the station HUD. Owned here (not in the scene) so the
+  // zone plate — a separate DOM tree — follows the dial, and so every new
+  // station selection starts back at the present day.
+  const [hudEra, setHudEra] = useState<EraId>("now")
+
+  // The holo cards ARE the labels for these nodes — suppress GraphView's own.
+  const hudSuppressedLabelIds = useMemo<Set<number> | null>(() => {
+    if (!hudSceneActive || viewState.mode !== "subgraph") return null
+    const set = new Set<number>([viewState.selectedNodeId])
+    for (const n of sceneNeighbors) set.add(n.idx)
+    return set
+  }, [hudSceneActive, viewState, sceneNeighbors])
+
   // Opens the in-3D case board (morph + camera tilt + Html cards) on the
   // node the user has been zooming into. apparentRadius is unused now —
   // kept in the trigger's signature for back-compat, but the morph doesn't
@@ -1530,15 +1644,15 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   const handleCloseCaseBoard = useCallback(() => {
     useCaseBoardStore.getState().close()
     if (viewState.mode === "subgraph") {
-      setCamTarget(
-        computeCamTarget(
-          graph,
-          viewState.selectedNodeId,
-          cameraRef.current?.azimuthAngle ?? 0,
-        ),
-      )
+      const isStation = metroEnabled && selectedApiNode?.node_type === "Station"
+      const azimuth = cameraRef.current?.azimuthAngle ?? 0
+      if (isStation) {
+        flyCamTo(computeStationCamTarget(graph, viewState.selectedNodeId, azimuth))
+      } else {
+        setCamTarget(computeCamTarget(graph, viewState.selectedNodeId, azimuth))
+      }
     }
-  }, [viewState, graph, setCamTarget])
+  }, [viewState, graph, setCamTarget, flyCamTo, metroEnabled, selectedApiNode])
 
   const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
@@ -1720,6 +1834,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     (nodeId: number) => {
       useGraphStore.getState().setSidebarSelectedNode(null)
       useGraphStore.getState().setHoveredNode(null)
+      // Every selection starts at the present day on the time dial.
+      setHudEra("now")
       const refId = indexMap.get(nodeId)
       if (refId && onNodeSelect) {
         const apiNode = nodeByRefId.get(refId)
@@ -1793,7 +1909,49 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       // anchor were moving in opposite directions. Capture the current
       // orbit azimuth so the final view preserves it rather than snapping
       // to a canonical orientation when the camera lands above the node.
-      setCamTarget(computeCamTarget(graph, nodeId, cameraRef.current?.azimuthAngle ?? 0))
+      // Metro stations get the angled tactical pose (the diegetic HUD's
+      // rings + floating cards need depth); everything else keeps the
+      // overhead subgraph pose.
+      const clickedIsStation =
+        metroEnabled &&
+        refId !== undefined &&
+        effectiveNodeByRefId.get(refId)?.node_type === "Station"
+      let azimuth = cameraRef.current?.azimuthAngle ?? 0
+      if (clickedIsStation && refId) {
+        // Orient the camera so the station's tunnel axis runs screen-
+        // horizontal: neighbor holo cards then spread left/right of the
+        // focal card instead of stacking behind it / on the ring center.
+        // Average the neighbor bearings as an AXIS (angle-doubling trick, so
+        // opposite directions reinforce instead of canceling), then pick the
+        // of the two facing azimuths closest to the user's current orbit.
+        const p0 = graph.nodes[nodeId].position
+        let s2 = 0
+        let c2 = 0
+        const seenNb = new Set<string>([refId])
+        for (const e of effectiveEdges) {
+          const nb =
+            e.source === refId ? e.target : e.target === refId ? e.source : null
+          if (!nb || seenNb.has(nb)) continue
+          seenNb.add(nb)
+          if (effectiveNodeByRefId.get(nb)?.node_type !== "Station") continue
+          const ni = refIdToIndex.get(nb)
+          const q = ni !== undefined ? graph.nodes[ni]?.position : undefined
+          if (!q) continue
+          const phi = Math.atan2(q.z - p0.z, q.x - p0.x)
+          s2 += Math.sin(2 * phi)
+          c2 += Math.cos(2 * phi)
+        }
+        if (s2 !== 0 || c2 !== 0) {
+          let aligned = -0.5 * Math.atan2(s2, c2)
+          if (Math.cos(aligned - azimuth) < 0) aligned += Math.PI
+          azimuth = aligned
+        }
+      }
+      if (clickedIsStation) {
+        flyCamTo(computeStationCamTarget(graph, nodeId, azimuth))
+      } else {
+        setCamTarget(computeCamTarget(graph, nodeId, azimuth))
+      }
 
       // Consume any pending search-pan: if results haven't landed yet, a
       // later payload would otherwise yank the camera off the node the
@@ -1801,7 +1959,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       // the search-pan effect from firing for it.
       lastPannedSearchTerm.current = searchTerm
     },
-    [graph, indexMap, nodeByRefId, onNodeSelect, setCamTarget, searchTerm]
+    [graph, indexMap, nodeByRefId, effectiveNodeByRefId, effectiveEdges, refIdToIndex, metroEnabled, onNodeSelect, setCamTarget, flyCamTo, searchTerm]
   )
 
   const handleReset = useCallback(() => {
@@ -1900,11 +2058,23 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           onResetView={handleReset}
           suppressHover={cameraInteracting}
           mutedNodeIds={mutedNodeIds}
+          suppressLabelIds={hudSuppressedLabelIds}
           onGraphClick={() => {
             useGraphStore.getState().setSidebarSelectedNode(null)
             useGraphStore.getState().setHoveredNode(null)
           }}
         />
+        {hudSceneActive && viewState.mode === "subgraph" && selectedApiNode && (
+          <StationHudScene
+            graph={graph}
+            selectedNodeId={viewState.selectedNodeId}
+            focal={selectedApiNode}
+            neighbors={sceneNeighbors}
+            era={hudEra}
+            onEraChange={setHudEra}
+            onFocusNode={handleNodeClick}
+          />
+        )}
         {debugMarkers && (
           <DebugMarkers
             graph={graph}
@@ -2105,6 +2275,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         >
           ✕
         </button>
+      )}
+
+      {hudSceneActive && selectedApiNode && (
+        <StationZonePlate node={selectedApiNode} era={hudEra} />
       )}
 
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />

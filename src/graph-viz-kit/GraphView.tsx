@@ -75,6 +75,11 @@ interface GraphViewProps {
    *  dedicated overlay and would otherwise clutter the resting view. They stay
    *  fully interactive: hover/click brings back their label and highlight. */
   mutedNodeIds?: Set<number> | null;
+  /** Node indices whose text label (name + pills) is fully suppressed — used
+   *  when an external overlay (e.g. the station holo cards) renders its own
+   *  richer label at the node's position and the default one would double up.
+   *  Unlike mutedNodeIds this also suppresses the hovered/selected label. */
+  suppressLabelIds?: Set<number> | null;
 }
 
 const tmpObj = new THREE.Object3D();
@@ -452,7 +457,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover, mutedNodeIds }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover, mutedNodeIds, suppressLabelIds }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -1828,6 +1833,9 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           const isExpandedProxy = i === expandedClusterId;
           // Skip invisible nodes, but keep expanded proxy label visible
           if (targets.scales[i] < 0.01 && !isExpandedProxy) return null;
+
+          // An external overlay (station holo cards) owns this node's label.
+          if (suppressLabelIds?.has(i)) return null;
 
           // Label gating: show for depth 0-1, hovered + neighbors, cursor-revealed, recent
           const isSelected = viewState.mode === "subgraph" && i === viewState.selectedNodeId;
