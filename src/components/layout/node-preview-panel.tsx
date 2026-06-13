@@ -36,15 +36,17 @@ import { metroSeries } from "@/data/metro"
 
 const DEEP_RESEARCH_NODE_TYPES = ["Topic"]
 
-// Stations live only in the local fixture — the backend collapses fixture's
-// transfer-platform variants (komsomolskaya_k / _r) into one row, so we can't
-// map fixture station ref_ids 1:1 to backend UUIDs without losing the dual-
-// platform schematic. Short-circuit clicks on station nodes so they render
-// from the fixture instead of 500-ing. All other fixture nodes (Persons,
-// Orgs, etc.) have backend UUIDs applied in metro.ts and hit the API normally.
+// Most fixture stations now carry their backend UUID (STATION_BACKEND_REF_ID_MAP
+// in metro.ts), so clicks resolve to the real DB record. The only exceptions are
+// the dual-platform transfer twins (e.g. komsomolskaya_r): the backend collapses
+// them into their ring node, so they keep a fixture slug for the schematic and
+// have no 1:1 backend record. Short-circuit ONLY those — i.e. station ref_ids
+// that are still slugs (not UUIDs) — so they render from the fixture instead of
+// 500-ing, while the mapped stations hit the API normally.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const METRO_FIXTURE_STATION_REF_IDS = new Set(
   (metroSeries.nodes as { ref_id: string; node_type?: string }[])
-    .filter((n) => n.node_type === "Station")
+    .filter((n) => n.node_type === "Station" && !UUID_RE.test(n.ref_id))
     .map((n) => n.ref_id),
 )
 
