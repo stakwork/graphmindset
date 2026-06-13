@@ -17,12 +17,6 @@ import {
   readStationLines,
   statusToState,
 } from "./metro-overlay"
-import {
-  ERAS,
-  stationTimeline,
-  type EraId,
-  type EraSnapshot,
-} from "@/data/station-timeline"
 
 const TEAL = "#46e3d4"
 const GOLD = "#f2b73f"
@@ -140,88 +134,24 @@ function stationState(node: ApiNode) {
   return statusToState(p.station_status ?? p.status, p.faction)
 }
 
-// Sweep wedge doubles as the TIME CURSOR: it glides (shortest path) to point
-// at the active era notch on the dial instead of free-spinning.
-const SWEEP_WIDTH = 0.55
-
-function SweepWedge({ targetAngle }: { targetAngle: number }) {
+// Rotating sweep wedge — atmospheric "this station is in focus" cue.
+function SweepWedge() {
   const ref = useRef<THREE.Mesh>(null)
   useFrame((_, delta) => {
-    if (!ref.current) return
-    const cur = ref.current.rotation.z
-    const want = targetAngle - SWEEP_WIDTH / 2
-    let d = want - cur
-    d = Math.atan2(Math.sin(d), Math.cos(d))
-    ref.current.rotation.z = cur + d * Math.min(1, delta * 5)
+    if (ref.current) ref.current.rotation.z -= delta * 0.55
   })
   return (
     <mesh ref={ref} position={[0, 0, -0.002]}>
-      <circleGeometry args={[4.7, 48, 0, SWEEP_WIDTH]} />
+      <circleGeometry args={[4.7, 48, 0, 0.95]} />
       <meshBasicMaterial
         color={TEAL}
         transparent
-        opacity={0.07}
+        opacity={0.05}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
         side={THREE.DoubleSide}
       />
     </mesh>
-  )
-}
-
-// Ring-local angle of each era notch on the dial. Chronological, clockwise
-// from the top of the ring.
-function eraAngle(index: number): number {
-  return ((90 - index * 72) * Math.PI) / 180
-}
-
-function EraDial({
-  era,
-  onEraChange,
-}: {
-  era: EraId
-  onEraChange: (era: EraId) => void
-}) {
-  return (
-    <>
-      {ERAS.map((e, i) => {
-        const a = eraAngle(i)
-        const active = e.id === era
-        return (
-          <Html
-            key={e.id}
-            position={[Math.cos(a) * 5.6, Math.sin(a) * 5.6, 0.05]}
-            center
-            zIndexRange={[70, 0]}
-            style={{ pointerEvents: "none" }}
-          >
-            <button
-              onClick={(ev) => {
-                ev.stopPropagation()
-                onEraChange(e.id)
-              }}
-              style={{
-                pointerEvents: "auto",
-                cursor: "pointer",
-                fontFamily: "var(--font-geist-mono), monospace",
-                fontSize: 10,
-                letterSpacing: 1.5,
-                padding: "2px 8px",
-                color: active ? "#04211e" : teal(0.85),
-                background: active ? GOLD : "rgba(4, 18, 18, 0.78)",
-                border: `1px solid ${active ? GOLD : teal(0.45)}`,
-                borderRadius: 999,
-                boxShadow: active ? `0 0 14px ${gold(0.55)}` : `0 0 8px ${teal(0.15)}`,
-                transition: "all 160ms ease",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {e.year}
-            </button>
-          </Html>
-        )
-      })}
-    </>
   )
 }
 
@@ -272,33 +202,21 @@ function RadarRings() {
         <ringGeometry args={[0.55, 0.62, 48]} />
         <meshBasicMaterial color={GOLD} transparent opacity={0.9} depthWrite={false} />
       </mesh>
+      <SweepWedge />
     </>
   )
 }
 
 // Shared shell for the floating cards: notched border, dark glass fill,
 // procedural hero (or image), scanlines.
-// CSS filter per era — "archive footage" grading for the time dial. Pre-war
-// goes warm sepia, the war burns red and dark, the book years desaturate,
-// the present is untouched.
-const ERA_FILTER: Record<EraId, string> = {
-  prewar: "sepia(0.65) saturate(0.65) brightness(0.85)",
-  war: "sepia(0.4) hue-rotate(-25deg) saturate(1.6) brightness(0.7) contrast(1.15)",
-  y2033: "saturate(0.7) brightness(0.85)",
-  y2036: "saturate(0.85) brightness(0.95)",
-  now: "none",
-}
-
 function HoloHero({
   node,
   accent,
   ghostSize,
-  filter,
 }: {
   node: ApiNode
   accent: string
   ghostSize: number
-  filter?: string
 }) {
   const image = nodeImage(node)
   const p = node.properties as Record<string, unknown>
@@ -311,8 +229,6 @@ function HoloHero({
         position: "relative",
         aspectRatio: "16 / 6.5",
         overflow: "hidden",
-        filter,
-        transition: "filter 400ms ease",
         ...(image ? {} : heroArtStyle(node.ref_id, accent)),
       }}
     >
@@ -353,35 +269,17 @@ function HoloHero({
   )
 }
 
-function FocalHoloCard({
-  focal,
-  neighbors,
-  snapshot,
-}: {
-  focal: ApiNode
-  neighbors: SceneNeighbor[]
-  snapshot: EraSnapshot
-}) {
+function FocalHoloCard({ focal, neighbors }: { focal: ApiNode; neighbors: SceneNeighbor[] }) {
   const props = focal.properties as Record<string, unknown>
   const name = nodeName(focal)
   const nameRu = typeof props.name_ru === "string" ? props.name_ru : null
+  const state = stationState(focal)
   const lines = readStationLines(props)
   const passable = neighbors.filter((n) => !BLOCKING_STATES.has(stationState(n.node))).length
   const total = neighbors.length
-  const isNow = snapshot.era === "now"
 
   return (
-    <div style={{ width: 252, fontFamily: "var(--font-heading), sans-serif", color: INK }}>
-      <style>{`
-        @keyframes shud-archive-flicker {
-          0%, 100% { opacity: 0 }
-          4% { opacity: 0.35 }
-          6% { opacity: 0 }
-          52% { opacity: 0 }
-          54% { opacity: 0.22 }
-          56% { opacity: 0 }
-        }
-      `}</style>
+    <div style={{ width: 248, fontFamily: "var(--font-heading), sans-serif", color: INK }}>
       {/* Name strip */}
       <div
         style={{
@@ -413,17 +311,6 @@ function FocalHoloCard({
         >
           {name}
         </span>
-        <span
-          style={{
-            fontFamily: "var(--font-geist-mono), monospace",
-            fontSize: 10,
-            fontWeight: 700,
-            color: isNow ? INK_DIM : GOLD,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {snapshot.year}
-        </span>
         {nameRu && <span style={{ fontSize: 9.5, color: INK_DIM, whiteSpace: "nowrap" }}>{nameRu}</span>}
       </div>
 
@@ -435,141 +322,55 @@ function FocalHoloCard({
           boxShadow: `0 0 22px ${gold(0.22)}`,
         }}
       >
-        <div style={{ position: "relative" }}>
-          <HoloHero node={focal} accent={GOLD} ghostSize={42} filter={ERA_FILTER[snapshot.era]} />
-          {!isNow && (
-            <>
-              {/* Archive-footage chrome: flicker pass + corner tag */}
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "rgba(220, 235, 230, 0.5)",
-                  mixBlendMode: "overlay",
-                  pointerEvents: "none",
-                  animation: "shud-archive-flicker 3.4s linear infinite",
-                }}
-              />
-              <div
-                style={{
-                  position: "absolute",
-                  top: 4,
-                  right: 6,
-                  fontFamily: "var(--font-geist-mono), monospace",
-                  fontSize: 8,
-                  letterSpacing: 1.5,
-                  color: "rgba(240, 245, 240, 0.75)",
-                  textShadow: "0 0 4px rgba(0,0,0,0.9)",
-                  pointerEvents: "none",
-                }}
-              >
-                ● REC {snapshot.year}
-              </div>
-            </>
-          )}
-        </div>
+        <HoloHero node={focal} accent={GOLD} ghostSize={42} />
         <div style={{ padding: "6px 10px 8px", borderTop: `1px solid ${gold(0.35)}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isNow ? (
-              <>
-                <span style={{ fontSize: 8.5, letterSpacing: 1.5, color: INK_DIM }}>TUNNELS</span>
-                <div style={{ display: "flex", gap: 2.5, flex: 1 }}>
-                  {Array.from({ length: Math.max(total, 1) }, (_, i) => (
-                    <span
-                      key={i}
-                      style={{
-                        flex: 1,
-                        height: 6,
-                        transform: "skewX(-18deg)",
-                        background: total > 0 && i < passable ? GOLD : "rgba(120,120,110,0.22)",
-                        boxShadow: total > 0 && i < passable ? `0 0 7px ${gold(0.5)}` : "none",
-                      }}
-                    />
-                  ))}
-                </div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: GOLD }}>
-                  {passable}/{total}
-                </span>
-              </>
-            ) : (
-              <>
-                <span style={{ fontSize: 8.5, letterSpacing: 1.5, color: GOLD }}>ARCHIVE</span>
+            <span style={{ fontSize: 8.5, letterSpacing: 1.5, color: INK_DIM }}>TUNNELS</span>
+            <div style={{ display: "flex", gap: 2.5, flex: 1 }}>
+              {Array.from({ length: Math.max(total, 1) }, (_, i) => (
                 <span
+                  key={i}
                   style={{
                     flex: 1,
-                    fontSize: 8.5,
-                    letterSpacing: 1.2,
-                    color: INK_DIM,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {snapshot.faction ?? snapshot.label}
-                </span>
-              </>
-            )}
-            {snapshot.status && (
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontSize: 8.5,
-                  letterSpacing: 1,
-                  padding: "2px 6px",
-                  border: `1px solid ${snapshot.statusGlow}66`,
-                  clipPath: NOTCH(5),
-                  background: "rgba(0,0,0,0.35)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <span
-                  style={{
-                    width: 6,
                     height: 6,
-                    borderRadius: "50%",
-                    background: snapshot.statusFill,
-                    boxShadow: `0 0 7px ${snapshot.statusGlow}`,
+                    transform: "skewX(-18deg)",
+                    background: total > 0 && i < passable ? GOLD : "rgba(120,120,110,0.22)",
+                    boxShadow: total > 0 && i < passable ? `0 0 7px ${gold(0.5)}` : "none",
                   }}
                 />
-                {snapshot.status}
-              </span>
-            )}
+              ))}
+            </div>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: GOLD }}>
+              {passable}/{total}
+            </span>
+            <span
+              title={STATION_STATE_LABEL[state]}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 8.5,
+                letterSpacing: 1,
+                padding: "2px 6px",
+                border: `1px solid ${STATION_GLOW[state]}66`,
+                clipPath: NOTCH(5),
+                background: "rgba(0,0,0,0.35)",
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: STATION_FILL[state],
+                  boxShadow: `0 0 7px ${STATION_GLOW[state]}`,
+                }}
+              />
+              {stateWord(STATION_STATE_LABEL[state])}
+            </span>
           </div>
-          {/* Era story — or an honest placeholder when no record exists. */}
-          {snapshot.text ? (
-            <div
-              style={{
-                fontFamily: "var(--font-sans), sans-serif",
-                fontSize: 10,
-                lineHeight: 1.5,
-                color: "rgba(190, 225, 220, 0.75)",
-                marginTop: 7,
-                display: "-webkit-box",
-                WebkitLineClamp: 4,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
-            >
-              {snapshot.text}
-            </div>
-          ) : (
-            <div
-              style={{
-                fontFamily: "var(--font-geist-mono), monospace",
-                fontSize: 9,
-                letterSpacing: 1.5,
-                color: INK_DIM,
-                marginTop: 7,
-                textTransform: "uppercase",
-              }}
-            >
-              — No archival record —
-            </div>
-          )}
-          {isNow && lines.length > 0 && (
-            <div style={{ display: "flex", gap: 4, marginTop: 7, alignItems: "center" }}>
+          {lines.length > 0 && (
+            <div style={{ display: "flex", gap: 4, marginTop: 6, alignItems: "center" }}>
               <span style={{ fontSize: 8, letterSpacing: 1.5, color: INK_DIM }}>LINES</span>
               {lines.map((l) => (
                 <span
@@ -705,10 +506,6 @@ export interface StationHudSceneProps {
   selectedNodeId: number
   focal: ApiNode
   neighbors: SceneNeighbor[]
-  // Active era on the time dial; "now" = present day. State lives in
-  // GraphCanvas so the zone plate (separate DOM tree) stays in sync.
-  era: EraId
-  onEraChange: (era: EraId) => void
   onFocusNode: (nodeId: number) => void
 }
 
@@ -717,25 +514,17 @@ export function StationHudScene({
   selectedNodeId,
   focal,
   neighbors,
-  era,
-  onEraChange,
   onFocusNode,
 }: StationHudSceneProps) {
-  const snapshots = useMemo(() => stationTimeline(focal), [focal])
   const p = graph.nodes[selectedNodeId]?.position
   if (!p) return null
   const ringY = p.y + RING_LIFT
-  const snapshot = snapshots.find((s) => s.era === era) ?? snapshots[snapshots.length - 1]
-  const isNow = snapshot.era === "now"
-  const eraIndex = Math.max(0, ERAS.findIndex((e) => e.id === snapshot.era))
 
   return (
     <group>
-      {/* Radar rings + era dial on the map plane around the station */}
+      {/* Radar rings on the map plane around the station */}
       <group position={[p.x, ringY, p.z]} rotation={[-Math.PI / 2, 0, 0]}>
         <RadarRings />
-        <SweepWedge targetAngle={eraAngle(eraIndex)} />
-        <EraDial era={snapshot.era} onEraChange={onEraChange} />
       </group>
 
       {/* Gold beam + central holo card */}
@@ -752,18 +541,15 @@ export function StationHudScene({
         </mesh>
         <Html position={[0, FOCAL_CARD_H, 0]} zIndexRange={[90, 0]} style={{ pointerEvents: "none" }}>
           <div style={{ transform: "translate(-50%, -100%)" }}>
-            <FocalHoloCard focal={focal} neighbors={neighbors} snapshot={snapshot} />
+            <FocalHoloCard focal={focal} neighbors={neighbors} />
           </div>
         </Html>
       </group>
 
-      {/* Tunnel neighbors: ground link, anchor ring, stem, holo card. The
-          neighbor network describes the PRESENT — viewing a past era dims it
-          so the archive story owns the stage. */}
+      {/* Tunnel neighbors: ground link, anchor ring, stem, holo card */}
       {neighbors.map((nb) => {
         const np = graph.nodes[nb.idx]?.position
         if (!np) return null
-        const dim = isNow ? 1 : 0.3
         return (
           <group key={nb.node.ref_id}>
             <Line
@@ -773,7 +559,7 @@ export function StationHudScene({
               ]}
               color={TEAL}
               transparent
-              opacity={0.55 * dim}
+              opacity={0.55}
               lineWidth={1.4}
               dashed
               dashSize={0.45}
@@ -782,7 +568,7 @@ export function StationHudScene({
             <group position={[np.x, np.y + RING_LIFT, np.z]} rotation={[-Math.PI / 2, 0, 0]}>
               <mesh>
                 <ringGeometry args={[0.45, 0.5, 48]} />
-                <meshBasicMaterial color={TEAL} transparent opacity={0.7 * dim} depthWrite={false} />
+                <meshBasicMaterial color={TEAL} transparent opacity={0.7} depthWrite={false} />
               </mesh>
             </group>
             <group position={[np.x, np.y, np.z]}>
@@ -791,7 +577,7 @@ export function StationHudScene({
                 <meshBasicMaterial
                   color={TEAL}
                   transparent
-                  opacity={0.6 * dim}
+                  opacity={0.6}
                   blending={THREE.AdditiveBlending}
                   depthWrite={false}
                 />
@@ -801,14 +587,7 @@ export function StationHudScene({
                 zIndexRange={[80, 0]}
                 style={{ pointerEvents: "none" }}
               >
-                <div
-                  style={{
-                    transform: "translate(-50%, -100%)",
-                    pointerEvents: "auto",
-                    opacity: dim,
-                    transition: "opacity 400ms ease",
-                  }}
-                >
+                <div style={{ transform: "translate(-50%, -100%)", pointerEvents: "auto" }}>
                   <SatelliteHoloCard neighbor={nb} onClick={() => onFocusNode(nb.idx)} />
                 </div>
               </Html>
@@ -821,20 +600,15 @@ export function StationHudScene({
 }
 
 // DOM chrome shown alongside the in-scene HUD: the zone plate (bottom-center)
-// with the station's state + faction, and a small sector readout. Follows
-// the time dial: past eras swap the zone word for the era title and show
-// that era's controlling power.
-export function StationZonePlate({ node, era }: { node: ApiNode; era: EraId }) {
+// with the station's state + faction, and a small sector readout.
+export function StationZonePlate({ node }: { node: ApiNode }) {
   const props = node.properties as Record<string, unknown>
-  const snapshots = useMemo(() => stationTimeline(node), [node])
-  const snapshot = snapshots.find((s) => s.era === era) ?? snapshots[snapshots.length - 1]
-  const isNow = snapshot.era === "now"
-  const stateGlow = snapshot.statusGlow
-  const nowFaction =
+  const state = statusToState(props.station_status ?? props.status, props.faction)
+  const stateGlow = STATION_GLOW[state]
+  const faction =
     typeof props.faction === "string" ? (FACTION_LABEL[props.faction] ?? null) : null
-  const faction = isNow ? nowFaction : snapshot.faction
   const sector = `SEC-${String(hashCode(node.ref_id) % 999).padStart(3, "0")}`
-  const title = isNow ? `${snapshot.status} ZONE` : `${snapshot.label} · ${snapshot.year}`
+  const desc = pickString(props, "description")
 
   return (
     <div
@@ -881,11 +655,26 @@ export function StationZonePlate({ node, era }: { node: ApiNode; era: EraId }) {
               whiteSpace: "nowrap",
             }}
           >
-            {title}
+            {stateWord(STATION_STATE_LABEL[state])} ZONE
             <span style={{ fontSize: 9, letterSpacing: 2, color: INK_DIM, marginLeft: 12 }}>
               {faction ? `${faction} · ${sector}` : sector}
             </span>
           </div>
+          {desc && (
+            <div
+              style={{
+                fontFamily: "var(--font-sans), sans-serif",
+                fontSize: 10,
+                color: "rgba(190, 225, 220, 0.7)",
+                marginTop: 2,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {desc}
+            </div>
+          )}
         </div>
       </div>
     </div>

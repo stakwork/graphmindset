@@ -48,7 +48,6 @@ import {
   StationZonePlate,
   type SceneNeighbor,
 } from "./station-hud-scene"
-import type { EraId } from "@/data/station-timeline"
 
 // Max number of search hits that keep a text label at once. Beyond this the
 // view becomes an unreadable pile of overlapping labels; the rest of the hits
@@ -1615,11 +1614,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return out
   }, [hudSceneActive, selectedApiNode, effectiveEdges, effectiveNodeByRefId, refIdToIndex])
 
-  // Time-dial era for the station HUD. Owned here (not in the scene) so the
-  // zone plate — a separate DOM tree — follows the dial, and so every new
-  // station selection starts back at the present day.
-  const [hudEra, setHudEra] = useState<EraId>("now")
-
   // The holo cards ARE the labels for these nodes — suppress GraphView's own.
   const hudSuppressedLabelIds = useMemo<Set<number> | null>(() => {
     if (!hudSceneActive || viewState.mode !== "subgraph") return null
@@ -1834,8 +1828,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     (nodeId: number) => {
       useGraphStore.getState().setSidebarSelectedNode(null)
       useGraphStore.getState().setHoveredNode(null)
-      // Every selection starts at the present day on the time dial.
-      setHudEra("now")
       const refId = indexMap.get(nodeId)
       if (refId && onNodeSelect) {
         const apiNode = nodeByRefId.get(refId)
@@ -2070,8 +2062,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
             selectedNodeId={viewState.selectedNodeId}
             focal={selectedApiNode}
             neighbors={sceneNeighbors}
-            era={hudEra}
-            onEraChange={setHudEra}
             onFocusNode={handleNodeClick}
           />
         )}
@@ -2278,7 +2268,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       )}
 
       {hudSceneActive && selectedApiNode && (
-        <StationZonePlate node={selectedApiNode} era={hudEra} />
+        <StationZonePlate node={selectedApiNode} />
       )}
 
       <HoverPreviewCard node={hoveredCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
