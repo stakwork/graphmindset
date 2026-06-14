@@ -166,11 +166,14 @@ export async function createNode(
   return api.post("/v2/nodes", { node_type: nodeType, node_data: nodeData }, undefined, signal)
 }
 
-// Upload an image file and attach it to an existing Image node.
+// Set a node's image via the Stakwork pipeline (any node type).
 //
-// The Image node must have been created first via createNode("Image", ...).
-// Backend resolves the caller's identity (admin or owner via L402/Sphinx-sig)
-// and writes the resulting S3 URL onto the node's `url` property.
+// POSTs the file to /v2/nodes/<ref>/image: the backend stages it to temp S3,
+// points image_url at the presigned temp URL (so it renders immediately), and
+// dispatches the workflow that relocates it to permanent storage and writes the
+// durable URL back via /v2/images/finalize. Returns the temp URL for preview;
+// `status` is "processing" while the workflow runs. Caller identity is admin or
+// owner of the target (via L402/Sphinx-sig).
 //
 // Built as a one-off rather than going through `api.post` because that helper
 // always JSON-encodes the body — multipart needs FormData and the browser
@@ -179,8 +182,8 @@ export async function uploadImageToNode(
   refId: string,
   file: File,
   signal?: AbortSignal
-): Promise<{ url: string; ref_id: string }> {
-  const url = new URL(`${API_URL}/v2/images/${refId}/upload`)
+): Promise<{ url: string; ref_id: string; status?: string }> {
+  const url = new URL(`${API_URL}/v2/nodes/${refId}/image`)
 
   // Sphinx-signed admin path piggybacks on query params (matches api.ts).
   const signed = await getSignedMessage()
@@ -207,7 +210,17 @@ export async function uploadImageToNode(
   if (!response.ok) {
     throw response
   }
-  return response.json()
+  const body = (await response.json()) as {
+    image_url?: string
+    temp_url?: string
+    ref_id: string
+    status?: string
+  }
+  return {
+    url: body.image_url ?? body.temp_url ?? "",
+    ref_id: body.ref_id,
+    status: body.status,
+  }
 }
 
 // Mirrors jarvis ALLOWED_ORIGINAL_TYPES + MAX_IMAGE_UPLOAD_BYTES. Kept in sync
