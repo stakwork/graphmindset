@@ -171,6 +171,7 @@ export function BudgetModal() {
     setInvoiceExpiresAt(null)
     setWithdrawInvoice("")
     setIsWithdrawSuccess(false)
+    setTokenCopied(false)
   }, [])
 
   useEffect(() => {
@@ -1134,6 +1135,30 @@ export function BudgetModal() {
                   </p>
                 </div>
               </div>
+
+              {reachedViaFirstPurchase && !isWithdrawSuccess && (
+                <div className="flex flex-col gap-2 rounded-md border border-border/50 bg-muted/30 p-3">
+                  <p className="text-xs text-foreground/80">
+                    This token is the key to your balance. Store it somewhere safe — you'll need it to restore access if you clear your cookies or switch devices.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleExportToken}
+                    className="w-full text-xs"
+                  >
+                    {tokenCopied ? (
+                      <Check className="mr-2 h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="mr-2 h-3.5 w-3.5" />
+                    )}
+                    {tokenCopied ? "Copied!" : "Copy Token"}
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground text-center">
+                    You can back this up anytime under Manage Token.
+                  </p>
+                </div>
+              )}
 
               <Button
                 onClick={resetState}

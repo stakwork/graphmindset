@@ -908,3 +908,138 @@ describe("BudgetModal withdraw flow", () => {
     expect(screen.queryByPlaceholderText(/Paste Lightning invoice/i)).not.toBeInTheDocument()
   })
 })
+
+describe("BudgetModal first-purchase backup prompt", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBudget = 1000
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSphinx.mockReturnValue(false)
+    mockHasWebLN.mockReturnValue(false)
+    mockPollPaymentStatus.mockResolvedValue(true)
+    mockFetchBuyLsatChallenge.mockResolvedValue({
+      invoice: "lnbcbuy123",
+      baseMacaroon: "macaroon123",
+      paymentHash: "buyhash123",
+      id: "lsatid123",
+    })
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
+    cookieStorage.removeItem("l402")
+  })
+
+  // Helper: navigate to success step via first-purchase QR flow
+  const reachFirstPurchaseSuccess = async () => {
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByText("Top Up"))
+    await waitFor(() => expect(screen.getByText("Get Started")).toBeInTheDocument())
+    fireEvent.click(screen.getByText("Generate Invoice"))
+    await waitFor(() => expect(screen.getByText("Top-up complete")).toBeInTheDocument())
+  }
+
+  it("renders backup message and Copy Token button after first purchase", async () => {
+    await reachFirstPurchaseSuccess()
+
+    expect(
+      screen.getByText(/This token is the key to your balance/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Copy Token/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/You can back this up anytime under Manage Token/i)
+    ).toBeInTheDocument()
+  })
+
+  it("Copy Token button calls handleExportToken and shows Copied! confirmation", async () => {
+    // Do NOT pre-set l402: reachFirstPurchaseSuccess navigates via first-purchase
+    // flow which sets the cookie during handleFirstPurchaseInvoice before success.
+    await reachFirstPurchaseSuccess()
+
+    const copyBtn = screen.getByRole("button", { name: /Copy Token/i })
+    fireEvent.click(copyBtn)
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(screen.getByText("Copied!")).toBeInTheDocument()
+    })
+  })
+
+  it("Done button is always enabled regardless of tokenCopied state", async () => {
+    await reachFirstPurchaseSuccess()
+
+    const doneBtn = screen.getByRole("button", { name: /Done/i })
+    expect(doneBtn).not.toBeDisabled()
+
+    // Also after copying
+    const copyBtn = screen.getByRole("button", { name: /Copy Token/i })
+    fireEvent.click(copyBtn)
+    await waitFor(() => expect(screen.getByText("Copied!")).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: /Done/i })).not.toBeDisabled()
+  })
+
+  it("backup block is absent for a regular top-up (reachedViaFirstPurchase = false)", async () => {
+    // No L402 + Sphinx → handleTopUp calls payL402 directly (no first-purchase flow)
+    // so reachedViaFirstPurchase stays false and the backup block should not render.
+    mockIsSphinx.mockReturnValue(true)
+
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByText("Top Up"))
+
+    await waitFor(() => expect(screen.getByText("Top-up complete")).toBeInTheDocument())
+
+    expect(screen.queryByText(/This token is the key to your balance/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Copy Token/i })).not.toBeInTheDocument()
+  })
+
+  it("backup block is absent on withdrawal success", async () => {
+    cookieStorage.setItem("l402", JSON.stringify({ macaroon: "mac123", preimage: "" }))
+    mockWithdraw.mockResolvedValue({ success: true })
+
+    render(<BudgetModal />)
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/i }))
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Paste Lightning invoice/i)).toBeInTheDocument()
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Paste Lightning invoice/i), {
+      target: { value: "lnbc200u1test" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Withdrawal/i }))
+
+    await waitFor(() => expect(screen.getByText("Withdrawal complete")).toBeInTheDocument())
+
+    expect(screen.queryByText(/This token is the key to your balance/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Copy Token/i })).not.toBeInTheDocument()
+  })
+
+  it("tokenCopied resets to false when modal is closed and reopened (resetState)", async () => {
+    // Do NOT pre-set l402: reachFirstPurchaseSuccess uses first-purchase flow
+    // which sets the cookie internally before navigating to success.
+    await reachFirstPurchaseSuccess()
+
+    // Click Copy Token to set tokenCopied = true
+    fireEvent.click(screen.getByRole("button", { name: /Copy Token/i }))
+    await waitFor(() => expect(screen.getByText("Copied!")).toBeInTheDocument())
+
+    // Click Done → resetState() is called
+    fireEvent.click(screen.getByRole("button", { name: /Done/i }))
+
+    await waitFor(() => expect(screen.getByText("Top Up")).toBeInTheDocument())
+
+    // Navigate back to manage-token to verify tokenCopied state was reset
+    fireEvent.click(screen.getByRole("button", { name: /Manage Token/i }))
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Copy Token/i })).toBeInTheDocument()
+    )
+
+    // Should show "Copy Token" not "Copied!" — state was reset
+    expect(screen.queryByText("Copied!")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Copy Token/i })).toBeInTheDocument()
+  })
+})

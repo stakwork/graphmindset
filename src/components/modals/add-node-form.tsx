@@ -32,10 +32,11 @@ type Status = "idle" | "checking" | "submitting" | "success" | "error" | "upload
 
 // Image is special-cased: the user picks a file directly in this modal and a
 // single multipart POST to /v2/content/image handles upload + node creation +
-// Stakwork dispatch. source_link/url are minted server-side from the upload,
-// so we hide those form fields entirely.
+// Stakwork dispatch. source_link/url/image_url are minted server-side from the
+// upload, so we hide those form fields entirely. (image_url is inherited by
+// every type from the root Thing schema, hence the explicit hide here.)
 const IMAGE_TYPE = "Image"
-const IMAGE_AUTO_FIELDS = new Set(["source_link", "url"])
+const IMAGE_AUTO_FIELDS = new Set(["source_link", "url", "image_url"])
 
 // Pre-submit gate. Backend re-validates with the same thresholds — these are
 // just here to catch obvious mistakes before burning a multipart roundtrip.
