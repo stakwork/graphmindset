@@ -93,16 +93,22 @@ beforeEach(() => {
   mockGetSocket.mockReturnValue(fakeSocket)
 })
 
+const NOW_SECONDS = Math.floor(Date.now() / 1000)
+const FRESH_TIMESTAMP = NOW_SECONDS - 3600 // 1 hour ago
+const STALE_TIMESTAMP = NOW_SECONDS - 73 * 3600 // 73 hours ago
+
 const TWO_NODES = {
   nodes: [
     {
       node_type: "Tweet",
       ref_id: "ref-1",
+      date_added_to_graph: FRESH_TIMESTAMP,
       properties: { name: "Bitcoin is freedom", status: "complete" },
     },
     {
       node_type: "Podcast",
       ref_id: "ref-2",
+      date_added_to_graph: FRESH_TIMESTAMP,
       properties: { name: "What Bitcoin Did #412", status: "processing" },
     },
   ],
@@ -674,7 +680,12 @@ describe("MyContentPanel — Socket.IO integration", () => {
 
   const IN_PROGRESS_RESPONSE = {
     nodes: [
-      { node_type: "Tweet", ref_id: "ref-ws-1", properties: { name: "WS Node", status: "processing" } },
+      {
+        node_type: "Tweet",
+        ref_id: "ref-ws-1",
+        date_added_to_graph: FRESH_TIMESTAMP,
+        properties: { name: "WS Node", status: "processing" },
+      },
     ],
     totalCount: 1,
     totalProcessing: 1,
@@ -731,6 +742,56 @@ describe("MyContentPanel — Socket.IO integration", () => {
     expect(contentCalls).toBe(1)
   })
 
+  it("WebSocket: fresh in-progress node settling to done clears banner", async () => {
+    mockApiGet.mockResolvedValue(IN_PROGRESS_RESPONSE)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText("WS Node")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/1 item.* still processing/i)).toBeInTheDocument())
+
+    act(() => {
+      fakeSocket.connected = true
+      fakeSocket.emit("connect")
+      fakeSocket.emit("node_updated", { ref_id: "ref-ws-1", status: "done" })
+    })
+
+    await waitFor(() =>
+      expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+    )
+  })
+
+  it("WebSocket: stale node receiving done event does not affect banner (already excluded)", async () => {
+    const staleInProgressResponse = {
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-stale-ws",
+          date_added_to_graph: STALE_TIMESTAMP,
+          properties: { name: "Stale WS Node", status: "processing" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 1,
+    }
+    mockApiGet.mockResolvedValue(staleInProgressResponse)
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText("Stale WS Node")).toBeInTheDocument())
+    // Banner should not show because the only processing node is stale
+    expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+
+    act(() => {
+      fakeSocket.connected = true
+      fakeSocket.emit("connect")
+      fakeSocket.emit("node_updated", { ref_id: "ref-stale-ws", status: "done" })
+    })
+
+    // Still no banner — it was already excluded before the event
+    await waitFor(() =>
+      expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+    )
+  })
+
   it("registers polling interval after socket disconnects", async () => {
     // Start with socket connected so the polling gate is initially blocked
     fakeSocket.connected = true
@@ -755,6 +816,124 @@ describe("MyContentPanel — Socket.IO integration", () => {
       const callsAfterDisconnect = setIntervalSpy.mock.calls.filter(([, ms]) => ms === 5000).length
       expect(callsAfterDisconnect).toBeGreaterThan(0)
     })
+
+    setIntervalSpy.mockRestore()
+  })
+})
+
+describe("MyContentPanel — stale processing filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    myContentUserOverrides = { pubKey: "03abc123testkey", routeHint: "", isAdmin: false }
+    fakeSocket = new FakeSocket()
+    mockGetSocket.mockReturnValue(fakeSocket)
+  })
+
+  it("fresh processing node (<72h): banner shows 1 item still processing", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-fresh",
+          date_added_to_graph: FRESH_TIMESTAMP,
+          properties: { name: "Fresh Node", status: "processing" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 1,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText("Fresh Node")).toBeInTheDocument())
+    expect(screen.getByText(/1 item.* still processing/i)).toBeInTheDocument()
+  })
+
+  it("stale processing node (>72h): banner does not appear", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-stale",
+          date_added_to_graph: STALE_TIMESTAMP,
+          properties: { name: "Stale Node", status: "processing" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 1,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText("Stale Node")).toBeInTheDocument())
+    expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+  })
+
+  it("mixed: one fresh + one stale processing node — banner shows 1 item", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-fresh-mix",
+          date_added_to_graph: FRESH_TIMESTAMP,
+          properties: { name: "Fresh Mix Node", status: "processing" },
+        },
+        {
+          node_type: "Tweet",
+          ref_id: "ref-stale-mix",
+          date_added_to_graph: STALE_TIMESTAMP,
+          properties: { name: "Stale Mix Node", status: "processing" },
+        },
+      ],
+      totalCount: 2,
+      totalProcessing: 2,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText("Fresh Mix Node")).toBeInTheDocument())
+    expect(screen.getByText(/1 item.* still processing/i)).toBeInTheDocument()
+  })
+
+  it("node with no date_added_to_graph (epoch) is treated as stale — banner hidden", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-no-date",
+          properties: { name: "No Date Node", status: "processing" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 1,
+    })
+    render(<MyContentPanel onClose={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText("No Date Node")).toBeInTheDocument())
+    expect(screen.queryByText(/still processing/i)).not.toBeInTheDocument()
+  })
+
+  it("stale-only node: polling interval is NOT started (hasInProgress is false)", async () => {
+    mockApiGet.mockResolvedValue({
+      nodes: [
+        {
+          node_type: "Tweet",
+          ref_id: "ref-stale-poll",
+          date_added_to_graph: STALE_TIMESTAMP,
+          properties: { name: "Stale Poll Node", status: "processing" },
+        },
+      ],
+      totalCount: 1,
+      totalProcessing: 1,
+    })
+
+    const setIntervalSpy = vi.spyOn(global, "setInterval")
+
+    render(<MyContentPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText("Stale Poll Node")).toBeInTheDocument())
+
+    // Wait a tick to let effects settle
+    await new Promise((r) => setTimeout(r, 50))
+
+    const pollCalls = setIntervalSpy.mock.calls.filter(([, ms]) => ms === 5000).length
+    expect(pollCalls).toBe(0)
 
     setIntervalSpy.mockRestore()
   })

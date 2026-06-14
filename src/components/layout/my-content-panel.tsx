@@ -28,6 +28,13 @@ import type { GraphNode } from "@/lib/graph-api"
 
 const POLL_INTERVAL_MS = 5000
 const PAGE_SIZE = 50
+const STALE_PROCESSING_THRESHOLD_SECONDS = 72 * 60 * 60 // 72 hours
+
+const isStaleProcessing = (node: GraphNode): boolean => {
+  if (!isInProgress(node.properties?.status)) return false
+  const nowSeconds = Date.now() / 1000
+  return (nowSeconds - (node.date_added_to_graph ?? 0)) > STALE_PROCESSING_THRESHOLD_SECONDS
+}
 
 function sameContent(a: GraphNode[], b: GraphNode[]): boolean {
   if (a === b) return true
@@ -94,7 +101,9 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   const applyResponse = useCallback((res: ContentResponse | null) => {
     if (!res) return
     const nextNodes = res.nodes ?? []
-    const nextProcessing = res.totalProcessing ?? 0
+    const nextProcessing = nextNodes.filter(
+      (n) => isInProgress(n.properties?.status) && !isStaleProcessing(n)
+    ).length
     // Guard against identity churn: the poll effect depends on `nodes`, so
     // re-assigning a fresh array every tick would clear+restart the interval.
     setNodes((prev) => (sameContent(prev, nextNodes) ? prev : nextNodes))
@@ -193,7 +202,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
   )
 
   const hasInProgress =
-    totalProcessing > 0 || nodes.some((n) => isInProgress(n.properties?.status))
+    totalProcessing > 0 || nodes.some((n) => isInProgress(n.properties?.status) && !isStaleProcessing(n))
 
   const hasIdentity = !!pubKey || !!cookieStorage.getItem("l402")
 
@@ -239,7 +248,7 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
           n.ref_id === ref_id ? { ...n, properties: { ...n.properties, status } } : n
         )
         // Keep totalProcessing in sync so the banner clears when all nodes settle
-        setTotalProcessing(next.filter((n) => isInProgress(n.properties?.status)).length)
+        setTotalProcessing(next.filter((n) => isInProgress(n.properties?.status) && !isStaleProcessing(n)).length)
         return next
       })
     }
