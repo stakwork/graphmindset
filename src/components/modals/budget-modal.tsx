@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Copy, Check, Loader2, ArrowLeft, History, Key, RefreshCw, ArrowUpRight, Clock } from "lucide-react"
+import { Copy, Check, Loader2, ArrowLeft, History, Key, RefreshCw, ArrowUpRight, Clock, ArrowDownLeft } from "lucide-react"
 import { BulletIcon } from "@/components/ui/bullet-icon"
 import { QRCodeSVG } from "qrcode.react"
 import {
@@ -14,18 +14,85 @@ import {
 import { Button } from "@/components/ui/button"
 import { useModalStore } from "@/stores/modal-store"
 import { useUserStore } from "@/stores/user-store"
-import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, savePendingLsat, getPendingLsat, clearPendingLsat, topUpStatus, TransactionRow, PendingLsatChallenge } from "@/lib/sphinx"
+import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, savePendingLsat, getPendingLsat, clearPendingLsat, topUpStatus, withdraw, TransactionRow, PendingLsatChallenge } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor, isViewGrantRow } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 import { cookieStorage } from "@/lib/cookie-storage"
 import { api } from "@/lib/api"
-import { decodeInvoiceExpiry } from "@/lib/invoice-utils"
+import { decodeInvoiceExpiry, decodeInvoiceAmountSats } from "@/lib/invoice-utils"
 import { formatCountdown } from "@/lib/format-countdown"
 import { useInvoiceCountdown } from "@/hooks/use-invoice-countdown"
 
-type Step = "balance" | "first-purchase" | "first-invoice" | "amount" | "invoice" | "success" | "history" | "manage-token" | "restore"
+type Step = "balance" | "first-purchase" | "first-invoice" | "amount" | "invoice" | "success" | "history" | "manage-token" | "restore" | "withdraw"
 
 const PRESET_AMOUNTS = [50, 100, 500, 1000]
+const MINIMUM_WITHDRAWAL_SATS = 100
+
+function WithdrawStep({
+  invoice,
+  onInvoiceChange,
+  error,
+  loading,
+  onConfirm,
+}: {
+  invoice: string
+  onInvoiceChange: (val: string) => void
+  error: string
+  loading: boolean
+  onConfirm: () => void
+}) {
+  const decodedAmountSats = invoice.trim() ? decodeInvoiceAmountSats(invoice) : null
+  const withdrawExpiresAt = invoice.trim() ? decodeInvoiceExpiry(invoice) : null
+  const { secondsLeft, expired } = useInvoiceCountdown(withdrawExpiresAt)
+
+  return (
+    <>
+      <textarea
+        value={invoice}
+        onChange={(e) => onInvoiceChange(e.target.value)}
+        placeholder="Paste Lightning invoice (payment_request)…"
+        rows={4}
+        className="w-full rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground/50 focus:border-primary/40 focus:outline-none resize-none"
+      />
+
+      {invoice.trim() && (
+        <div className="rounded-md border border-border/30 bg-muted/20 px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Amount</span>
+            <span className={`font-mono font-medium ${decodedAmountSats !== null ? "text-foreground" : "text-destructive"}`}>
+              {decodedAmountSats !== null ? `${decodedAmountSats.toLocaleString()} bullets` : "Amountless — not supported"}
+            </span>
+          </div>
+          {withdrawExpiresAt !== null && (
+            <div className={`flex items-center gap-1.5 text-xs font-mono ${
+              expired ? "text-destructive" : secondsLeft < 60 ? "text-red-400" : "text-amber"
+            }`}>
+              <Clock className="h-3 w-3" />
+              {expired ? "Invoice expired" : `${formatCountdown(secondsLeft)} remaining`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-destructive text-center">{error}</p>
+      )}
+
+      <Button
+        onClick={onConfirm}
+        disabled={loading || !invoice.trim()}
+        className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs"
+      >
+        {loading ? (
+          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <ArrowDownLeft className="mr-2 h-3.5 w-3.5" />
+        )}
+        {loading ? "Processing..." : "Confirm Withdrawal"}
+      </Button>
+    </>
+  )
+}
 
 export function BudgetModal() {
   const { activeModal, close } = useModalStore()
@@ -54,6 +121,10 @@ export function BudgetModal() {
   // Invoice expiry state
   const [invoiceExpiresAt, setInvoiceExpiresAt] = useState<number | null>(null)
   const { secondsLeft, expired } = useInvoiceCountdown(invoiceExpiresAt)
+
+  // Withdraw state
+  const [withdrawInvoice, setWithdrawInvoice] = useState("")
+  const [isWithdrawSuccess, setIsWithdrawSuccess] = useState(false)
 
   // First-purchase state (non-Sphinx, non-WebLN, no existing L402)
   const [firstPurchaseAmount, setFirstPurchaseAmount] = useState<number>(1000)
@@ -98,6 +169,8 @@ export function BudgetModal() {
     setPendingChallenge(null)
     setRestoreInput("")
     setInvoiceExpiresAt(null)
+    setWithdrawInvoice("")
+    setIsWithdrawSuccess(false)
   }, [])
 
   useEffect(() => {
@@ -402,6 +475,57 @@ export function BudgetModal() {
     }
   }, [amount, sphinxConnected, weblnAvailable, refreshBalance])
 
+  const handleWithdraw = useCallback(async () => {
+    setError("")
+    const decodedAmountSats = decodeInvoiceAmountSats(withdrawInvoice)
+    const expiresAt = decodeInvoiceExpiry(withdrawInvoice)
+    const isExpired = expiresAt !== null && expiresAt < Math.floor(Date.now() / 1000)
+
+    if (decodedAmountSats === null) {
+      setError("Invoice must specify an amount")
+      return
+    }
+    if (isExpired) {
+      setError("Invoice has expired")
+      return
+    }
+    if (decodedAmountSats < MINIMUM_WITHDRAWAL_SATS) {
+      setError("Minimum withdrawal is 100 bullets")
+      return
+    }
+    if (decodedAmountSats > (budget ?? 0)) {
+      setError("Insufficient balance for withdrawal")
+      return
+    }
+
+    setLoading(true)
+    try {
+      await withdraw(withdrawInvoice)
+      await refreshBalance()
+      setIsWithdrawSuccess(true)
+      setStep("success")
+    } catch (err: unknown) {
+      const errorCode = (err as { errorCode?: string })?.errorCode
+      if (errorCode === "BELOW_MINIMUM") {
+        setError("Minimum withdrawal is 100 bullets")
+      } else if (errorCode === "INSUFFICIENT_BALANCE") {
+        setError("Insufficient balance for withdrawal")
+      } else if (errorCode === "INVOICE_EXPIRED") {
+        setError("Invoice has expired")
+      } else if (errorCode === "AMOUNTLESS_INVOICE") {
+        setError("Invoice must specify an amount")
+      } else if (errorCode === "ALREADY_WITHDRAWN") {
+        setError("This invoice has already been paid")
+      } else if (errorCode === "PAYMENT_FAILED") {
+        setError("Payment failed — your balance has been refunded")
+      } else {
+        setError("Withdrawal failed. Please try again.")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [withdrawInvoice, budget, refreshBalance])
+
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(paymentRequest)
     setCopied(true)
@@ -442,7 +566,7 @@ export function BudgetModal() {
                     cancelPoll()
                     setPaymentRequest("")
                     setStep("amount")
-                  } else if (step === "history" || step === "manage-token") {
+                  } else if (step === "history" || step === "manage-token" || step === "withdraw") {
                     setStep("balance")
                   } else if (step === "restore") {
                     setStep("manage-token")
@@ -466,6 +590,7 @@ export function BudgetModal() {
             {step === "history" && "History"}
             {step === "manage-token" && "Manage Token"}
             {step === "restore" && "Restore Token"}
+            {step === "withdraw" && "Withdraw"}
           </DialogTitle>
           <DialogDescription>
             {step === "balance" && "Manage your balance."}
@@ -477,6 +602,7 @@ export function BudgetModal() {
             {step === "history" && "Your payment activity."}
             {step === "manage-token" && "Back up or restore your L402 token."}
             {step === "restore" && "Paste a previously copied token to regain access."}
+            {step === "withdraw" && "Paste a Lightning invoice to cash out your balance."}
           </DialogDescription>
         </DialogHeader>
 
@@ -519,6 +645,18 @@ export function BudgetModal() {
                   </span>
                 </div>
                 <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </button>
+
+              <button
+                onClick={() => { setWithdrawInvoice(""); setError(""); setStep("withdraw") }}
+                disabled={loading || !hasExistingL402}
+                className="group flex w-full items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-4 py-2.5 text-foreground transition-all hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <div className="flex items-center gap-2">
+                  <ArrowDownLeft className="h-4 w-4" />
+                  <span className="text-sm font-medium">Withdraw</span>
+                </div>
+                <ArrowDownLeft className="h-4 w-4 text-muted-foreground" />
               </button>
 
               <div className="grid grid-cols-3 gap-2">
@@ -961,6 +1099,17 @@ export function BudgetModal() {
             </>
           )}
 
+          {/* Step: Withdraw */}
+          {step === "withdraw" && (
+            <WithdrawStep
+              invoice={withdrawInvoice}
+              onInvoiceChange={(val) => { setWithdrawInvoice(val); setError("") }}
+              error={error}
+              loading={loading}
+              onConfirm={handleWithdraw}
+            />
+          )}
+
           {/* Step: Success */}
           {step === "success" && (
             <>
@@ -970,9 +1119,9 @@ export function BudgetModal() {
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-medium text-foreground">
-                    Top-up complete
+                    {isWithdrawSuccess ? "Withdrawal complete" : "Top-up complete"}
                   </p>
-                  {successDelta !== null && (
+                  {!isWithdrawSuccess && successDelta !== null && (
                     <p className="text-sm font-mono text-emerald-400">
                       +{successDelta.toLocaleString()} bullets added
                     </p>

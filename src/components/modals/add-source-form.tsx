@@ -3,13 +3,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { Loader2, CheckCircle2, LinkIcon, Zap, X, RefreshCw } from "lucide-react"
 import { BulletIcon } from "@/components/ui/bullet-icon"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { MAX_LENGTHS } from "@/lib/input-limits"
@@ -44,8 +37,8 @@ const IN_PROGRESS_STATUSES = ["in_progress", "running", "pending"]
 type CacheStatus = "miss" | "hit-completed" | "hit-in-progress" | null
 type PreviewState = "pending" | "owned" | "pay-required" | "fallback" | null
 
-export function AddContentModal() {
-  const { activeModal, close, open: openModal } = useModalStore()
+export function AddSourceForm() {
+  const { close, open: openModal } = useModalStore()
   const { budget, setBudget, pubKey, routeHint, isAdmin } = useUserStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const [sourceUrl, setSourceUrl] = useState("")
@@ -62,15 +55,15 @@ export function AddContentModal() {
   const [cacheStatus, setCacheStatus] = useState<CacheStatus>(null)
   const [cachedRefId, setCachedRefId] = useState<string | null>(null)
   const [previewState, setPreviewState] = useState<PreviewState>(null)
-  const [previewedNode, setPreviewedNode] = useState<GraphNode | null>(null)
+  const [, setPreviewedNode] = useState<GraphNode | null>(null)
 
   // Fetch price based on detected type
   useEffect(() => {
-    if (activeModal === "addContent" && detectedType) {
+    if (detectedType) {
       const endpoint = isSubscriptionSource(detectedType) ? "radar" : "v2/content"
       getPrice(endpoint).then(setPrice)
     }
-  }, [activeModal, detectedType])
+  }, [detectedType])
 
   const handleDetect = useCallback(async (value: string) => {
     setSourceUrl(value)
@@ -293,29 +286,7 @@ export function AddContentModal() {
     } finally {
       setSubmitting(false)
     }
-  }, [sourceUrl, detectedType, close, setBudget, submitWithAuth, refreshBalance])
-
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      if (!open) {
-        close()
-        setSourceUrl("")
-        setDetectedType(null)
-        setSuccess(false)
-        setError("")
-        setPrice(null)
-        setTopics([])
-        setTopicDraft("")
-        setCategory("")
-        setWeight(null)
-        setCacheStatus(null)
-        setCachedRefId(null)
-        setPreviewState(null)
-        setPreviewedNode(null)
-      }
-    },
-    [close]
-  )
+  }, [sourceUrl, detectedType, close, setBudget, submitWithAuth, refreshBalance, openModal, cacheStatus])
 
   const addTopic = useCallback(() => {
     const t = topicDraft.trim()
@@ -353,237 +324,236 @@ export function AddContentModal() {
   })()
 
   return (
-    <Dialog open={activeModal === "addContent"} onOpenChange={handleOpenChange}>
-      <DialogContent className="border-border/50 bg-card noise-bg sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="font-heading text-lg tracking-wide">
-            Add Content
-          </DialogTitle>
-          <DialogDescription>
-            Paste a URL and we&apos;ll detect the source type automatically.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="relative z-10 space-y-4 pt-1">
+      {/* URL Input */}
+      <div className="relative">
+        <LinkIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={sourceUrl}
+          onChange={(e) => handleDetect(e.target.value)}
+          placeholder="Paste URL, Twitter handle, RSS feed..."
+          maxLength={MAX_LENGTHS.SOURCE_URL}
+          className="h-10 w-full rounded-md border border-border/50 bg-muted/50 pl-9 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+        />
+        {detecting && (
+          <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+        )}
+      </div>
 
-        <div className="relative z-10 space-y-4 pt-2">
-          {/* URL Input */}
-          <div className="relative">
-            <LinkIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      {/* Detected type badge */}
+      {detectedType && !detecting && (
+        <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 animate-fade-in-up">
+          <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_4px_oklch(0.72_0.14_200/0.5)]" />
+          <span className="text-xs text-primary font-medium">
+            Detected: {SOURCE_TYPE_LABELS[detectedType] ?? detectedType}
+          </span>
+        </div>
+      )}
+
+      {/* Subscription source callout */}
+      {detectedType && !detecting && isSubscriptionSource(detectedType) && (
+        <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 animate-fade-in-up">
+          <RefreshCw className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+          <span className="text-xs text-primary/80">
+            This source will be ingested continuously on a schedule — new content appears automatically.
+          </span>
+        </div>
+      )}
+
+      {/* Cache state badge */}
+      {cacheStatus === "hit-completed" && !detecting && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 animate-fade-in-up">
+          <Zap className="h-3.5 w-3.5 text-emerald-500" />
+          <span className="text-xs text-emerald-500 font-medium">
+            Cached — instant unlock
+          </span>
+        </div>
+      )}
+
+      {cacheStatus === "hit-in-progress" && !detecting && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 animate-fade-in-up">
+          <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
+          <span className="text-xs text-amber-500 font-medium">
+            Processing — check back shortly
+          </span>
+        </div>
+      )}
+
+      {detectedType === SOURCE_TYPES.TWITTER_HANDLE && !detecting && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+            Topic filter (optional)
+          </label>
+          <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-muted/50 px-2 py-1.5 min-h-[34px]">
+            {topics.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+              >
+                {t}
+                <button
+                  type="button"
+                  onClick={() => removeTopic(t)}
+                  className="hover:text-destructive"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
             <input
-              value={sourceUrl}
-              onChange={(e) => handleDetect(e.target.value)}
-              placeholder="Paste URL, Twitter handle, RSS feed..."
-              maxLength={MAX_LENGTHS.SOURCE_URL}
-              className="h-10 w-full rounded-md border border-border/50 bg-muted/50 pl-9 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+              value={topicDraft}
+              onChange={(e) => setTopicDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault()
+                  addTopic()
+                } else if (e.key === "Backspace" && !topicDraft && topics.length) {
+                  removeTopic(topics[topics.length - 1])
+                }
+              }}
+              onBlur={addTopic}
+              placeholder={topics.length ? "" : "AI, devtools (Enter to add)"}
+              className="flex-1 min-w-[80px] bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
             />
-            {detecting && (
-              <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
-            )}
           </div>
+          <p className="text-[10px] text-muted-foreground">
+            Only tweets matching one of these topics will be ingested.
+          </p>
+        </div>
+      )}
 
-          {/* Detected type badge */}
-          {detectedType && !detecting && (
-            <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 animate-fade-in-up">
-              <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_4px_oklch(0.72_0.14_200/0.5)]" />
-              <span className="text-xs text-primary font-medium">
-                Detected: {SOURCE_TYPE_LABELS[detectedType] ?? detectedType}
-              </span>
-            </div>
-          )}
-
-          {/* Subscription source callout */}
-          {detectedType && !detecting && isSubscriptionSource(detectedType) && (
-            <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 animate-fade-in-up">
-              <RefreshCw className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
-              <span className="text-xs text-primary/80">
-                This source will be ingested continuously on a schedule — new content appears automatically.
-              </span>
-            </div>
-          )}
-
-          {/* Cache state badge */}
-          {cacheStatus === "hit-completed" && !detecting && (
-            <div className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 animate-fade-in-up">
-              <Zap className="h-3.5 w-3.5 text-emerald-500" />
-              <span className="text-xs text-emerald-500 font-medium">
-                Cached — instant unlock
-              </span>
-            </div>
-          )}
-
-          {cacheStatus === "hit-in-progress" && !detecting && (
-            <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 animate-fade-in-up">
-              <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
-              <span className="text-xs text-amber-500 font-medium">
-                Processing — check back shortly
-              </span>
-            </div>
-          )}
-
-          {detectedType === SOURCE_TYPES.TWITTER_HANDLE && !detecting && (
-            <div className="space-y-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
-                Topic filter (optional)
-              </label>
-              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-muted/50 px-2 py-1.5 min-h-[34px]">
-                {topics.map((t) => (
-                  <span
-                    key={t}
-                    className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
-                  >
-                    {t}
-                    <button
-                      type="button"
-                      onClick={() => removeTopic(t)}
-                      className="hover:text-destructive"
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                ))}
-                <input
-                  value={topicDraft}
-                  onChange={(e) => setTopicDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === ",") {
-                      e.preventDefault()
-                      addTopic()
-                    } else if (e.key === "Backspace" && !topicDraft && topics.length) {
-                      removeTopic(topics[topics.length - 1])
-                    }
-                  }}
-                  onBlur={addTopic}
-                  placeholder={topics.length ? "" : "AI, devtools (Enter to add)"}
-                  className="flex-1 min-w-[80px] bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
-                />
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Only tweets matching one of these topics will be ingested.
-              </p>
-            </div>
-          )}
-
-          {/* Admin-only category & weight inputs for subscription sources */}
-          {isAdmin && detectedType && isSubscriptionSource(detectedType) && (
-            <div className="space-y-3">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
-                  Category (optional)
-                </label>
-                <input
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="e.g. AI, crypto, finance"
-                  className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
-                  Weight 0–1 (optional)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={weight ?? ""}
-                  onChange={(e) => setWeight(e.target.value ? parseFloat(e.target.value) : null)}
-                  placeholder="0.0 – 1.0"
-                  className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Cost & Budget — hidden while preview probe is in-flight or content is owned */}
-          {detectedType && price !== null && price > 0 && !hidePaymentUI && (
-            <>
-              <Separator className="bg-border/30" />
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <BulletIcon className="h-3 w-3 text-amber" />
-                  <span>Cost</span>
-                </div>
-                <span className="font-mono text-foreground">
-                  {price} bullets
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Budget</span>
-                <span className="font-mono text-foreground">
-                  {formattedBudget} bullets
-                </span>
-              </div>
-            </>
-          )}
-
-          {error && (
-            <p className="text-xs text-destructive">{error}</p>
-          )}
-
-          {isSubscriptionBlocked && (
-            <p className="text-xs text-muted-foreground">
-              Adding subscription sources requires admin access.
-            </p>
-          )}
-
-          {/* Anon-loss disclosure */}
-          {!pubKey && (
-            <p className="text-xs text-muted-foreground mt-2">
-              Earnings are credited to this browser&#39;s L402. Clearing storage will lose your bullets.
-            </p>
-          )}
-
-          {/* Post-submit success note for subscription sources */}
-          {success && detectedType && isSubscriptionSource(detectedType) && (
-            <p className="text-xs text-muted-foreground text-center">
-              Ingestion begins on the next scheduled run.
-            </p>
-          )}
-
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="ghost"
-              onClick={() => handleOpenChange(false)}
-              className="text-xs"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={
-                submitting ||
-                !detectedType ||
-                !sourceUrl.trim() ||
-                isSubscriptionBlocked ||
-                isInProgress
-              }
-              className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {success ? (
-                <>
-                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                  {cacheStatus === "hit-completed" ? "Unlocked" : "Added"}
-                </>
-              ) : submitting ? (
-                <>
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  {cacheStatus === "hit-completed" ? "Unlocking..." : "Adding..."}
-                </>
-              ) : (
-                <>
-                  {price && price > 0 ? (
-                    <BulletIcon className="mr-1.5 h-3.5 w-3.5" />
-                  ) : cacheStatus === "hit-completed" ? (
-                    <Zap className="mr-1.5 h-3.5 w-3.5" />
-                  ) : null}
-                  {submitLabel}
-                </>
-              )}
-            </Button>
+      {/* Admin-only category & weight inputs for subscription sources */}
+      {isAdmin && detectedType && isSubscriptionSource(detectedType) && (
+        <div className="space-y-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+              Category (optional)
+            </label>
+            <input
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="e.g. AI, crypto, finance"
+              className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-heading">
+              Weight 0–1 (optional)
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.1}
+              value={weight ?? ""}
+              onChange={(e) => setWeight(e.target.value ? parseFloat(e.target.value) : null)}
+              placeholder="0.0 – 1.0"
+              className="mt-1 w-full rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      )}
+
+      {/* Cost & Budget — hidden while preview probe is in-flight or content is owned */}
+      {detectedType && price !== null && price > 0 && !hidePaymentUI && (
+        <>
+          <Separator className="bg-border/30" />
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <BulletIcon className="h-3 w-3 text-amber" />
+              <span>Cost</span>
+            </div>
+            <span className="font-mono text-foreground">
+              {price} bullets
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Budget</span>
+            <span className="font-mono text-foreground">
+              {formattedBudget} bullets
+            </span>
+          </div>
+        </>
+      )}
+
+      {error && (
+        <p className="text-xs text-destructive">{error}</p>
+      )}
+
+      {isSubscriptionBlocked && (
+        <p className="text-xs text-muted-foreground">
+          Adding subscription sources requires admin access.
+        </p>
+      )}
+
+      {/* Anon-loss disclosure */}
+      {!pubKey && (
+        <p className="text-xs text-muted-foreground mt-2">
+          Earnings are credited to this browser&#39;s L402. Clearing storage will lose your bullets.
+        </p>
+      )}
+
+      {/* Post-submit success note for subscription sources */}
+      {success && detectedType && isSubscriptionSource(detectedType) && (
+        <p className="text-xs text-muted-foreground text-center">
+          Ingestion begins on the next scheduled run.
+        </p>
+      )}
+
+      {/* Footer — contextual status hint + actions, bled to the modal edges */}
+      <div className="-mx-4 -mb-4 mt-1 flex items-center gap-3 rounded-b-xl border-t border-border/50 bg-muted/30 px-4 py-3">
+        <span className="text-xs text-muted-foreground">
+          {!detectedType
+            ? "Paste a link to begin"
+            : isInProgress
+              ? "Processing — check back shortly"
+              : isSubscriptionBlocked
+                ? "Admin access required"
+                : cacheStatus === "hit-completed"
+                  ? "Cached — instant unlock"
+                  : "Auto-built — review afterwards in the graph"}
+        </span>
+        <span className="flex-1" />
+        <Button
+          variant="ghost"
+          onClick={() => close()}
+          className="text-xs"
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSubmit}
+          disabled={
+            submitting ||
+            !detectedType ||
+            !sourceUrl.trim() ||
+            isSubscriptionBlocked ||
+            isInProgress
+          }
+          className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          {success ? (
+            <>
+              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+              {cacheStatus === "hit-completed" ? "Unlocked" : "Added"}
+            </>
+          ) : submitting ? (
+            <>
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              {cacheStatus === "hit-completed" ? "Unlocking..." : "Adding..."}
+            </>
+          ) : (
+            <>
+              {price && price > 0 ? (
+                <BulletIcon className="mr-1.5 h-3.5 w-3.5" />
+              ) : cacheStatus === "hit-completed" ? (
+                <Zap className="mr-1.5 h-3.5 w-3.5" />
+              ) : null}
+              {submitLabel}
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
   )
 }

@@ -15,6 +15,8 @@ interface PlayerState {
   host: HTMLElement | null
   // When true, the player takes over the full viewport regardless of host.
   isExpanded: boolean
+  // When non-null, MediaPlayer will seek to this position and start playback.
+  pendingSeekTime: number | null
   setPlayingNode: (node: GraphNode | null) => void
   setIsPlaying: (val: boolean) => void
   setCurrentTime: (val: number) => void
@@ -22,6 +24,8 @@ interface PlayerState {
   setVolume: (val: number) => void
   setHost: (host: HTMLElement | null) => void
   setIsExpanded: (val: boolean) => void
+  seekTo: (seconds: number) => void
+  clearPendingSeek: () => void
   stop: () => void
 }
 
@@ -33,6 +37,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   volume: 0.8,
   host: null,
   isExpanded: false,
+  pendingSeekTime: null,
   setPlayingNode: (playingNode) =>
     set({ playingNode, isPlaying: !!playingNode, currentTime: 0 }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
@@ -41,5 +46,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setVolume: (volume) => set({ volume }),
   setHost: (host) => set({ host }),
   setIsExpanded: (isExpanded) => set({ isExpanded }),
-  stop: () => set({ playingNode: null, isPlaying: false, currentTime: 0, duration: 0, isExpanded: false }),
+  seekTo: (seconds) => set({ pendingSeekTime: seconds }),
+  clearPendingSeek: () => set({ pendingSeekTime: null }),
+  stop: () => set({ playingNode: null, isPlaying: false, currentTime: 0, duration: 0, isExpanded: false, pendingSeekTime: null }),
 }))

@@ -1,166 +1,19 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useRef } from "react"
 import { X, Bot, Send, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { streamAgent } from "@/lib/agent-api"
 import { MessageList } from "./message-list"
-import type { AgentMessage, ToolCallEvent } from "@/lib/agent-api"
-
-const EXAMPLE_QUESTIONS = [
-  "What are the most discussed topics?",
-  "Who talks about Bitcoin?",
-  "Summarise recent clips about AI",
-]
+import { useAgentChat } from "./use-agent-chat"
 
 interface AgentPanelProps {
   onClose: () => void
 }
 
 export function AgentPanel({ onClose }: AgentPanelProps) {
-  const [messages, setMessages] = useState<AgentMessage[]>([])
-  const [input, setInput] = useState("")
-  const [streaming, setStreaming] = useState(false)
-  const [sessionId, setSessionId] = useState<string | undefined>()
-  const abortRef = useRef<AbortController | null>(null)
+  const { messages, input, setInput, streaming, handleSubmit, handleKeyDown } =
+    useAgentChat()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  const addUserMessage = useCallback((content: string) => {
-    setMessages((prev) => [...prev, { role: "user", content }])
-  }, [])
-
-  const startAgentMessage = useCallback((): number => {
-    setMessages((prev) => [
-      ...prev,
-      { role: "agent", content: "", toolCalls: [], isStreaming: true },
-    ])
-    return Date.now()
-  }, [])
-
-  const appendChunk = useCallback((text: string) => {
-    setMessages((prev) => {
-      const next = [...prev]
-      const last = next[next.length - 1]
-      if (last?.role === "agent") {
-        next[next.length - 1] = { ...last, content: last.content + text }
-      }
-      return next
-    })
-  }, [])
-
-  const upsertToolCall = useCallback((event: ToolCallEvent) => {
-    setMessages((prev) => {
-      const next = [...prev]
-      const last = next[next.length - 1]
-      if (!last || last.role !== "agent") return prev
-
-      const existing = last.toolCalls ?? []
-      const idx = existing.findIndex((tc) => tc.id === event.id)
-      const updated = idx >= 0
-        ? existing.map((tc, i) => (i === idx ? event : tc))
-        : [...existing, event]
-
-      next[next.length - 1] = { ...last, toolCalls: updated }
-      return next
-    })
-  }, [])
-
-  const finaliseAgentMessage = useCallback(
-    (result: { answer: string; cited_ref_ids: string[] }, newSessionId?: string) => {
-      setMessages((prev) => {
-        const next = [...prev]
-        const last = next[next.length - 1]
-        if (last?.role === "agent") {
-          next[next.length - 1] = {
-            ...last,
-            content: result.answer || last.content,
-            citedRefIds: result.cited_ref_ids,
-            isStreaming: false,
-          }
-        }
-        return next
-      })
-      if (newSessionId) setSessionId(newSessionId)
-    },
-    []
-  )
-
-  const handleError = useCallback((err: Error) => {
-    setMessages((prev) => {
-      const next = [...prev]
-      const last = next[next.length - 1]
-      if (last?.role === "agent") {
-        next[next.length - 1] = {
-          ...last,
-          content: last.content || "An error occurred. Please try again.",
-          isStreaming: false,
-        }
-      }
-      return next
-    })
-    console.error("[agent-panel] error:", err)
-  }, [])
-
-  const handleSubmit = useCallback(
-    async (prompt: string) => {
-      const trimmed = prompt.trim()
-      if (!trimmed || streaming) return
-
-      // Cancel any in-flight request
-      abortRef.current?.abort()
-      const controller = new AbortController()
-      abortRef.current = controller
-
-      setInput("")
-      setStreaming(true)
-      addUserMessage(trimmed)
-      startAgentMessage()
-
-      try {
-        await streamAgent(trimmed, {
-          sessionId,
-          signal: controller.signal,
-          onChunk: appendChunk,
-          onToolCall: upsertToolCall,
-          onDone: (result) => {
-            finaliseAgentMessage(result)
-            setStreaming(false)
-          },
-          onError: (err) => {
-            handleError(err)
-            setStreaming(false)
-          },
-        })
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          setStreaming(false)
-          return
-        }
-        handleError(err instanceof Error ? err : new Error(String(err)))
-        setStreaming(false)
-      }
-    },
-    [streaming, sessionId, addUserMessage, startAgentMessage, appendChunk, upsertToolCall, finaliseAgentMessage, handleError]
-  )
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault()
-        handleSubmit(input)
-      }
-    },
-    [input, handleSubmit]
-  )
-
-  const handleExampleClick = useCallback(
-    (question: string) => {
-      setInput(question)
-      textareaRef.current?.focus()
-      handleSubmit(question)
-    },
-    [handleSubmit]
-  )
 
   const isEmpty = messages.length === 0
 
@@ -172,7 +25,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           <Bot className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm leading-none">Ask the Graph</p>
+          <p className="font-semibold text-sm leading-none">Graph Agent</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">AI-powered knowledge explorer</p>
         </div>
         <button
@@ -200,22 +53,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 w-full max-w-xs">
-              {EXAMPLE_QUESTIONS.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => handleExampleClick(q)}
-                  className={cn(
-                    "text-left text-xs px-3 py-2.5 rounded-lg border border-border/60",
-                    "bg-muted/30 hover:bg-muted/60 text-foreground/80 hover:text-foreground",
-                    "transition-colors leading-relaxed"
-                  )}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
+
           </div>
         ) : (
           <MessageList messages={messages} />
@@ -243,10 +81,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
               "min-h-[20px] max-h-[120px] overflow-y-auto leading-5",
               streaming && "opacity-50"
             )}
-            style={{
-              // Auto-grow with content
-              height: "auto",
-            }}
+            style={{ height: "auto" }}
             onInput={(e) => {
               const el = e.currentTarget
               el.style.height = "auto"

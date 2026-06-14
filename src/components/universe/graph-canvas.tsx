@@ -30,9 +30,13 @@ import {
 import {
   apiToGraph,
   applyLayout,
+  appendToGraph,
+  recomputeDescendantLayout,
+  describeSubgraph,
   DEPTH_SHRINK,
   rescaleAroundAnchor,
   restoreOriginalPositions,
+  type GraphModel,
 } from "./graph-transform"
 import { metroSeries } from "@/data/metro"
 import {
@@ -1146,14 +1150,113 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     return extras.length > 0 ? [...edges, ...extras] : edges
   }, [edges, effectiveNodes, metroEnabled])
 
-  const { graph, indexMap, refIdToIndex } = useMemo(() => {
+  // Selection mirrored into a ref so the append effect can recompute the right
+  // subgraph without taking viewState as a dependency (which would re-fire it
+  // on every camera/visibility change). viewState is declared here, above the
+  // data layer, because the incremental-append effect below reads it.
+  const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
+  const selectedIdRef = useRef<number | null>(null)
+  selectedIdRef.current =
+    viewState.mode === "subgraph" ? viewState.selectedNodeId : null
+
+  // Full rebuild (apiToGraph + global radial layout) only on a NEW dataset
+  // (dataVersion bump from setGraphData) or a schema change — never on addNodes
+  // appends. Rebuilding on every nodes/edges change was the reshuffle that made
+  // the camera jump when related data loaded; appends are now folded in
+  // incrementally below via appendToGraph. effectiveNodes/effectiveEdges (metro
+  // fixture splice) are read at build time, and the fork's applyLayout
+  // signature keeps the lore Y-lift + fixed station positions.
+  const baseModel = useMemo(() => {
     const result = apiToGraph(effectiveNodes, effectiveEdges, schemas)
-    // Force the Y-lift on the lore graph even when the dataset doesn't carry
-    // fixed-position nodes (e.g. after a search). Otherwise search results
-    // would drop to y=0 where the schematic sits.
     applyLayout(result.graph, result.fixedPositions, true)
     return result
-  }, [effectiveNodes, effectiveEdges, schemas])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- effectiveNodes/Edges read at build time but intentionally NOT deps; rebuild only on dataset/schema swap, appends fold in incrementally
+  }, [dataVersion, schemas])
+
+  // Bumps once per full rebuild (new baseModel). GraphView uses it to snap on
+  // rebuild but ANIMATE in-place appends (where node identities are preserved).
+  const layoutGenRef = useRef(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- baseModel identity IS the trigger; we bump per rebuild, not per value read
+  const layoutGeneration = useMemo(() => ++layoutGenRef.current, [baseModel])
+
+  // `appendModel` accumulates incremental appends on top of the last full
+  // build. On a full rebuild (baseModel changes) we use baseModel directly for
+  // THIS render to avoid a one-frame flash of stale data, then resync
+  // appendModel in an effect so subsequent appends build on the fresh layout.
+  const [appendModel, setAppendModel] = useState<GraphModel>(baseModel)
+  const baseRef = useRef(baseModel)
+  const isRebuild = baseRef.current !== baseModel
+  const model = isRebuild ? baseModel : appendModel
+
+  // Counts processed into `model` so the append effect can tell real growth
+  // (addNodes) from a full rebuild that already includes everything.
+  const appendCountsRef = useRef({ nodes: nodes.length, edges: edges.length })
+
+  // A full rebuild resets the append baseline.
+  useEffect(() => {
+    baseRef.current = baseModel
+    setAppendModel(baseModel)
+    appendCountsRef.current = { nodes: nodes.length, edges: edges.length }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- counts captured at rebuild time on purpose
+  }, [baseModel])
+
+  // Fold appended nodes/edges into the current graph in place (no reshuffle).
+  // The count guard runs before the append, so the re-render setAppendModel
+  // triggers (which re-fires this effect via the `model` dep) early-returns.
+  useEffect(() => {
+    const last = appendCountsRef.current
+    if (nodes.length <= last.nodes && edges.length <= last.edges) return
+    appendCountsRef.current = { nodes: nodes.length, edges: edges.length }
+
+    const res = appendToGraph(model, nodes, edges, schemas)
+    if (!res) return
+
+    // "Add new node, recalculate": once the new descendants are folded in,
+    // relay out the selected node's descendant subgraph as a clean radial
+    // anchored on the selection — no incremental patching, no reshuffle of
+    // ancestors or other branches, no camera motion.
+    //
+    // Skipped in the metro view: recompute re-lays-out the whole directed
+    // subtree and rewrites its originalPositions to a compact collapse-toward-
+    // selection. That's correct for the pure radial graph, but the metro view's
+    // positions are data-driven (fixed stations + lifted lore), so the rewrite
+    // drags the schematic into a pile on select and leaves it collapsed after
+    // deselect. Metro fetches rely on appendToGraph's placeChildren alone, which
+    // fans new nodes around their parent without disturbing existing/fixed nodes.
+    const sel = selectedIdRef.current
+    if (sel != null && res.model.graph.nodes[sel] && !metroEnabled) {
+      // Nodes with index >= the pre-append count are the freshly added ones.
+      recomputeDescendantLayout(res.model.graph, sel, model.graph.nodes.length)
+    }
+
+    setAppendModel(res.model)
+
+    // When focused on a subgraph, GraphView hides anything outside
+    // visibleNodeIds. Reveal the freshly-attached nodes (at their parent's
+    // relative depth + 1) so a click-driven fetch actually surfaces them.
+    if (res.newNodeIds.length > 0) {
+      setViewState((vs) => {
+        if (vs.mode !== "subgraph") return vs
+        const visible = new Set(vs.visibleNodeIds)
+        const depthMap = new Map(vs.depthMap)
+        let changed = false
+        for (const id of res.newNodeIds) {
+          if (visible.has(id)) continue
+          visible.add(id)
+          const p = res.parentOf.get(id)
+          const pd = p === undefined || p === vs.selectedNodeId ? 0 : depthMap.get(p) ?? 1
+          depthMap.set(id, pd + 1)
+          changed = true
+        }
+        if (!changed) return vs
+        return { ...vs, visibleNodeIds: Array.from(visible), depthMap }
+      })
+    }
+  }, [nodes, edges, schemas, model, metroEnabled])
+
+  // Downstream feature code (metro, case-board, station HUD, click/hover) reads
+  // these — derive them from the active model so they track incremental appends.
+  const { graph, indexMap, refIdToIndex } = model
 
   // ref_id → API node lookups. Built once per data change so the per-click /
   // per-hover / per-board-item paths don't each rescan the node array.
@@ -1195,8 +1298,6 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     }
     return map
   }, [schemas])
-
-  const [viewState, setViewState] = useState<ViewState>({ mode: "overview" })
 
   // In-3D case board state — subscribed via the case-board store. Open is
   // triggered by either the close-up zoom (CaseViewTrigger) or the manual
@@ -1853,6 +1954,13 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
 
       const sub = extractSubgraph(graph, nodeId, 30, { useAdj: "undirected" })
 
+      console.log(
+        "[select] node:",
+        graph.nodes[nodeId]?.label,
+        "| descendant subgraph:",
+        describeSubgraph(graph, nodeId, "directed")
+      )
+
       // Intentionally do NOT promote extraEdge (cluster-absorbed) endpoints
       // to depth 1. The cluster proxy is the 1-hop stand-in for its members;
       // promoting members would label every absorbed clip at once. Members
@@ -2048,6 +2156,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
           searchTerm={searchTerm}
           nodeTypeIcons={nodeTypeIcons}
           onResetView={handleReset}
+          layoutGeneration={layoutGeneration}
           suppressHover={cameraInteracting}
           mutedNodeIds={mutedNodeIds}
           suppressLabelIds={hudSuppressedLabelIds}

@@ -29,6 +29,8 @@ import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/app/ontology/page"
 import { ConnectionsSection } from "./connections-section"
+import { TranscriptChatWidget } from "../agent/transcript-chat"
+import type { AgentChatContext } from "../agent/transcript-chat"
 import { AttachableEmbeds } from "./attachable-embeds"
 import { formatDateAbsolute, formatDateRelative } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
@@ -312,41 +314,91 @@ function MediaCard({ node, props, thumbnail }: { node: GraphNode; props: Record<
 
 export function parseTranscriptSegments(
   text: string
-): Array<{ speaker: string; text: string }> | null {
-  const speakerLineRe = /^([^:\n]+):\s*(.*)$/
+): Array<{ speaker: string; text: string; timestampSeconds?: number }> | null {
+  // Optional [MM:SS] or [H:MM:SS] prefix, then Speaker: text
+  const speakerLineRe = /^(?:\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*)?([^:\n]+):\s*(.*)$/
   const lines = text.split("\n")
-  const segments: Array<{ speaker: string; text: string }> = []
-  let current: { speaker: string; lines: string[] } | null = null
+  const segments: Array<{ speaker: string; text: string; timestampSeconds?: number }> = []
+  let current: { speaker: string; lines: string[]; timestampSeconds?: number } | null = null
+
+  function parseTimestampToSeconds(ts: string): number {
+    const parts = ts.split(":").map(Number)
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return parts[0] * 60 + parts[1]
+  }
 
   for (const line of lines) {
     const match = line.match(speakerLineRe)
     if (match) {
       if (current)
-        segments.push({ speaker: current.speaker, text: current.lines.join("\n").trim() })
-      current = { speaker: match[1].trim(), lines: match[2] ? [match[2]] : [] }
+        segments.push({ speaker: current.speaker, text: current.lines.join("\n").trim(), timestampSeconds: current.timestampSeconds })
+      const tsRaw = match[1]
+      current = {
+        speaker: match[2].trim(),
+        lines: match[3] ? [match[3]] : [],
+        timestampSeconds: tsRaw !== undefined ? parseTimestampToSeconds(tsRaw) : undefined,
+      }
     } else if (current) {
       current.lines.push(line)
     }
   }
-  if (current) segments.push({ speaker: current.speaker, text: current.lines.join("\n").trim() })
+  if (current) segments.push({ speaker: current.speaker, text: current.lines.join("\n").trim(), timestampSeconds: current.timestampSeconds })
 
   return segments.length > 1 ? segments : null
 }
 
-export function TranscriptBlock({ text }: { text: string }) {
+export function TranscriptBlock({
+  text,
+  onTimestampClick,
+}: {
+  text: string
+  onTimestampClick?: (seconds: number) => void
+}) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = text.length > 300
-  const displayText = isLong && !expanded ? text.slice(0, 300) + "\u2026" : text
-  const segments = parseTranscriptSegments(displayText)
+  // Parse from the full text before any truncation
+  const allSegments = parseTranscriptSegments(text)
+
+  const SEGMENT_COLLAPSE_COUNT = 3
+  const PLAIN_COLLAPSE_CHARS = 800
+
+  const hasMoreSegments = allSegments ? allSegments.length > SEGMENT_COLLAPSE_COUNT : false
+  const isLongPlain = !allSegments && text.length > PLAIN_COLLAPSE_CHARS
+
+  const visibleSegments = allSegments
+    ? expanded
+      ? allSegments
+      : allSegments.slice(0, SEGMENT_COLLAPSE_COUNT)
+    : null
+
+  const displayText =
+    !allSegments && isLongPlain && !expanded
+      ? text.slice(0, PLAIN_COLLAPSE_CHARS) + "\u2026"
+      : text
+
+  const showToggle = hasMoreSegments || isLongPlain
 
   return (
     <div className="space-y-1">
       <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Transcript</p>
-      {segments ? (
+      {visibleSegments ? (
         <div className="space-y-3">
-          {segments.map((seg, i) => (
+          {visibleSegments.map((seg, i) => (
             <div key={i} className="mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary font-mono">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary font-mono flex items-center gap-1.5">
+                {seg.timestampSeconds !== undefined ? (
+                  onTimestampClick ? (
+                    <button
+                      onClick={() => onTimestampClick(seg.timestampSeconds!)}
+                      className="font-mono text-[10px] text-primary/60 hover:text-primary underline-offset-2 hover:underline transition-colors"
+                    >
+                      [{formatTimestamp(seg.timestampSeconds)}]
+                    </button>
+                  ) : (
+                    <span className="font-mono text-[10px] text-primary/60">
+                      [{formatTimestamp(seg.timestampSeconds)}]
+                    </span>
+                  )
+                ) : null}
                 {seg.speaker}
               </p>
               <p className="text-xs leading-relaxed whitespace-pre-line">{seg.text}</p>
@@ -356,7 +408,7 @@ export function TranscriptBlock({ text }: { text: string }) {
       ) : (
         <p className="text-xs leading-relaxed whitespace-pre-line">{displayText}</p>
       )}
-      {isLong && (
+      {showToggle && (
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-1 text-[10px] text-primary hover:underline"
@@ -368,10 +420,18 @@ export function TranscriptBlock({ text }: { text: string }) {
   )
 }
 
+function formatTimestamp(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
 function SummaryBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = text.length > 300
-  const display = isLong && !expanded ? text.slice(0, 300) + "\u2026" : text
+  const isLong = text.length > 800
+  const display = isLong && !expanded ? text.slice(0, 800) + "\u2026" : text
 
   return (
     <div className="space-y-1">
@@ -532,7 +592,7 @@ function PersonCard({ props }: { props: Record<string, unknown> }) {
       {imageUrl && (
         <img src={imageUrl} alt="" className="w-16 h-16 rounded-full object-cover border border-border/50" />
       )}
-      {bio && <p className="text-xs leading-relaxed">{bio}</p>}
+      {bio && <p className="text-xs leading-relaxed whitespace-pre-line">{bio}</p>}
       {handle && (
         <p className="text-[10px] text-muted-foreground font-mono">@{handle}</p>
       )}
@@ -722,6 +782,9 @@ export function ParentBreadcrumbs({ nodeRefId, schemas }: ParentBreadcrumbsProps
 
 export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProps) {
   const [currentNode, setCurrentNode] = useState<GraphNode>(node)
+  // Derived up-front so it's in scope throughout the (long) component body —
+  // referencing it lower down (or from a debugger) won't hit the TDZ.
+  const props = currentNode.properties
   const [history, setHistory] = useState<GraphNode[]>([])
   const [unlockState, setUnlockState] = useState<UnlockState>("loading")
   const [fullNode, setFullNode] = useState<GraphNode | null>(null)
@@ -876,7 +939,6 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const schema = schemas.find((s) => s.type === nodeType)
   const paidProperties = schema?.paid_properties ?? []
 
-  const props = currentNode.properties
   const nodeIsBlocked = isBlockedStatus(props?.status)
   const ownerReference = typeof props?.owner_reference_id === "string" ? props.owner_reference_id : undefined
   // Legacy pubkey/route_hint for the admin direct-keysend path; phase-4d removes them.
@@ -918,6 +980,8 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const isThisNodePlayingHere = usePlayerStore(
     (s) => s.playingNode?.ref_id === currentNode.ref_id
   )
+  const seekTo = usePlayerStore((s) => s.seekTo)
+  const setPlayingNodePanel = usePlayerStore((s) => s.setPlayingNode)
   const isImageNode = currentNode.node_type === "Image"
   const mediaUrlForNode =
     (fullNode?.properties?.media_url as string | undefined) ??
@@ -1125,6 +1189,14 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     }
     return null
   }, [unlockState, hasTweet, graphNodes, graphEdges, currentNode.ref_id])
+
+  // Transcript Q&A eligibility
+  const transcriptContextRefId =
+    tweetEpisodeNode?.ref_id ?? (hasTranscript || hasMedia ? currentNode.ref_id : null)
+  const transcriptContextNodeType =
+    (tweetEpisodeNode?.node_type ?? nodeType) as string
+  const hasTranscriptContext =
+    unlockState === "unlocked" && transcriptContextRefId !== null
 
   // Edge fetch for admin/contributor probe path on tweet nodes.
   // The paid-unlock path (unlockNode) already calls ?expand=edges and populates
@@ -1530,7 +1602,25 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                   View Source
                 </a>
               )}
-              {hasTranscript && <TranscriptBlock text={fp.transcript as string} />}
+              {hasTranscript && (
+                <TranscriptBlock
+                  text={fp.transcript as string}
+                  onTimestampClick={(seconds) => {
+                    if (!isThisNodePlayingHere && fullNode) setPlayingNodePanel(fullNode)
+                    seekTo(seconds)
+                  }}
+                />
+              )}
+
+              {hasTranscriptContext && (
+                <TranscriptChatWidget
+                  context={{
+                    selectedRefId: transcriptContextRefId!,
+                    nodeType: transcriptContextNodeType,
+                    title: title ?? undefined,
+                  } satisfies AgentChatContext}
+                />
+              )}
 
               {/* Ordered child content — shown when outgoing edges carry properties.index */}
               {edges.some((e) => e.source === currentNode.ref_id && e.properties?.index !== undefined) && (
@@ -1543,7 +1633,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                   {remainingProps.map(([key, value]) => (
                     <div key={key} className="text-xs">
                       <span className="text-muted-foreground font-mono">{key}</span>
-                      <div className="mt-0.5 text-foreground break-all">
+                      <div className={`mt-0.5 text-foreground ${typeof value === "string" && value.length > 150 ? "whitespace-pre-wrap break-words" : "break-all"}`}>
                         {typeof value === "string" && isUrl(value) ? (
                           <a
                             href={value}

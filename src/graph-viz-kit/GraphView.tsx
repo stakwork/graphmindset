@@ -52,6 +52,10 @@ interface GraphViewProps {
   recentNodes?: Map<number, number>;
   /** Cluster proxy node ID that is currently expanded in place */
   expandedClusterId?: number | null;
+  /** Bumps only on a full layout rebuild (new dataset / schema). Lets the snap
+   *  effect tell a rebuild (snap everything) from an in-place append (animate
+   *  existing nodes to their new spots, fly new ones in from their parent). */
+  layoutGeneration?: number;
   /** External hovered node instance index (from sidebar hover) */
   externalHoveredId?: number | null;
   /** External selected node instance index (from sidebar click) */
@@ -85,12 +89,26 @@ interface GraphViewProps {
 const tmpObj = new THREE.Object3D();
 const tmpColor = new THREE.Color();
 
-function smoothstep(t: number): number {
-  const c = Math.max(0, Math.min(1, t));
-  // Quintic smoothstep — smoother acceleration and deceleration
-  return c * c * c * (c * (c * 6 - 15) + 10);
+// Bind a typed array to a geometry attribute, recreating the BufferAttribute
+// only when the backing array was swapped for a bigger one. A fresh attribute
+// object makes three.js allocate a brand-new GPU buffer, so calling
+// `setAttribute(new BufferAttribute(...))` per frame churns VBOs and garbage;
+// when the array is unchanged a needsUpdate flag re-uploads in place.
+function syncAttribute(
+  geom: THREE.BufferGeometry,
+  name: string,
+  array: Float32Array,
+  itemSize: number,
+) {
+  const existing = geom.getAttribute(name) as THREE.BufferAttribute | undefined;
+  if (existing && existing.array === array) {
+    existing.needsUpdate = true;
+  } else {
+    const attr = new THREE.BufferAttribute(array, itemSize);
+    attr.needsUpdate = true;
+    geom.setAttribute(name, attr);
+  }
 }
-
 
 // --------- Billboard glow shader (tiny nodes become dim blobs) ---------
 const glowVertexShader = /* glsl */ `
@@ -156,7 +174,7 @@ const glowFragmentShader = /* glsl */ `
     float r = length(coord);
     bool isCluster = vShape >= 0.5;
 
-    float centerDot = 1.0 - smoothstep(0.06, 0.15, r);
+    float centerDot = 1.0 - smoothstep(0.09, 0.19, r);
     float ringDist = abs(r - 0.55);
     float ring = smoothstep(0.11, 0.0, ringDist);
     float ringGlow = exp(-ringDist * ringDist * 30.0) * 0.6;
@@ -222,7 +240,11 @@ const glowFragmentShader = /* glsl */ `
     float s = clamp((vScale - 0.5) / 0.1, 0.0, 1.0);
     ringGlow *= s;
     outerGlow *= s;
-    innerFill *= s;
+    // Soft always-on core fill so unselected nodes read as solid objects
+    // instead of hollow outlines. Clusters keep their own glyph; bare
+    // (unstructured) cloud dots stay bare via showRing.
+    float baseFill = isCluster ? 0.0 : (1.0 - smoothstep(0.0, 0.50, r)) * 0.12 * showRing;
+    innerFill = innerFill * s + baseFill;
     centerDot *= 0.8;
 
     float alpha = centerDot + ring + ringGlow + outerGlow + innerFill;
@@ -309,8 +331,90 @@ const RING_EDGE_TYPE = "__ring__";
 const RING_COLOR: RGB = { r: 0.42, g: 0.55, b: 0.58 };
 const RING_ALPHA = 0.26;
 const RING_MIN_MEMBERS = 5;
+
+// Node move/scale/color easing rate (per second). Nodes close this fraction of
+// the remaining distance to their target each second, frame-rate independent:
+// t = 1 - exp(-delta * rate). Higher = snappier; ~6 ≈ settles in ~0.5s. This is
+// the single knob for how fast repositioning + fly-in animations feel.
+const NODE_EASE_RATE = 6;
 function rgbToCss(c: RGB, alpha = 1): string {
   return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${alpha})`;
+}
+
+// --------- Zoom-dependent node avatars ---------
+// Nodes carrying an imageUrl swap in a circular photo when the camera moves
+// close — overview stays clean glyphs, zoomed-in regions become recognizable.
+// The reveal set is recomputed on the throttled label tick (not per frame) and
+// hard-capped, so idle/overview cost is zero and worst case is a handful of
+// browser-cached <img> elements.
+//
+// Camera-to-node distance that reveals an avatar. Calibrated against the
+// overview framing: fitCameraHeight ≈ maxRadius × 2.25 (≈74 for the minimum
+// R1=33 layout), so 65 means "zoomed past overview into a neighborhood".
+const AVATAR_REVEAL_DIST = 65;
+// Exit at REVEAL × this factor (hysteresis) so avatars don't flicker at the
+// boundary while the camera drifts.
+const AVATAR_EXIT_FACTOR = 1.3;
+// Hard cap on simultaneously revealed avatars (nearest win).
+const AVATAR_MAX = 12;
+// Avatar screen size scales like a world-anchored object (∝ 1/distance) even
+// though node glyphs stay screen-constant — this is what makes "zoom in to see
+// the photo" actually pay off. Size in px = AVATAR_SIZE_K / distance, clamped.
+// K is chosen so an avatar at the reveal boundary starts at ~26px.
+const AVATAR_SIZE_K = AVATAR_REVEAL_DIST * 26;
+const AVATAR_MIN_PX = 24;
+const AVATAR_MAX_PX = 120;
+// Hovered/selected node's avatar gets a mild boost on top of the curve.
+const AVATAR_FOCUS_BOOST = 1.25;
+
+// URLs that already failed to load this session — never re-requested.
+const failedAvatarUrls = new Set<string>();
+
+function NodeAvatar({ url, ring, dimmed, registerEl }: {
+  url: string;
+  ring: RGB;
+  dimmed: boolean;
+  /** Hands the <img> element to GraphView so the throttled tick can write
+   *  `--av-size` imperatively (same pattern as the label planner's --lbl-*). */
+  registerEl: (el: HTMLImageElement | null) => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(() => failedAvatarUrls.has(url));
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      ref={registerEl}
+      src={url}
+      alt=""
+      draggable={false}
+      onLoad={() => setLoaded(true)}
+      onError={() => {
+        failedAvatarUrls.add(url);
+        setFailed(true);
+      }}
+      style={{
+        // Distance-driven: the tick writes --av-size each frame-batch; the
+        // var() fallback covers the first ~33ms before the element registers.
+        width: "var(--av-size, 26px)",
+        height: "var(--av-size, 26px)",
+        // Tailwind preflight sets img { max-width: 100% } and the drei <Html>
+        // wrapper has no intrinsic width — without this the avatar collapses
+        // to a ~0-wide sliver.
+        maxWidth: "none",
+        borderRadius: "50%",
+        objectFit: "cover",
+        display: "block",
+        border: `1.5px solid ${rgbToCss(ring, 0.9)}`,
+        boxShadow: `0 0 10px ${rgbToCss(ring, 0.35)}, 0 1px 4px rgba(0,0,0,0.8)`,
+        background: "rgba(8, 12, 22, 0.9)",
+        opacity: loaded ? (dimmed ? 0.15 : 1) : 0,
+        transition: "opacity 250ms ease-out, width 120ms ease-out, height 120ms ease-out",
+        pointerEvents: "none",
+        userSelect: "none",
+      }}
+    />
+  );
 }
 
 // --------- Edge glow material (matches ring style) ---------
@@ -441,6 +545,47 @@ function sampleBezier(
   };
 }
 
+// --------- Hierarchical edge bundling (cross-edges) ---------
+// Cross-edges route along the BFS tree between their endpoints instead of
+// flying point-to-point (Holten-style bundling), so edges that share
+// structure merge into a few legible ribbons rather than criss-crossing as
+// independent curves — additive blending then reads as ribbon thickness
+// instead of hairball fog.
+const BUNDLE_BETA = 0.8; // 1 = hug the tree path, 0 = straight chord
+const MAX_BUNDLE_CTRL = 6; // tree paths downsampled to ≤ this many points
+const CROSS_SUBDIVS = 16; // segments per cross-edge curve (bundled or direct)
+
+// Scratch for the β-blended control polyline (xyz-flat) and the sampled
+// point. Module-level like tmpObj/tmpColor — only used within one callback.
+const bundleCtrl = new Float32Array(MAX_BUNDLE_CTRL * 3);
+const bundlePoint = { x: 0, y: 0, z: 0 };
+
+// Evaluate a C1 piecewise-quadratic B-spline through the first `k` control
+// points of `ctrl` at global t ∈ [0,1]. Midpoint scheme with doubled
+// endpoints: piece i runs mid(Qi,Qi+1) → mid(Qi+1,Qi+2) with Qi+1 as the
+// Bézier control, where Q(j) = P(clamp(j-1)) — so the curve starts exactly
+// at P0 and ends at P(k-1). Writes into `bundlePoint` to stay allocation-free.
+function sampleBundleCurve(ctrl: Float32Array, k: number, t: number): void {
+  const pieces = k;
+  let idx = Math.floor(t * pieces);
+  if (idx > pieces - 1) idx = pieces - 1;
+  const s = t * pieces - idx;
+  const clampP = (j: number) => (j < 1 ? 0 : j - 1 > k - 1 ? k - 1 : j - 1) * 3;
+  const a = clampP(idx);
+  const b = clampP(idx + 1);
+  const c = clampP(idx + 2);
+  const sx = (ctrl[a] + ctrl[b]) * 0.5;
+  const sy = (ctrl[a + 1] + ctrl[b + 1]) * 0.5;
+  const sz = (ctrl[a + 2] + ctrl[b + 2]) * 0.5;
+  const ex = (ctrl[b] + ctrl[c]) * 0.5;
+  const ey = (ctrl[b + 1] + ctrl[c + 1]) * 0.5;
+  const ez = (ctrl[b + 2] + ctrl[c + 2]) * 0.5;
+  const omt = 1 - s;
+  bundlePoint.x = omt * omt * sx + 2 * omt * s * ctrl[b] + s * s * ex;
+  bundlePoint.y = omt * omt * sy + 2 * omt * s * ctrl[b + 1] + s * s * ey;
+  bundlePoint.z = omt * omt * sz + 2 * omt * s * ctrl[b + 2] + s * s * ez;
+}
+
 // Splits `label` around case-insensitive occurrences of `term` and bolds the
 // matching substrings so the user can see which part of the label triggered
 // the search hit. Color is inherited from the parent label style.
@@ -457,7 +602,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover, mutedNodeIds, suppressLabelIds }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, layoutGeneration = 0, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover, mutedNodeIds, suppressLabelIds }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -482,6 +627,23 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   const [approachState, setApproachState] = useState<{ nodeId: number; progress: number }>({ nodeId: -1, progress: 0 });
 
   const nodeCount = graph.nodes.length;
+
+  // Zoom-dependent avatars: ids of nodes currently close enough to the camera
+  // to reveal their photo. Recomputed on the throttled label tick; the ref
+  // mirrors the state for hysteresis checks without re-render reads.
+  const [avatarIds, setAvatarIds] = useState<number[]>([]);
+  const avatarSetRef = useRef<Set<number>>(new Set());
+  // Live <img> elements, keyed by node id — sized imperatively each tick.
+  const avatarElsRef = useRef<Map<number, HTMLImageElement>>(new Map());
+  // Indices of nodes that even have an image — scan only these, not all nodes.
+  // graph.nodes is mutated in place on appends, so key on nodeCount too.
+  const imageNodeIndices = useMemo(() => {
+    const out: number[] = [];
+    for (let i = 0; i < nodeCount; i++) {
+      if (graph.nodes[i].imageUrl) out.push(i);
+    }
+    return out;
+  }, [graph, nodeCount]);
 
   // Capacity rounds up to next 1000 — mesh is recreated only at these boundaries
   const meshCapacity = Math.ceil(Math.max(nodeCount, 1) / 1000) * 1000;
@@ -581,6 +743,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
   // Cross-edge Bézier buffers (8 segments per edge)
   const crossEdgePosRef = useRef<Float32Array>(new Float32Array(256 * 6));
   const crossEdgeAlphaRef = useRef<Float32Array>(new Float32Array(256 * 2));
+  // Per-node pulse intensity scratch buffer — only touched while pulses run
+  const pulseIntensityRef = useRef<Float32Array>(new Float32Array(0));
+  // Motion-quiet: ambient cross-edges fade toward 0 while the camera is being
+  // driven and ease back at rest, so orbiting reads structure, not hairball.
+  const crossQuietRef = useRef(1);
 
   // Grow edge buffers when edge count increases
   const edgeCount = graph.edges.length;
@@ -796,6 +963,85 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     return { treeEdges: tree, crossEdges: cross, targetEdges: allEdges, edgeLaneInfo: lanes };
   }, [graph, viewState, expandedClusterId]);
 
+  // Tree path per cross-edge for bundling (node ids, endpoints included,
+  // downsampled to MAX_BUNDLE_CTRL). Keyed by edgeKey — the highlight overlay
+  // holds different edge objects for the same logical edge and must find the
+  // same path so it tracks the dim curve exactly. Edges with no tree path
+  // (disconnected components) are absent and fall back to the direct Bézier.
+  const bundlePaths = useMemo(() => {
+    const paths = new Map<string, number[]>();
+    if (crossEdges.length === 0) return paths;
+
+    // Undirected adjacency over the rendered tree edges. Ring-chain synthetic
+    // edges may introduce cycles — BFS just takes the shortest route through.
+    const adj = new Map<number, number[]>();
+    const link = (a: number, b: number) => {
+      let l = adj.get(a);
+      if (!l) {
+        l = [];
+        adj.set(a, l);
+      }
+      l.push(b);
+    };
+    for (const e of treeEdges) {
+      link(e.src, e.dst);
+      link(e.dst, e.src);
+    }
+
+    // One BFS per unique source covers every cross-edge sharing it.
+    const bySrc = new Map<number, GraphEdge[]>();
+    for (const e of crossEdges) {
+      let l = bySrc.get(e.src);
+      if (!l) {
+        l = [];
+        bySrc.set(e.src, l);
+      }
+      l.push(e);
+    }
+
+    const prev = new Map<number, number>();
+    for (const [src, edgesFromSrc] of bySrc) {
+      prev.clear();
+      prev.set(src, src);
+      let frontier: number[] = [src];
+      while (frontier.length > 0) {
+        const next: number[] = [];
+        for (const n of frontier) {
+          const neighbors = adj.get(n);
+          if (!neighbors) continue;
+          for (const m of neighbors) {
+            if (prev.has(m)) continue;
+            prev.set(m, n);
+            next.push(m);
+          }
+        }
+        frontier = next;
+      }
+      for (const e of edgesFromSrc) {
+        if (!prev.has(e.dst)) continue;
+        const path: number[] = [e.dst];
+        let cur = e.dst;
+        while (cur !== src) {
+          cur = prev.get(cur)!;
+          path.push(cur);
+        }
+        path.reverse();
+        // A 2-node path is the chord itself — direct Bézier handles it.
+        if (path.length < 3) continue;
+        if (path.length > MAX_BUNDLE_CTRL) {
+          const ds: number[] = [];
+          for (let i = 0; i < MAX_BUNDLE_CTRL; i++) {
+            ds.push(path[Math.round((i * (path.length - 1)) / (MAX_BUNDLE_CTRL - 1))]);
+          }
+          paths.set(edgeKey(e.src, e.dst), ds);
+        } else {
+          paths.set(edgeKey(e.src, e.dst), path);
+        }
+      }
+    }
+    return paths;
+  }, [crossEdges, treeEdges]);
+
   const selectedId = viewState.mode === "subgraph" ? viewState.selectedNodeId : null;
   const navigationHistory = viewState.mode === "subgraph" ? viewState.navigationHistory : [];
 
@@ -892,44 +1138,77 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
     return m;
   }, [highlightedEdges, hovered, selectedId]);
 
-  // Transition
-  const transitionProgress = useRef(1);
-  useEffect(() => {
-    transitionProgress.current = 0;
-  }, [targets, nodeCount]);
-
   // Snap all animation state to targets on mount and when graph structure changes
   const prevGraphRef = useRef(graph);
   const prevSnapNodeCount = useRef(nodeCount);
+  const prevLayoutGen = useRef(layoutGeneration);
+  const didMount = useRef(false);
   useEffect(() => {
-    // Always snap on mount; also snap when the graph object itself changes (rebuild)
-    // or when nodeCount increased (graph mutated in-place by appendToGraph)
-    const graphChanged = prevGraphRef.current !== graph;
-    const nodeCountGrew = nodeCount > prevSnapNodeCount.current;
+    const isMount = !didMount.current;
+    didMount.current = true;
+    // A rebuild (new dataset/schema) bumps layoutGeneration → snap everything,
+    // since node identities are reassigned and animating them is meaningless.
+    const isRebuild = layoutGeneration !== prevLayoutGen.current;
+    prevLayoutGen.current = layoutGeneration;
+    const oldCount = prevSnapNodeCount.current;
+    const nodeCountGrew = nodeCount > oldCount;
     prevGraphRef.current = graph;
-    const oldSnapCount = prevSnapNodeCount.current;
     prevSnapNodeCount.current = nodeCount;
-    if (!graphChanged && !nodeCountGrew && currentPos.current.length >= nodeCount * 3) return; // skip if just targets changed
 
-    console.log(`[GV] SNAP: graphChanged=${graphChanged} nodeCountGrew=${nodeCountGrew} (${oldSnapCount}→${nodeCount})`);
-    // Count how many nodes are visible (scale > 0) in the targets
-    let visCount = 0;
-    for (let i = 0; i < nodeCount; i++) { if (targets.scales[i] > 0.01) visCount++; }
-    console.log(`[GV] SNAP: ${visCount}/${nodeCount} nodes visible in targets`);
+    const snapAll = isMount || isRebuild;
 
-    for (let i = 0; i < nodeCount; i++) {
-      const i3 = i * 3;
-      currentPos.current[i3] = targets.positions[i3];
-      currentPos.current[i3 + 1] = targets.positions[i3 + 1];
-      currentPos.current[i3 + 2] = targets.positions[i3 + 2];
-      currentScale.current[i] = targets.scales[i];
-      currentColor.current[i3] = targets.colors[i3];
-      currentColor.current[i3 + 1] = targets.colors[i3 + 1];
-      currentColor.current[i3 + 2] = targets.colors[i3 + 2];
-      currentAlpha.current[i] = targets.alphas[i];
+    if (!snapAll && !nodeCountGrew && currentPos.current.length >= nodeCount * 3) {
+      return; // just targets changed → let useFrame lerp existing nodes there
     }
-    setLabelPos(new Float32Array(currentPos.current));
-  }, [graph, targets, nodeCount]);
+
+    if (snapAll) {
+      for (let i = 0; i < nodeCount; i++) {
+        const i3 = i * 3;
+        currentPos.current[i3] = targets.positions[i3];
+        currentPos.current[i3 + 1] = targets.positions[i3 + 1];
+        currentPos.current[i3 + 2] = targets.positions[i3 + 2];
+        currentScale.current[i] = targets.scales[i];
+        currentColor.current[i3] = targets.colors[i3];
+        currentColor.current[i3 + 1] = targets.colors[i3 + 1];
+        currentColor.current[i3 + 2] = targets.colors[i3 + 2];
+        currentAlpha.current[i] = targets.alphas[i];
+      }
+      setLabelPos(new Float32Array(currentPos.current));
+      return;
+    }
+
+    // In-place append: existing nodes [0, oldCount) keep their current values so
+    // useFrame animates them to their new targets. New nodes [oldCount, ...) are
+    // seeded at their PARENT's position with scale/alpha 0, so the same lerp
+    // flies them out to their ring spot while they grow + fade in.
+    const startFor = (i: number): [number, number, number] => {
+      const parent = graph.inAdj[i]?.[0];
+      const ref =
+        parent !== undefined && parent < nodeCount
+          ? parent
+          : viewState.mode === "subgraph"
+            ? viewState.selectedNodeId
+            : undefined;
+      if (ref === undefined || ref >= nodeCount) return [0, 0, 0];
+      const r3 = ref * 3;
+      // Parent that already exists on screen → fly from where it currently is;
+      // a freshly-added parent (e.g. a new proxy) → fly from its final spot.
+      const src = ref < oldCount ? currentPos.current : targets.positions;
+      return [src[r3], src[r3 + 1], src[r3 + 2]];
+    };
+    for (let i = oldCount; i < nodeCount; i++) {
+      const i3 = i * 3;
+      const [sx, sy, sz] = startFor(i);
+      currentPos.current[i3] = sx;
+      currentPos.current[i3 + 1] = sy;
+      currentPos.current[i3 + 2] = sz;
+      currentScale.current[i] = 0;
+      currentColor.current[i3] = 0;
+      currentColor.current[i3 + 1] = 0;
+      currentColor.current[i3 + 2] = 0;
+      currentAlpha.current[i] = 0;
+    }
+  }, [graph, targets, nodeCount, layoutGeneration, viewState]);
 
   // Attach per-instance progress attribute (runs on mesh recreation AND buffer growth)
   useEffect(() => {
@@ -1060,9 +1339,15 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
 
     const now = Date.now();
 
-    // Build per-node pulse intensity (0 = none, 1 = full)
-    const pulseIntensity = new Float32Array(nodeCount);
+    // Build per-node pulse intensity (0 = none, 1 = full). Null when no pulses
+    // are running so the idle path skips the buffer entirely.
+    let pulseIntensity: Float32Array | null = null;
     if (pulses && pulses.length > 0) {
+      if (pulseIntensityRef.current.length < nodeCount) {
+        pulseIntensityRef.current = new Float32Array(nodeCount);
+      }
+      pulseIntensity = pulseIntensityRef.current;
+      pulseIntensity.fill(0, 0, nodeCount);
       for (const p of pulses) {
         // Sharp flash: source peaks fast then fades, destination peaks at arrival
         const srcI = p.progress < 0.3 ? 1 : Math.max(0, 1 - (p.progress - 0.3) / 0.3);
@@ -1072,10 +1357,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
     }
 
-    if (transitionProgress.current < 1) {
-      transitionProgress.current = Math.min(1, transitionProgress.current + delta / 1.2);
-    }
-    const t = smoothstep(transitionProgress.current);
+    // Frame-rate-independent ease-out toward target: close NODE_EASE_RATE of the
+    // remaining distance per second. Predictable glide, no dependence on a global
+    // transition clock (which made appends snap-or-rush depending on timing).
+    const t = 1 - Math.exp(-delta * NODE_EASE_RATE);
 
     // Expand cluster members when their proxy is explicitly expanded
     const selectedProxyMembers = new Set<number>();
@@ -1230,7 +1515,7 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       // Pulse: hot white flash with scale burst
-      const pi = pulseIntensity[i];
+      const pi = pulseIntensity ? pulseIntensity[i] : 0;
       if (pi > 0) {
         const flash = pi * pi; // sharper falloff
         tmpColor.r += (1.5 - tmpColor.r) * flash;
@@ -1281,19 +1566,25 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       const geom = lines.geometry as THREE.BufferGeometry;
-      geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      geom.setAttribute("alpha", new THREE.BufferAttribute(eAlpha, 1));
-      geom.attributes.position.needsUpdate = true;
-      geom.attributes.alpha.needsUpdate = true;
+      syncAttribute(geom, "position", pos, 3);
+      syncAttribute(geom, "alpha", eAlpha, 1);
       geom.setDrawRange(0, edgeCount * 2);
     }
 
-    // Cross-edges (Bézier curves — 8 line segments per edge)
+    // Cross-edges — bundled along the tree where a path exists, direct Bézier
+    // otherwise. The whole layer fades out while the camera is being driven.
+    const quietTarget = suppressHover ? 0 : 1;
+    crossQuietRef.current += (quietTarget - crossQuietRef.current) * (1 - Math.exp(-delta * 8));
+    const crossQuiet = crossQuietRef.current;
+
     const crossLines = crossLinesRef.current;
-    if (crossLines) {
-      const SUBDIVS = 8;
+    if (crossLines && crossQuiet < 0.01) {
+      // Fully quieted — skip the sampling work entirely
+      (crossLines.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
+    } else if (crossLines) {
+      const crossGeom = crossLines.geometry as THREE.BufferGeometry;
       const crossCount = crossEdges.length;
-      const segCount = crossCount * SUBDIVS;
+      const segCount = crossCount * CROSS_SUBDIVS;
       let cPos = crossEdgePosRef.current;
       if (cPos.length < segCount * 6) {
         cPos = new Float32Array(segCount * 6);
@@ -1312,45 +1603,70 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         const ax = currentPos.current[s3], ay = currentPos.current[s3 + 1], az = currentPos.current[s3 + 2];
         const bx = currentPos.current[d3], by = currentPos.current[d3 + 1], bz = currentPos.current[d3 + 2];
 
-        // Control point: midpoint with curvature proportional to edge length, plus
-        // a perpendicular lane offset so parallel edges fan out into distinct curves.
-        const lane = edgeLaneInfo.get(e)?.lane ?? 0;
-        const { cx, cy, cz, edgeLen } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
-
         // Progressive disclosure: bright on hover, dim otherwise
         const nodeAlpha = Math.min(currentAlpha.current[e.src], currentAlpha.current[e.dst]);
         const isHoverEdge = (e.src === hovered || e.dst === hovered);
         const isSelectedEdge = (e.src === selectedId || e.dst === selectedId);
         const interactionFactor = isHoverEdge ? 1.0 : isSelectedEdge ? 0.4 : 0.15;
-        const alpha = nodeAlpha * interactionFactor;
-        const baseIdx = i * SUBDIVS;
+        const alpha = nodeAlpha * interactionFactor * crossQuiet;
+        const baseIdx = i * CROSS_SUBDIVS;
 
-        for (let s = 0; s < SUBDIVS; s++) {
-          const t0 = s / SUBDIVS;
-          const t1 = (s + 1) / SUBDIVS;
-          // Quadratic Bézier: B(t) = (1-t)²A + 2(1-t)tC + t²B
-          const omt0 = 1 - t0, omt1 = 1 - t1;
-          const p0x = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
-          const p0y = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
-          const p0z = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
-          const p1x = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
-          const p1y = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
-          const p1z = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
+        const path = bundlePaths.get(edgeKey(e.src, e.dst));
+        if (path) {
+          // β-blend the tree-path control points toward the straight chord,
+          // then sample the spline. Bundles overlap on shared tree spans and
+          // additive blending sums them into one brighter ribbon.
+          const k = path.length;
+          const kInv = 1 / (k - 1);
+          for (let j = 0; j < k; j++) {
+            const p3 = path[j] * 3;
+            const f = j * kInv;
+            const lx = ax + (bx - ax) * f;
+            const ly = ay + (by - ay) * f;
+            const lz = az + (bz - az) * f;
+            bundleCtrl[j * 3] = lx + (currentPos.current[p3] - lx) * BUNDLE_BETA;
+            bundleCtrl[j * 3 + 1] = ly + (currentPos.current[p3 + 1] - ly) * BUNDLE_BETA;
+            bundleCtrl[j * 3 + 2] = lz + (currentPos.current[p3 + 2] - lz) * BUNDLE_BETA;
+          }
+          sampleBundleCurve(bundleCtrl, k, 0);
+          let px = bundlePoint.x, py = bundlePoint.y, pz = bundlePoint.z;
+          for (let s = 0; s < CROSS_SUBDIVS; s++) {
+            sampleBundleCurve(bundleCtrl, k, (s + 1) / CROSS_SUBDIVS);
+            const vi = (baseIdx + s) * 6;
+            cPos[vi] = px; cPos[vi + 1] = py; cPos[vi + 2] = pz;
+            cPos[vi + 3] = bundlePoint.x; cPos[vi + 4] = bundlePoint.y; cPos[vi + 5] = bundlePoint.z;
+            px = bundlePoint.x; py = bundlePoint.y; pz = bundlePoint.z;
+            const ai = (baseIdx + s) * 2;
+            cAlpha[ai] = alpha;
+            cAlpha[ai + 1] = alpha;
+          }
+        } else {
+          // No tree path (disconnected / adjacent) — direct quadratic Bézier
+          // with the perpendicular lane offset so parallel chords separate.
+          const lane = edgeLaneInfo.get(e)?.lane ?? 0;
+          const { cx, cy, cz } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
 
-          const vi = (baseIdx + s) * 6;
-          cPos[vi] = p0x; cPos[vi + 1] = p0y; cPos[vi + 2] = p0z;
-          cPos[vi + 3] = p1x; cPos[vi + 4] = p1y; cPos[vi + 5] = p1z;
-          const ai = (baseIdx + s) * 2;
-          cAlpha[ai] = alpha;
-          cAlpha[ai + 1] = alpha;
+          for (let s = 0; s < CROSS_SUBDIVS; s++) {
+            const t0 = s / CROSS_SUBDIVS;
+            const t1 = (s + 1) / CROSS_SUBDIVS;
+            // Quadratic Bézier: B(t) = (1-t)²A + 2(1-t)tC + t²B
+            const omt0 = 1 - t0, omt1 = 1 - t1;
+            const vi = (baseIdx + s) * 6;
+            cPos[vi] = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
+            cPos[vi + 1] = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
+            cPos[vi + 2] = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
+            cPos[vi + 3] = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
+            cPos[vi + 4] = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
+            cPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
+            const ai = (baseIdx + s) * 2;
+            cAlpha[ai] = alpha;
+            cAlpha[ai + 1] = alpha;
+          }
         }
       }
 
-      const crossGeom = crossLines.geometry as THREE.BufferGeometry;
-      crossGeom.setAttribute("position", new THREE.BufferAttribute(cPos, 3));
-      crossGeom.setAttribute("alpha", new THREE.BufferAttribute(cAlpha, 1));
-      crossGeom.attributes.position.needsUpdate = true;
-      crossGeom.attributes.alpha.needsUpdate = true;
+      syncAttribute(crossGeom, "position", cPos, 3);
+      syncAttribute(crossGeom, "alpha", cAlpha, 1);
       crossGeom.setDrawRange(0, segCount * 2);
     }
 
@@ -1366,8 +1682,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         : highlightedEdges;
       const hlCount = combinedEdges.length;
       if (hlCount > 0) {
-        // Cross-edges need Bézier segments, so allocate for worst case (8 segs per edge)
-        const HL_SUBDIVS = 8;
+        // Cross-edges need curve segments, so allocate for the worst case
+        const HL_SUBDIVS = CROSS_SUBDIVS;
         const maxSegs = hlCount * HL_SUBDIVS;
         let hlPos = hlEdgePosRef.current;
         if (hlPos.length < maxSegs * 6) {
@@ -1423,38 +1739,66 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
             hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
             segIdx++;
           } else {
-            // Bézier curve — match the cross-edge control point exactly so the
-            // highlight overlay tracks the dim curve and its lane offset.
-            const lane = edgeLaneInfo.get(e)?.lane ?? 0;
-            const { cx, cy, cz } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
+            // Curve — follow the same bundled tree path (or direct Bézier
+            // fallback) as the dim cross-edge so the overlay tracks it exactly.
+            const path = bundlePaths.get(edgeKey(e.src, e.dst));
+            if (path) {
+              const k = path.length;
+              const kInv = 1 / (k - 1);
+              for (let j = 0; j < k; j++) {
+                const p3 = path[j] * 3;
+                const f = j * kInv;
+                const lx = ax + (bx - ax) * f;
+                const ly = ay + (by - ay) * f;
+                const lz = az + (bz - az) * f;
+                bundleCtrl[j * 3] = lx + (currentPos.current[p3] - lx) * BUNDLE_BETA;
+                bundleCtrl[j * 3 + 1] = ly + (currentPos.current[p3 + 1] - ly) * BUNDLE_BETA;
+                bundleCtrl[j * 3 + 2] = lz + (currentPos.current[p3 + 2] - lz) * BUNDLE_BETA;
+              }
+              sampleBundleCurve(bundleCtrl, k, 0);
+              let px = bundlePoint.x, py = bundlePoint.y, pz = bundlePoint.z;
+              for (let s = 0; s < HL_SUBDIVS; s++) {
+                sampleBundleCurve(bundleCtrl, k, (s + 1) / HL_SUBDIVS);
+                const vi = segIdx * 6;
+                hlPos[vi] = px; hlPos[vi + 1] = py; hlPos[vi + 2] = pz;
+                hlPos[vi + 3] = bundlePoint.x; hlPos[vi + 4] = bundlePoint.y; hlPos[vi + 5] = bundlePoint.z;
+                px = bundlePoint.x; py = bundlePoint.y; pz = bundlePoint.z;
+                const ai = segIdx * 2;
+                hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+                const ci = segIdx * 6;
+                hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+                hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
+                segIdx++;
+              }
+            } else {
+              const lane = edgeLaneInfo.get(e)?.lane ?? 0;
+              const { cx, cy, cz } = computeBezierControl(ax, ay, az, bx, by, bz, lane);
 
-            for (let s = 0; s < HL_SUBDIVS; s++) {
-              const t0 = s / HL_SUBDIVS, t1 = (s + 1) / HL_SUBDIVS;
-              const omt0 = 1 - t0, omt1 = 1 - t1;
-              const vi = segIdx * 6;
-              hlPos[vi] = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
-              hlPos[vi + 1] = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
-              hlPos[vi + 2] = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
-              hlPos[vi + 3] = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
-              hlPos[vi + 4] = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
-              hlPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
-              const ai = segIdx * 2;
-              hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
-              const ci = segIdx * 6;
-              hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
-              hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
-              segIdx++;
+              for (let s = 0; s < HL_SUBDIVS; s++) {
+                const t0 = s / HL_SUBDIVS, t1 = (s + 1) / HL_SUBDIVS;
+                const omt0 = 1 - t0, omt1 = 1 - t1;
+                const vi = segIdx * 6;
+                hlPos[vi] = omt0 * omt0 * ax + 2 * omt0 * t0 * cx + t0 * t0 * bx;
+                hlPos[vi + 1] = omt0 * omt0 * ay + 2 * omt0 * t0 * cy + t0 * t0 * by;
+                hlPos[vi + 2] = omt0 * omt0 * az + 2 * omt0 * t0 * cz + t0 * t0 * bz;
+                hlPos[vi + 3] = omt1 * omt1 * ax + 2 * omt1 * t1 * cx + t1 * t1 * bx;
+                hlPos[vi + 4] = omt1 * omt1 * ay + 2 * omt1 * t1 * cy + t1 * t1 * by;
+                hlPos[vi + 5] = omt1 * omt1 * az + 2 * omt1 * t1 * cz + t1 * t1 * bz;
+                const ai = segIdx * 2;
+                hlAlpha[ai] = alpha; hlAlpha[ai + 1] = alpha;
+                const ci = segIdx * 6;
+                hlColor[ci] = ec.r; hlColor[ci + 1] = ec.g; hlColor[ci + 2] = ec.b;
+                hlColor[ci + 3] = ec.r; hlColor[ci + 4] = ec.g; hlColor[ci + 5] = ec.b;
+                segIdx++;
+              }
             }
           }
         }
 
         const hlGeom = hl.geometry as THREE.BufferGeometry;
-        hlGeom.setAttribute("position", new THREE.BufferAttribute(hlPos, 3));
-        hlGeom.setAttribute("alpha", new THREE.BufferAttribute(hlAlpha, 1));
-        hlGeom.setAttribute("vertexColor", new THREE.BufferAttribute(hlColor, 3));
-        hlGeom.attributes.position.needsUpdate = true;
-        hlGeom.attributes.alpha.needsUpdate = true;
-        hlGeom.attributes.vertexColor.needsUpdate = true;
+        syncAttribute(hlGeom, "position", hlPos, 3);
+        syncAttribute(hlGeom, "alpha", hlAlpha, 1);
+        syncAttribute(hlGeom, "vertexColor", hlColor, 3);
         hlGeom.setDrawRange(0, segIdx * 2);
       } else {
         (hl.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
@@ -1482,10 +1826,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         tAlpha[1] = 0.6;
 
         const tGeom = trail.geometry as THREE.BufferGeometry;
-        tGeom.setAttribute("position", new THREE.BufferAttribute(tPos, 3));
-        tGeom.setAttribute("alpha", new THREE.BufferAttribute(tAlpha, 1));
-        tGeom.attributes.position.needsUpdate = true;
-        tGeom.attributes.alpha.needsUpdate = true;
+        syncAttribute(tGeom, "position", tPos, 3);
+        syncAttribute(tGeom, "alpha", tAlpha, 1);
         tGeom.setDrawRange(0, 2);
       } else {
         (trail.geometry as THREE.BufferGeometry).setDrawRange(0, 0);
@@ -1626,10 +1968,8 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       }
 
       const totalVerts = vi / 3;
-      orbitGeom.setAttribute("position", new THREE.BufferAttribute(posBuf, 3));
-      orbitGeom.setAttribute("alpha", new THREE.BufferAttribute(alphaBuf, 1));
-      orbitGeom.attributes.position.needsUpdate = true;
-      orbitGeom.attributes.alpha.needsUpdate = true;
+      syncAttribute(orbitGeom, "position", posBuf, 3);
+      syncAttribute(orbitGeom, "alpha", alphaBuf, 1);
       orbitGeom.setDrawRange(0, totalVerts);
     }
 
@@ -1648,6 +1988,54 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       setLabelPos(lp);
       // Sync approach indicator to React state
       setApproachState({ ...approachRef.current });
+
+      // Zoom-dependent avatars: pick the nearest image-bearing nodes within
+      // reveal distance. Runs on this throttled tick only, scans only nodes
+      // that have an image, and re-renders only when membership changes.
+      if (!minimap) {
+        const prevSet = avatarSetRef.current;
+        const cand: { id: number; dist: number }[] = [];
+        for (const id of imageNodeIndices) {
+          if (visibleNodes && !visibleNodes.has(id)) continue;
+          if (targets.scales[id] < 0.01) continue;
+          // Skip faded-out nodes (e.g. collapsed cloud members)
+          if (currentAlpha.current[id] < 0.25) continue;
+          const i3 = id * 3;
+          const dx = currentPos.current[i3] - camera.position.x;
+          const dy = currentPos.current[i3 + 1] - camera.position.y;
+          const dz = currentPos.current[i3 + 2] - camera.position.z;
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          // Hysteresis: already-shown avatars survive out to a wider radius
+          const limit = prevSet.has(id)
+            ? AVATAR_REVEAL_DIST * AVATAR_EXIT_FACTOR
+            : AVATAR_REVEAL_DIST;
+          if (dist < limit) cand.push({ id, dist });
+        }
+        cand.sort((a, b) => a.dist - b.dist);
+        const kept = cand.slice(0, AVATAR_MAX);
+        const next = kept.map((c) => c.id);
+        if (next.length !== prevSet.size || next.some((id) => !prevSet.has(id))) {
+          avatarSetRef.current = new Set(next);
+          setAvatarIds(next);
+        }
+
+        // Size each shown avatar like a world-anchored object: px ∝ 1/dist,
+        // clamped, so zooming toward a node actually enlarges its photo while
+        // the glyphs stay screen-constant. Written imperatively (CSS var) —
+        // no React re-render; the CSS width/height transition smooths between
+        // tick updates.
+        const selId = viewState.mode === "subgraph" ? viewState.selectedNodeId : -1;
+        for (const c of kept) {
+          const el = avatarElsRef.current.get(c.id);
+          if (!el) continue;
+          const boost = c.id === hovered || c.id === selId ? AVATAR_FOCUS_BOOST : 1;
+          const px = Math.min(
+            AVATAR_MAX_PX,
+            Math.max(AVATAR_MIN_PX, (AVATAR_SIZE_K / Math.max(c.dist, 1)) * boost),
+          );
+          el.style.setProperty("--av-size", `${px.toFixed(0)}px`);
+        }
+      }
     }
 
     // Animate detail panel opacity
@@ -1807,6 +2195,10 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
       {!minimap && (() => {
         // Build set of hover-neighbor labels to show (capped, closest first)
         const MAX_HOVER_LABELS = 6;
+        // Hard depth ceiling for hover-revealed labels, measured from the
+        // context root (overview root / selected node). Top-level nodes sit
+        // at depth 1, so 2 = "top level's children, nothing deeper".
+        const HOVER_LABEL_MAX_DEPTH = 2;
         const shownHoverNeighbors = new Set<number>();
         if (hovered !== null && hoveredRelated && hoveredRelated.size > MAX_HOVER_LABELS) {
           const hovPos = graph.nodes[hovered].position;
@@ -1840,9 +2232,20 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           // Label gating: show for depth 0-1, hovered + neighbors, cursor-revealed, recent
           const isSelected = viewState.mode === "subgraph" && i === viewState.selectedNodeId;
           const isHovered = i === hovered;
-          const isHoverNeighbor = useFilteredHover
+          // Hover reveals neighbor labels only within HOVER_LABEL_MAX_DEPTH
+          // of the context root (overview root / selected node) — hovering a
+          // top-level node shows its children, but hovering deeper nodes
+          // never unfurls text further down the subtree. Deeper related
+          // nodes keep the mesh color highlight, label-free.
+          const rawHoverNeighbor = useFilteredHover
             ? shownHoverNeighbors.has(i)
             : (hoveredRelated?.has(i) ?? false);
+          const hoverDepth = viewState.mode === "overview"
+            ? graph.initialDepthMap?.get(i)
+            : i === viewState.selectedNodeId ? 0 : viewState.depthMap.get(i);
+          const isHoverNeighbor = rawHoverNeighbor
+            && hoverDepth !== undefined
+            && hoverDepth <= HOVER_LABEL_MAX_DEPTH;
           const isSearchMatch = searchMatches?.has(i) ?? false;
           // Only the top-N hits (by score) earn a text label; the rest stay as
           // glyph spotlights. When the cap set is absent (e.g. tiny result sets)
@@ -1988,9 +2391,12 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
                   style={{
                     // Baseline = label centered below the anchor (-50% x, +20 y).
                     // --lbl-ex / --lbl-ey are written each tick by the placement
-                    // planner to push the label into a non-colliding slot.
-                    transform: "translate(calc(-50% + var(--lbl-ex, 0px)), calc(20px + var(--lbl-ey, 0px)))",
-                    transition: "transform 180ms ease-out",
+                    // planner to push the label into a non-colliding slot;
+                    // --lbl-scale / --lbl-alpha attenuate by camera distance.
+                    transform: "translate(calc(-50% + var(--lbl-ex, 0px)), calc(20px + var(--lbl-ey, 0px))) scale(var(--lbl-scale, 1))",
+                    transformOrigin: "50% 0%",
+                    opacity: "var(--lbl-alpha, 1)",
+                    transition: "transform 180ms ease-out, opacity 180ms ease-out",
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
@@ -2095,6 +2501,39 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
           );
         });
       })()}
+
+      {/* Zoom-dependent avatars — circular photos over the glyphs of the
+          nearest image-bearing nodes. Membership is computed on the throttled
+          label tick (see useFrame); this layer just renders the current set. */}
+      {!minimap && avatarIds.map((i) => {
+        const node = graph.nodes[i];
+        if (!node?.imageUrl) return null;
+        const i3 = i * 3;
+        const lx = i3 + 2 < labelPos.length ? labelPos[i3] : targets.positions[i3];
+        const ly = i3 + 2 < labelPos.length ? labelPos[i3 + 1] : targets.positions[i3 + 1];
+        const lz = i3 + 2 < labelPos.length ? labelPos[i3 + 2] : targets.positions[i3 + 2];
+        return (
+          <Html
+            key={`avatar-${node.id}`}
+            position={[lx, ly, lz]}
+            center
+            // Below the label layer's default range so a close-up photo never
+            // buries its own name/type pill — labels paint on top.
+            zIndexRange={[1000, 0]}
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            <NodeAvatar
+              url={node.imageUrl}
+              ring={colorForNodeType(node.nodeType)}
+              dimmed={wbNodeId !== null && i !== wbNodeId}
+              registerEl={(el) => {
+                if (el) avatarElsRef.current.set(i, el);
+                else avatarElsRef.current.delete(i);
+              }}
+            />
+          </Html>
+        );
+      })}
 
       {!minimap && graph.nodes.map((node, i) => {
         // Only show badge for loadable nodes that are actively loading

@@ -8,14 +8,12 @@ import {
   Settings,
   Network,
   BookMarked,
-  Tag,
   ClipboardList,
   Heart,
   Menu,
   X,
   MessageSquare,
   Cpu,
-  GitMerge,
 } from "lucide-react"
 import { BulletIcon } from "@/components/ui/bullet-icon"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -114,7 +112,7 @@ export function Toolkit({
   const router = useRouter()
   const { isAdmin, budget } = useUserStore()
   const openModal = useModalStore((s) => s.open)
-  const openAddEdge = useModalStore((s) => s.openAddEdge)
+  const openAdd = useModalStore((s) => s.openAdd)
   const { pendingCount, setPendingCount } = useReviewStore()
 
   useEffect(() => {
@@ -184,11 +182,10 @@ export function Toolkit({
 
       <Divider />
 
-      <ToolkitButton icon={Plus} ariaLabel="Add Content" onClick={() => openModal("addContent")} />
-      <ToolkitButton icon={Tag} ariaLabel="Add Node" onClick={() => openModal("addNode")} />
+      <ToolkitButton icon={Plus} ariaLabel="Add to graph" onClick={() => openAdd("source")} />
       <ToolkitButton
         icon={MessageSquare}
-        ariaLabel="Ask the Graph"
+        ariaLabel="Graph Agent"
         onClick={onToggleAgent}
         active={agentOpen}
       />
@@ -220,11 +217,6 @@ export function Toolkit({
       {isAdmin && (
         <>
           <Divider />
-          <ToolkitButton
-            icon={GitMerge}
-            ariaLabel="Add Edge"
-            onClick={() => openAddEdge()}
-          />
           <ToolkitButton
             icon={Network}
             ariaLabel="Ontology"
@@ -274,7 +266,7 @@ export function ToolkitFAB({
   const router = useRouter()
   const { isAdmin, budget } = useUserStore()
   const openModal = useModalStore((s) => s.open)
-  const openAddEdge = useModalStore((s) => s.openAddEdge)
+  const openAdd = useModalStore((s) => s.openAdd)
   const { pendingCount } = useReviewStore()
 
   const formattedBudget =
@@ -325,9 +317,8 @@ export function ToolkitFAB({
             <div className="my-1 mx-2 h-px bg-border/60" />
             {/* Action buttons — icon + label */}
             {[
-              { icon: Plus, label: "Add Content", action: () => openModal("addContent"), active: false },
-              { icon: Tag, label: "Add Node", action: () => openModal("addNode"), active: false },
-              { icon: MessageSquare, label: "Ask the Graph", action: onToggleAgent ?? (() => {}), active: agentOpen ?? false },
+              { icon: Plus, label: "Add to graph", action: () => openAdd("source"), active: false },
+              { icon: MessageSquare, label: "Graph Agent", action: onToggleAgent ?? (() => {}), active: agentOpen ?? false },
               { icon: BookMarked, label: "My Content", action: onToggleMyContent, active: myContentOpen },
               { icon: Heart, label: "Following", action: onToggleFollowing, active: followingOpen },
               { icon: Layers, label: "Sources", action: onToggleSources, active: sourcesOpen },
@@ -350,7 +341,6 @@ export function ToolkitFAB({
               <>
                 <div className="my-1 mx-2 h-px bg-border/60" />
                 {[
-                  { icon: GitMerge, label: "Add Edge", action: () => openAddEdge() },
                   { icon: Network, label: "Ontology", action: () => router.push("/ontology") },
                   {
                     icon: ClipboardList,

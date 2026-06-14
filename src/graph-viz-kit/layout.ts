@@ -3,8 +3,8 @@ export type Edge = { src: number; dst: number };
 
 const TWO_PI = Math.PI * 2;
 
-const MIN_R1 = 22;
-const MIN_ARC_LENGTH = 10;
+const MIN_R1 = 33;
+const MIN_ARC_LENGTH = 15;
 
 export function adaptiveRadius(
   count: number,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import React from "react"
@@ -136,7 +136,7 @@ const mockNode = {
   properties: {},
 }
 
-import { AddContentModal } from "@/components/modals/add-content-modal"
+import { AddSourceForm } from "@/components/modals/add-source-form"
 
 describe("AddContentModal — preview probe", () => {
   beforeEach(() => {
@@ -159,7 +159,7 @@ describe("AddContentModal — preview probe", () => {
     })
     mockApiGet.mockResolvedValue({ nodes: [mockNode] })
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=test123")
@@ -188,7 +188,7 @@ describe("AddContentModal — preview probe", () => {
     })
     mockApiGet.mockRejectedValue(new Response(null, { status: 402 }))
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=test123")
@@ -217,7 +217,7 @@ describe("AddContentModal — preview probe", () => {
     })
     mockApiGet.mockRejectedValue(new Error("Network failure"))
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=test123")
@@ -242,7 +242,7 @@ describe("AddContentModal — preview probe", () => {
       status: "in_progress",
     })
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=test123")
@@ -262,7 +262,7 @@ describe("AddContentModal — preview probe", () => {
       status: null,
     })
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=test123")
@@ -278,7 +278,7 @@ describe("AddContentModal — preview probe", () => {
     mockDetectSourceType.mockResolvedValue("web_page")
     // checkNodeExists would not be called either, so apiGet definitely won't
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://example.com/article")
@@ -308,7 +308,7 @@ describe("AddContentModal — subscription source callout", () => {
     mockDetectSourceType.mockResolvedValue("youtube_channel")
     mockIsSubscriptionSource.mockReturnValue(true)
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/c/testchannel")
 
@@ -324,7 +324,7 @@ describe("AddContentModal — subscription source callout", () => {
     mockIsSubscriptionSource.mockReturnValue(false)
     mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=abc123")
 
@@ -354,7 +354,7 @@ describe("AddContentModal — bumpMyContentRefresh on submission", () => {
   it("calls bumpMyContentRefresh after successful non-subscription submission", async () => {
     mockDetectSourceType.mockResolvedValue("youtube_video")
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=newvideo")
@@ -377,7 +377,7 @@ describe("AddContentModal — bumpMyContentRefresh on submission", () => {
     mockDetectSourceType.mockResolvedValue("twitter_handle")
     mockIsSubscriptionSource.mockReturnValue(true)
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
 
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://twitter.com/satoshi")
@@ -413,7 +413,7 @@ describe("AddContentModal — admin category/weight fields", () => {
     mockDetectSourceType.mockResolvedValue("youtube_channel")
     mockIsSubscriptionSource.mockReturnValue(true)
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/@testchannel")
 
@@ -428,7 +428,7 @@ describe("AddContentModal — admin category/weight fields", () => {
     mockDetectSourceType.mockResolvedValue("youtube_channel")
     mockIsSubscriptionSource.mockReturnValue(true)
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/@testchannel")
 
@@ -446,7 +446,7 @@ describe("AddContentModal — admin category/weight fields", () => {
     mockIsSubscriptionSource.mockReturnValue(false)
     mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
 
-    render(<AddContentModal />)
+    render(<AddSourceForm />)
     const input = screen.getByPlaceholderText(/Paste URL/)
     await userEvent.type(input, "https://youtube.com/watch?v=abc")
 
