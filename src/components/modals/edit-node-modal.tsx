@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { X, Check, HelpCircle, AlertCircle, Trash2 } from "lucide-react"
+import { Check, HelpCircle, AlertCircle, Trash2, ChevronDown, ImageIcon } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import {
   uploadImageToNode,
   ALLOWED_IMAGE_TYPES,
   MAX_IMAGE_UPLOAD_BYTES,
+  type GraphNode,
 } from "@/lib/graph-api"
 import { payL402 } from "@/lib/sphinx"
 import { isMocksEnabled } from "@/lib/mock-data"
@@ -93,15 +94,16 @@ const SYNTHETIC_IMAGE_FIELD: SchemaAttribute = {
 // ---------------------------------------------------------------------------
 // Sub-component: image upload / remove row
 // ---------------------------------------------------------------------------
-// Image is managed by action (upload a file, or remove), not by editing the
-// URL string. Upload commits immediately via the multipart endpoint; remove is
-// applied on Save (deletes the property).
+// Image is managed by action (upload a file, or remove), not by editing the URL
+// string. Both upload and remove persist IMMEDIATELY (independent of the Save
+// button) — `notice` surfaces that so it's clear the change already applied.
 function ImageUploadRow({
   field,
   value,
   localPreview,
   uploading,
   error,
+  notice,
   onPickFile,
   onRemove,
   disabled,
@@ -111,6 +113,7 @@ function ImageUploadRow({
   localPreview: string | null
   uploading: boolean
   error: string | null
+  notice: null | "saved" | "removed"
   onPickFile: (file: File) => void
   onRemove: () => void
   disabled: boolean
@@ -186,11 +189,108 @@ function ImageUploadRow({
         )}
       </div>
 
-      {error && (
+      {error ? (
         <p className="text-[11px] text-destructive flex items-center gap-1">
           <AlertCircle className="h-3 w-3 shrink-0" />
           {error}
         </p>
+      ) : notice ? (
+        <p className="text-[11px] text-green-500 flex items-center gap-1">
+          <Check className="h-3 w-3 shrink-0" />
+          {notice === "saved" ? "Image saved" : "Image removed"} — applied immediately, no need to Save.
+        </p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/50">
+          Image changes save immediately.
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Sub-component: collapsible image section
+// ---------------------------------------------------------------------------
+// Wraps ImageUploadRow in a disclosure that's collapsed by default. The header
+// stays compact (small thumbnail + label) and visually distinct from the
+// Save-gated property fields, reinforcing that image changes apply immediately.
+function ImageSection({
+  field,
+  value,
+  localPreview,
+  uploading,
+  error,
+  notice,
+  open,
+  onToggle,
+  onPickFile,
+  onRemove,
+  disabled,
+}: {
+  field: SchemaAttribute
+  value: string
+  localPreview: string | null
+  uploading: boolean
+  error: string | null
+  notice: null | "saved" | "removed"
+  open: boolean
+  onToggle: () => void
+  onPickFile: (file: File) => void
+  onRemove: () => void
+  disabled: boolean
+}) {
+  const thumb = localPreview ?? (value.trim() ? value.trim() : null)
+  const summary = uploading
+    ? "Working…"
+    : thumb
+      ? "Saved — click to replace or remove"
+      : "Add an image · saves immediately"
+
+  return (
+    <div className="rounded-md border border-border/50 bg-muted/5 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/20"
+      >
+        {thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={thumb}
+            alt=""
+            className="h-9 w-9 shrink-0 rounded border border-border/50 object-cover bg-muted/20"
+          />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-dashed border-border/50 text-muted-foreground/40">
+            <ImageIcon className="h-4 w-4" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-foreground/80">Image</p>
+          <p className="truncate text-[11px] text-muted-foreground/60">{summary}</p>
+        </div>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-border/40 p-3">
+          <ImageUploadRow
+            field={field}
+            value={value}
+            localPreview={localPreview}
+            uploading={uploading}
+            error={error}
+            notice={notice}
+            onPickFile={onPickFile}
+            onRemove={onRemove}
+            disabled={disabled}
+          />
+        </div>
       )}
     </div>
   )
@@ -269,6 +369,12 @@ export function EditNodeModal() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   // User cleared the image via "Remove" — delete the property on Save.
   const [imageRemoved, setImageRemoved] = useState(false)
+  // Inline confirmation under the image control: image changes persist
+  // immediately (independent of Save), so we tell the user so.
+  const [imageNotice, setImageNotice] = useState<null | "saved" | "removed">(null)
+  // The image section is collapsed by default (open on demand) — it's a separate
+  // concern from the Save-gated properties and shouldn't dominate the modal.
+  const [imageSectionOpen, setImageSectionOpen] = useState(false)
 
   // ----- Schema lookups -----
   const originalSchema = useMemo(
@@ -290,17 +396,19 @@ export function EditNodeModal() {
     [selectedSchema]
   )
 
-  // Fields to actually render: schema fields, plus a synthetic image_url row on
-  // every node whose schema doesn't already declare it — image editing is
-  // offered universally (see SYNTHETIC_IMAGE_FIELD).
-  const schemaHasImageField = useMemo(
-    () => selectedFields.some((f) => f.key === IMAGE_FIELD_KEY),
+  // image_url is handled by its own dedicated section (see below), never as a
+  // Properties row — it persists immediately and shouldn't read as Save-gated.
+  // So strip it from the Save-driven property fields here.
+  const propertyFields = useMemo(
+    () => selectedFields.filter((f) => f.key !== IMAGE_FIELD_KEY),
     [selectedFields]
   )
-  const renderFields = useMemo(() => {
-    if (schemaHasImageField) return selectedFields
-    return [...selectedFields, SYNTHETIC_IMAGE_FIELD]
-  }, [selectedFields, schemaHasImageField])
+  // The field metadata for the image section: the schema's own image_url field
+  // if it declares one, otherwise the synthetic universal field.
+  const imageField = useMemo(
+    () => selectedFields.find((f) => f.key === IMAGE_FIELD_KEY) ?? SYNTHETIC_IMAGE_FIELD,
+    [selectedFields]
+  )
 
   // ----- On modal open: initialise state -----
   useEffect(() => {
@@ -337,6 +445,8 @@ export function EditNodeModal() {
     setImageError(null)
     setImagePreview(null)
     setImageRemoved(false)
+    setImageNotice(null)
+    setImageSectionOpen(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
@@ -345,6 +455,20 @@ export function EditNodeModal() {
     if (!imagePreview) return
     return () => URL.revokeObjectURL(imagePreview)
   }, [imagePreview])
+
+  // Push an image change into the selected node so the preview panel reflects it
+  // immediately (no page reload). Image changes persist server-side on their own
+  // (upload endpoint / immediate delete), so this just mirrors that into the UI.
+  const reflectImageInPreview = useCallback(
+    (imageUrl: string | null) => {
+      if (!editingNode) return
+      const props = { ...editingNode.properties }
+      if (imageUrl) props[IMAGE_FIELD_KEY] = imageUrl
+      else delete props[IMAGE_FIELD_KEY]
+      setSelectedNode({ ...editingNode, properties: props })
+    },
+    [editingNode, setSelectedNode]
+  )
 
   // ----- Image upload handler -----
   const handleImageUpload = useCallback(
@@ -369,21 +493,24 @@ export function EditNodeModal() {
 
       // Immediate local preview.
       setImagePreview(URL.createObjectURL(file))
+      setImageNotice(null)
 
       if (isMocksEnabled()) {
         console.log("[EditNodeModal] mock image upload", { ref_id: editingNode.ref_id, file })
+        setImageNotice("saved")
         return
       }
 
       setImageUploading(true)
       const doUpload = async () => {
         // Backend stages to temp S3, sets image_url to the temp URL, and kicks
-        // off the workflow that swaps in the permanent URL. Sync the temp URL
-        // into the form purely for preview — image_url is persisted server-side,
-        // NOT via Save (see handleSave), so the workflow's permanent URL can't
-        // be clobbered.
+        // off the workflow that swaps in the permanent URL. The image is
+        // persisted server-side here (independent of Save), so mirror it into
+        // the form (preview) and into the selected node (live panel refresh).
         const res = await uploadImageToNode(editingNode.ref_id, file)
         setFieldValues((prev) => ({ ...prev, [fieldKey]: res.url }))
+        reflectImageInPreview(res.url)
+        setImageNotice("saved")
       }
 
       try {
@@ -408,17 +535,39 @@ export function EditNodeModal() {
         setImageUploading(false)
       }
     },
-    [editingNode, setBudget]
+    [editingNode, setBudget, reflectImageInPreview]
   )
 
   // ----- Image remove handler -----
-  // Clears the image locally; the property is deleted on Save.
-  const handleImageRemove = useCallback(() => {
+  // Removal persists immediately (like upload), so it's not tied to Save:
+  // delete image_url server-side, then mirror the change into the form + panel.
+  const handleImageRemove = useCallback(async () => {
+    if (!editingNode || imageUploading) return
     setImageError(null)
     setImagePreview(null)
-    setImageRemoved(true)
-    setFieldValues((prev) => ({ ...prev, [IMAGE_FIELD_KEY]: "" }))
-  }, [])
+    setImageNotice(null)
+    setImageUploading(true)
+    try {
+      if (!isMocksEnabled()) {
+        await adminUpdateNode({
+          // Use the node's existing type — never the pending type change — so a
+          // removal can't accidentally relabel the node.
+          ref_id: editingNode.ref_id,
+          node_type: editingNode.node_type,
+          node_data: {},
+          properties_to_be_deleted: [IMAGE_FIELD_KEY],
+        })
+      }
+      setFieldValues((prev) => ({ ...prev, [IMAGE_FIELD_KEY]: "" }))
+      setImageRemoved(true)
+      reflectImageInPreview(null)
+      setImageNotice("removed")
+    } catch {
+      setImageError("Couldn't remove the image. Please try again.")
+    } finally {
+      setImageUploading(false)
+    }
+  }, [editingNode, imageUploading, reflectImageInPreview])
 
   // ----- Compute mappings when type changes -----
   const typeChanged = selectedType !== originalType && selectedType !== ""
@@ -593,11 +742,27 @@ export function EditNodeModal() {
         }
       }
 
+      // Build the post-save node so the preview reflects every change without a
+      // reload. node_data already excludes image_url (managed out of band), so
+      // re-apply the current image_url from fieldValues here.
+      const updatedProps: Record<string, unknown> = { ...editingNode.properties, ...node_data }
+      for (const k of properties_to_be_deleted) delete updatedProps[k]
+      const imgVal = (fieldValues[IMAGE_FIELD_KEY] ?? "").trim()
+      if (imgVal) updatedProps[IMAGE_FIELD_KEY] = imgVal
+      else delete updatedProps[IMAGE_FIELD_KEY]
+      const updatedNode = {
+        ...editingNode,
+        node_type: selectedType,
+        properties: updatedProps,
+        // name is hoisted to the node's top level by the serializer; mirror it.
+        ...(typeof updatedProps.name === "string" ? { name: updatedProps.name } : {}),
+      } as GraphNode
+
       if (isMocksEnabled()) {
         console.log("[EditNodeModal] mock save", { node_data, properties_to_be_deleted })
         close()
         clearSelection()
-        setSelectedNode(editingNode)
+        setSelectedNode(updatedNode)
         return
       }
 
@@ -611,7 +776,7 @@ export function EditNodeModal() {
 
       close()
       clearSelection()
-      setSelectedNode(editingNode)
+      setSelectedNode(updatedNode)
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "An unexpected error occurred. Please try again."
@@ -671,34 +836,37 @@ export function EditNodeModal() {
             />
           </div>
 
+          {/* Image — its own section, collapsed by default. Persists immediately
+              (independent of Save), so it lives apart from the property fields. */}
+          <ImageSection
+            field={imageField}
+            value={fieldValues[IMAGE_FIELD_KEY] ?? ""}
+            localPreview={imagePreview}
+            uploading={imageUploading}
+            error={imageError}
+            notice={imageNotice}
+            open={imageSectionOpen}
+            onToggle={() => setImageSectionOpen((v) => !v)}
+            onPickFile={(file) => handleImageUpload(IMAGE_FIELD_KEY, file)}
+            onRemove={handleImageRemove}
+            disabled={saving}
+          />
+
           {/* Phase A: schema-driven fields */}
-          {renderFields.length > 0 && (
+          {propertyFields.length > 0 && (
             <div className="space-y-3">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Properties
               </p>
-              {renderFields.map((field) => (
+              {propertyFields.map((field) => (
                 <div key={field.key}>
-                  {field.key === IMAGE_FIELD_KEY ? (
-                    <ImageUploadRow
-                      field={field}
-                      value={fieldValues[field.key] ?? ""}
-                      localPreview={imagePreview}
-                      uploading={imageUploading}
-                      error={imageError}
-                      onPickFile={(file) => handleImageUpload(field.key, file)}
-                      onRemove={handleImageRemove}
-                      disabled={saving}
-                    />
-                  ) : (
-                    <FieldRow
-                      field={field}
-                      value={fieldValues[field.key] ?? ""}
-                      onChange={(key, val) =>
-                        setFieldValues((prev) => ({ ...prev, [key]: val }))
-                      }
-                    />
-                  )}
+                  <FieldRow
+                    field={field}
+                    value={fieldValues[field.key] ?? ""}
+                    onChange={(key, val) =>
+                      setFieldValues((prev) => ({ ...prev, [key]: val }))
+                    }
+                  />
                   {isRequiredUnmet(field.key) && (
                     <p className="text-[11px] text-destructive mt-0.5 flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" />
