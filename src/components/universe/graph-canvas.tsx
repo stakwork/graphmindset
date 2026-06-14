@@ -1215,8 +1215,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     // relay out the selected node's descendant subgraph as a clean radial
     // anchored on the selection — no incremental patching, no reshuffle of
     // ancestors or other branches, no camera motion.
+    //
+    // Skipped in the metro view: recompute re-lays-out the whole directed
+    // subtree and rewrites its originalPositions to a compact collapse-toward-
+    // selection. That's correct for the pure radial graph, but the metro view's
+    // positions are data-driven (fixed stations + lifted lore), so the rewrite
+    // drags the schematic into a pile on select and leaves it collapsed after
+    // deselect. Metro fetches rely on appendToGraph's placeChildren alone, which
+    // fans new nodes around their parent without disturbing existing/fixed nodes.
     const sel = selectedIdRef.current
-    if (sel != null && res.model.graph.nodes[sel]) {
+    if (sel != null && res.model.graph.nodes[sel] && !metroEnabled) {
       // Nodes with index >= the pre-append count are the freshly added ones.
       recomputeDescendantLayout(res.model.graph, sel, model.graph.nodes.length)
     }
@@ -1244,7 +1252,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         return { ...vs, visibleNodeIds: Array.from(visible), depthMap }
       })
     }
-  }, [nodes, edges, schemas, model])
+  }, [nodes, edges, schemas, model, metroEnabled])
 
   // Downstream feature code (metro, case-board, station HUD, click/hover) reads
   // these — derive them from the active model so they track incremental appends.
