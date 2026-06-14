@@ -21,6 +21,9 @@ const { mockAdminUpdateNode } = vi.hoisted(() => ({
 
 vi.mock("@/lib/graph-api", () => ({
   adminUpdateNode: (...args: unknown[]) => mockAdminUpdateNode(...args),
+  uploadImageToNode: vi.fn(),
+  ALLOWED_IMAGE_TYPES: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+  MAX_IMAGE_UPLOAD_BYTES: 20 * 1024 * 1024,
 }))
 
 vi.mock("@/lib/mock-data", () => ({
