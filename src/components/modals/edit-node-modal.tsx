@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { X, Check, HelpCircle, AlertCircle } from "lucide-react"
+import { X, Check, HelpCircle, AlertCircle, Trash2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,13 @@ import { useModalStore } from "@/stores/modal-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useGraphStore } from "@/stores/graph-store"
 import { useUserStore } from "@/stores/user-store"
-import { adminUpdateNode } from "@/lib/graph-api"
+import {
+  adminUpdateNode,
+  uploadImageToNode,
+  ALLOWED_IMAGE_TYPES,
+  MAX_IMAGE_UPLOAD_BYTES,
+} from "@/lib/graph-api"
+import { payL402 } from "@/lib/sphinx"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SYSTEM_ATTRIBUTES, fieldsForSchema } from "@/lib/node-schema-utils"
 import { resolveNodeTitle } from "@/lib/node-display"
@@ -64,6 +70,132 @@ function stringifyValue(v: unknown): string {
   return String(v)
 }
 
+// Every node exposes `image_url` (inherited from the root Thing schema), and it
+// gets a file-upload affordance in place of the bare text input. Upload goes
+// through POST /v2/nodes/<ref>/image: the backend stages to temp S3, sets
+// image_url to the temp URL, and dispatches the workflow that swaps in the
+// permanent URL via /v2/images/finalize. Pre-submit gate mirrors add-node-form;
+// the backend re-validates with the same thresholds.
+const IMAGE_FIELD_KEY = "image_url"
+const ALLOWED_IMAGE_TYPE_SET = new Set<string>(ALLOWED_IMAGE_TYPES)
+
+// image_url is treated as a universal field: the backend's image-upload
+// endpoint resolves/falls back to image_url for any node type regardless of
+// schema, so every node can carry one. Most schemas don't declare it (it isn't
+// inherited from the root Thing type), so we append this synthetic row whenever
+// the schema omits it.
+const SYNTHETIC_IMAGE_FIELD: SchemaAttribute = {
+  key: IMAGE_FIELD_KEY,
+  type: "string",
+  required: false,
+}
+
+// ---------------------------------------------------------------------------
+// Sub-component: image upload / remove row
+// ---------------------------------------------------------------------------
+// Image is managed by action (upload a file, or remove), not by editing the
+// URL string. Upload commits immediately via the multipart endpoint; remove is
+// applied on Save (deletes the property).
+function ImageUploadRow({
+  field,
+  value,
+  localPreview,
+  uploading,
+  error,
+  onPickFile,
+  onRemove,
+  disabled,
+}: {
+  field: SchemaAttribute
+  value: string
+  localPreview: string | null
+  uploading: boolean
+  error: string | null
+  onPickFile: (file: File) => void
+  onRemove: () => void
+  disabled: boolean
+}) {
+  // Local object-URL wins during/just-after a pick so the user sees the new
+  // image immediately; otherwise fall back to the persisted URL value.
+  const preview = localPreview ?? (value.trim() ? value.trim() : null)
+  const maxMb = Math.round(MAX_IMAGE_UPLOAD_BYTES / (1024 * 1024))
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs text-muted-foreground font-mono">
+        {field.key}
+        {field.required && <span className="text-destructive ml-0.5">*</span>}
+        <span className="ml-2 font-sans text-muted-foreground/40">
+          JPEG / PNG / WebP / GIF · max {maxMb} MB
+        </span>
+      </label>
+
+      {preview ? (
+        <div className="relative w-full">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview}
+            alt="Node image"
+            className="max-h-40 w-full rounded-md border border-border/50 object-contain bg-muted/20"
+          />
+          {uploading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/60 text-xs text-muted-foreground">
+              Uploading…
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex h-24 w-full items-center justify-center rounded-md border border-dashed border-border/50 bg-muted/10 text-xs text-muted-foreground/50">
+          {uploading ? "Uploading…" : "No image"}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <label
+          className={cn(
+            "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90",
+            (disabled || uploading) && "pointer-events-none opacity-50"
+          )}
+        >
+          {preview ? "Replace image" : "Upload image"}
+          <input
+            type="file"
+            accept={ALLOWED_IMAGE_TYPES.join(",")}
+            disabled={disabled || uploading}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) onPickFile(file)
+              // Reset so re-picking the same file fires onChange again.
+              e.target.value = ""
+            }}
+            className="hidden"
+          />
+        </label>
+        {preview && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            disabled={disabled || uploading}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1" />
+            Remove
+          </Button>
+        )}
+      </div>
+
+      {error && (
+        <p className="text-[11px] text-destructive flex items-center gap-1">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Sub-component: field input row
 // ---------------------------------------------------------------------------
@@ -108,6 +240,7 @@ export function EditNodeModal() {
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const isAdmin = useUserStore((s) => s.isAdmin)
+  const setBudget = useUserStore((s) => s.setBudget)
 
   const isOpen = activeModal === "editNode" && editingNode !== null && isAdmin
 
@@ -127,6 +260,15 @@ export function EditNodeModal() {
   // ----- Save state -----
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // ----- Image upload state -----
+  const [imageUploading, setImageUploading] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
+  // Local object-URL preview shown while/after a file is picked, before the
+  // remote URL resolves. Revoked on change/unmount.
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  // User cleared the image via "Remove" — delete the property on Save.
+  const [imageRemoved, setImageRemoved] = useState(false)
 
   // ----- Schema lookups -----
   const originalSchema = useMemo(
@@ -148,6 +290,18 @@ export function EditNodeModal() {
     [selectedSchema]
   )
 
+  // Fields to actually render: schema fields, plus a synthetic image_url row on
+  // every node whose schema doesn't already declare it — image editing is
+  // offered universally (see SYNTHETIC_IMAGE_FIELD).
+  const schemaHasImageField = useMemo(
+    () => selectedFields.some((f) => f.key === IMAGE_FIELD_KEY),
+    [selectedFields]
+  )
+  const renderFields = useMemo(() => {
+    if (schemaHasImageField) return selectedFields
+    return [...selectedFields, SYNTHETIC_IMAGE_FIELD]
+  }, [selectedFields, schemaHasImageField])
+
   // ----- On modal open: initialise state -----
   useEffect(() => {
     if (!isOpen || !editingNode) return
@@ -156,19 +310,115 @@ export function EditNodeModal() {
     setSelectedType(type)
     setSaveError(null)
 
-    // Pre-fill field values from node properties
+    // Pre-fill field values from node properties. Some fields (notably `name`)
+    // are hoisted by the backend serializer to the node's top level and dropped
+    // from `properties`, so fall back to the top-level field when absent.
     const schema = schemas.find((s) => s.type === type)
+    const nodeRecord = editingNode as unknown as Record<string, unknown>
     const initValues: Record<string, string> = {}
     if (schema) {
       for (const field of fieldsForSchema(schema)) {
-        initValues[field.key] = stringifyValue(editingNode.properties?.[field.key])
+        const v = editingNode.properties?.[field.key] ?? nodeRecord[field.key]
+        initValues[field.key] = stringifyValue(v)
       }
+    }
+    // Seed image_url even when the schema doesn't declare it, so the upload row
+    // shows the existing image for property-only nodes.
+    if (
+      !(IMAGE_FIELD_KEY in initValues) &&
+      editingNode.properties &&
+      IMAGE_FIELD_KEY in editingNode.properties
+    ) {
+      initValues[IMAGE_FIELD_KEY] = stringifyValue(editingNode.properties[IMAGE_FIELD_KEY])
     }
     setFieldValues(initValues)
     setFuzzyDecisions({})
     setUnmappedAssignments({})
+    setImageError(null)
+    setImagePreview(null)
+    setImageRemoved(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
+
+  // Revoke the local preview object-URL when it's replaced or the modal closes.
+  useEffect(() => {
+    if (!imagePreview) return
+    return () => URL.revokeObjectURL(imagePreview)
+  }, [imagePreview])
+
+  // ----- Image upload handler -----
+  const handleImageUpload = useCallback(
+    async (fieldKey: string, file: File) => {
+      if (!editingNode) return
+      setImageError(null)
+      // Picking a new file supersedes a pending removal.
+      setImageRemoved(false)
+
+      if (!ALLOWED_IMAGE_TYPE_SET.has(file.type)) {
+        setImageError(
+          `Unsupported format "${file.type || "unknown"}". Allowed: JPEG, PNG, WebP, GIF.`
+        )
+        return
+      }
+      if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+        const maxMb = Math.round(MAX_IMAGE_UPLOAD_BYTES / (1024 * 1024))
+        const fileMb = (file.size / (1024 * 1024)).toFixed(1)
+        setImageError(`File is ${fileMb} MB; max is ${maxMb} MB.`)
+        return
+      }
+
+      // Immediate local preview.
+      setImagePreview(URL.createObjectURL(file))
+
+      if (isMocksEnabled()) {
+        console.log("[EditNodeModal] mock image upload", { ref_id: editingNode.ref_id, file })
+        return
+      }
+
+      setImageUploading(true)
+      const doUpload = async () => {
+        // Backend stages to temp S3, sets image_url to the temp URL, and kicks
+        // off the workflow that swaps in the permanent URL. Sync the temp URL
+        // into the form purely for preview — image_url is persisted server-side,
+        // NOT via Save (see handleSave), so the workflow's permanent URL can't
+        // be clobbered.
+        const res = await uploadImageToNode(editingNode.ref_id, file)
+        setFieldValues((prev) => ({ ...prev, [fieldKey]: res.url }))
+      }
+
+      try {
+        await doUpload()
+      } catch (err) {
+        if (err instanceof Response && err.status === 402) {
+          try {
+            await payL402(setBudget)
+            await doUpload()
+          } catch {
+            setImageError("Payment failed. Please try again.")
+          }
+        } else if (err instanceof Response) {
+          const body = (await err.json().catch(() => null)) as
+            | { errorCode?: string; message?: string }
+            | null
+          setImageError(body?.message || body?.errorCode || `Upload failed (HTTP ${err.status})`)
+        } else {
+          setImageError("Upload failed. Try again or pick a different file.")
+        }
+      } finally {
+        setImageUploading(false)
+      }
+    },
+    [editingNode, setBudget]
+  )
+
+  // ----- Image remove handler -----
+  // Clears the image locally; the property is deleted on Save.
+  const handleImageRemove = useCallback(() => {
+    setImageError(null)
+    setImagePreview(null)
+    setImageRemoved(true)
+    setFieldValues((prev) => ({ ...prev, [IMAGE_FIELD_KEY]: "" }))
+  }, [])
 
   // ----- Compute mappings when type changes -----
   const typeChanged = selectedType !== originalType && selectedType !== ""
@@ -324,6 +574,25 @@ export function EditNodeModal() {
         if (v !== undefined) node_data[field.key] = v
       }
 
+      // Property-only image_url: persist it when neither schema declares the
+      // field (so the loops above never touched it, and the remap logic can't
+      // be deleting it). The upload endpoint already wrote it server-side; this
+      // keeps a pasted URL edit in sync too.
+      // image_url is managed out-of-band by the upload pipeline (temp →
+      // workflow → permanent via /v2/images/finalize), so it must NEVER ride
+      // along in the Save payload — doing so would clobber the permanent URL the
+      // workflow writes with the stale temp URL. Strip it here regardless of how
+      // it got into node_data (schema field or otherwise).
+      delete node_data[IMAGE_FIELD_KEY]
+
+      // Removal is the one image change Save is responsible for: delete the
+      // property outright.
+      if (imageRemoved && !(fieldValues[IMAGE_FIELD_KEY] ?? "").trim()) {
+        if (!properties_to_be_deleted.includes(IMAGE_FIELD_KEY)) {
+          properties_to_be_deleted.push(IMAGE_FIELD_KEY)
+        }
+      }
+
       if (isMocksEnabled()) {
         console.log("[EditNodeModal] mock save", { node_data, properties_to_be_deleted })
         close()
@@ -403,20 +672,33 @@ export function EditNodeModal() {
           </div>
 
           {/* Phase A: schema-driven fields */}
-          {selectedFields.length > 0 && (
+          {renderFields.length > 0 && (
             <div className="space-y-3">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Properties
               </p>
-              {selectedFields.map((field) => (
+              {renderFields.map((field) => (
                 <div key={field.key}>
-                  <FieldRow
-                    field={field}
-                    value={fieldValues[field.key] ?? ""}
-                    onChange={(key, val) =>
-                      setFieldValues((prev) => ({ ...prev, [key]: val }))
-                    }
-                  />
+                  {field.key === IMAGE_FIELD_KEY ? (
+                    <ImageUploadRow
+                      field={field}
+                      value={fieldValues[field.key] ?? ""}
+                      localPreview={imagePreview}
+                      uploading={imageUploading}
+                      error={imageError}
+                      onPickFile={(file) => handleImageUpload(field.key, file)}
+                      onRemove={handleImageRemove}
+                      disabled={saving}
+                    />
+                  ) : (
+                    <FieldRow
+                      field={field}
+                      value={fieldValues[field.key] ?? ""}
+                      onChange={(key, val) =>
+                        setFieldValues((prev) => ({ ...prev, [key]: val }))
+                      }
+                    />
+                  )}
                   {isRequiredUnmet(field.key) && (
                     <p className="text-[11px] text-destructive mt-0.5 flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" />
