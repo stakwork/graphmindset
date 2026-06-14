@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { decodeInvoiceExpiry } from "@/lib/invoice-utils"
+import { decodeInvoiceExpiry, decodeInvoiceAmountSats } from "@/lib/invoice-utils"
 
 // Valid invoice from light-bolt11-decoder test suite
 // timestamp: 1648859703, expiry: 172800 → expires at 1649032503
@@ -23,5 +23,23 @@ describe("decodeInvoiceExpiry", () => {
 
   it("returns null for a random string", () => {
     expect(decodeInvoiceExpiry("lnbc_invalid_garbage_xyz")).toBeNull()
+  })
+})
+
+// lnbc20u = 20 * 100 μBTC = 2000 sats
+// The VALID_INVOICE above encodes 20u = 2000 sats
+describe("decodeInvoiceAmountSats", () => {
+  it("returns correct sats for a valid BOLT11 invoice with amount", () => {
+    // lnbc20u = 20 microBTC = 2000 sats (20 * 100,000 msats / 1000)
+    const result = decodeInvoiceAmountSats(VALID_INVOICE)
+    expect(result).toBe(2000)
+  })
+
+  it("returns null for a garbage string", () => {
+    expect(decodeInvoiceAmountSats("not-a-bolt11")).toBeNull()
+  })
+
+  it("returns null for an empty string", () => {
+    expect(decodeInvoiceAmountSats("")).toBeNull()
   })
 })
