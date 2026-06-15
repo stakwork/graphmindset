@@ -866,12 +866,23 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     }
   }
 
-  // Reset local state when an external node selection replaces the prop
+  // Full reset (currentNode + history + scroll) only when a genuinely different
+  // node is selected.
   useEffect(() => {
     setCurrentNode(node)
     setHistory([])
     scrollContentRef.current?.parentElement?.scrollTo({ top: 0, behavior: 'instant' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.ref_id])
+
+  // Pick up in-place edits to the *currently displayed* node (same ref_id, new
+  // object) — e.g. an image upload/removal that re-sets selectedNode — so the
+  // panel refreshes without a full page reload. The ref_id guard avoids
+  // clobbering a peer the user has navigated to, and leaves history/scroll
+  // untouched.
+  useEffect(() => {
+    setCurrentNode((prev) => (prev.ref_id === node.ref_id ? node : prev))
+  }, [node])
 
   function handleNavigate(peer: GraphNode) {
     setHistory((prev) => [...prev, currentNode])
@@ -1313,7 +1324,10 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
               {/* Edit node */}
               {isAdmin && (
-                <DropdownMenuItem onClick={() => openEdit(fullNode ?? currentNode)}>
+                // Seed the modal from the panel's live, in-sync node (currentNode),
+                // not the separately-fetched fullNode — so reopening after an edit
+                // always reflects the latest values (one source of truth).
+                <DropdownMenuItem onClick={() => openEdit(currentNode)}>
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Edit node
                 </DropdownMenuItem>

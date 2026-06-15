@@ -16,7 +16,7 @@ import { useUserStore } from "@/stores/user-store"
 import { isSphinx, hasWebLN, payInvoice, payL402, topUpLsat, fetchTransactionHistory, pollPaymentStatus, fetchBuyLsatChallenge, savePendingLsat, getPendingLsat, clearPendingLsat, topUpStatus, withdraw, TransactionRow, PendingLsatChallenge } from "@/lib/sphinx"
 import { getActionDisplayLabel, getActionBadgeColor, isViewGrantRow } from "@/lib/transaction-display"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
-import { cookieStorage } from "@/lib/cookie-storage"
+import { cookieStorage, AUTH_COOKIE_DAYS } from "@/lib/cookie-storage"
 import { api } from "@/lib/api"
 import { decodeInvoiceExpiry, decodeInvoiceAmountSats } from "@/lib/invoice-utils"
 import { formatCountdown } from "@/lib/format-countdown"
@@ -228,6 +228,7 @@ export function BudgetModal() {
           identifier: pendingChallenge.id,
           preimage: "",
         }),
+        AUTH_COOKIE_DAYS
       )
       clearPendingLsat()
       setPendingChallenge(null)
@@ -292,7 +293,7 @@ export function BudgetModal() {
       await api.get<{ balance: number }>("/balance", {
         Authorization: `LSAT ${parsed.macaroon}:`,
       })
-      cookieStorage.setItem("l402", JSON.stringify(parsed))
+      cookieStorage.setItem("l402", JSON.stringify(parsed), AUTH_COOKIE_DAYS)
       await refreshBalance()
       setStep("success")
     } catch {
@@ -392,6 +393,7 @@ export function BudgetModal() {
           identifier: challenge.id,
           preimage: "",
         }),
+        AUTH_COOKIE_DAYS
       )
       clearPendingLsat()
       setPendingChallenge(null)

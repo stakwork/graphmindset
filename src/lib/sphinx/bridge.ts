@@ -1,6 +1,6 @@
 import type { SignedMessage } from "./types"
 import { isSphinx } from "./detect"
-import { cookieStorage } from "@/lib/cookie-storage"
+import { cookieStorage, AUTH_COOKIE_DAYS } from "@/lib/cookie-storage"
 
 // sphinx-bridge communicates via postMessage with the Sphinx webview host
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -38,7 +38,7 @@ export async function getSignedMessage(): Promise<SignedMessage> {
             const result = await webln.signMessage(message)
             if (result?.signature) {
               const signed = { message, signature: result.signature }
-              cookieStorage.setItem("signature", JSON.stringify(signed))
+              cookieStorage.setItem("signature", JSON.stringify(signed), AUTH_COOKIE_DAYS)
               return signed
             }
           } catch (error) {
@@ -63,7 +63,7 @@ export async function getSignedMessage(): Promise<SignedMessage> {
         )
         const result = await sphinx.signMessage(message)
         const signed = { message, signature: result.signature }
-        cookieStorage.setItem("signature", JSON.stringify(signed))
+        cookieStorage.setItem("signature", JSON.stringify(signed), AUTH_COOKIE_DAYS)
         return signed
       } catch (error) {
         console.error("Failed to sign message:", error)
@@ -100,7 +100,8 @@ export async function getL402(): Promise<string> {
               macaroon: token.macaroon,
               identifier: token.identifier,
               preimage: token.preimage,
-            })
+            }),
+            AUTH_COOKIE_DAYS
           )
           return `LSAT ${token.macaroon}:${token.preimage}`
         }

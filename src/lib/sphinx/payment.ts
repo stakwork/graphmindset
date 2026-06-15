@@ -1,7 +1,7 @@
 import { Lsat } from "lsat-js"
 import { isSphinx } from "./detect"
 import { api } from "../api"
-import { cookieStorage } from "@/lib/cookie-storage"
+import { cookieStorage, AUTH_COOKIE_DAYS } from "@/lib/cookie-storage"
 import { isMocksEnabled, MOCK_TRANSACTIONS } from "@/lib/mock-data"
 import { decodeInvoiceAmountSats } from "@/lib/invoice-utils"
 
@@ -76,7 +76,8 @@ async function payViaSphinx(
           macaroon: lsat.baseMacaroon,
           identifier: lsat.id,
           preimage: stored.preimage,
-        })
+        }),
+        AUTH_COOKIE_DAYS
       )
       setBudget(budgetAmount)
       return
@@ -115,7 +116,8 @@ async function payViaWebLN(
             macaroon: lsat.baseMacaroon,
             identifier: lsat.id,
             preimage: payment.preimage,
-          })
+          }),
+          AUTH_COOKIE_DAYS
         )
       }
       setBudget(budgetAmount)
