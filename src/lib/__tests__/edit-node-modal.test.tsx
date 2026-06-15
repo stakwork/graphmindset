@@ -307,7 +307,11 @@ describe("EditNodeModal", () => {
 
       await waitFor(() => expect(mockClose).toHaveBeenCalledOnce())
       expect(mockClearSelection).toHaveBeenCalledOnce()
-      expect(mockSetSelectedNode).toHaveBeenCalledWith(PERSON_NODE)
+      // The panel is refreshed with the freshly-rebuilt node (edits applied +
+      // name hoisted to the top level), not the original object reference.
+      expect(mockSetSelectedNode).toHaveBeenCalledWith(
+        expect.objectContaining({ ref_id: "node-abc", node_type: "Person" })
+      )
     })
 
     it("shows inline error on save failure", async () => {

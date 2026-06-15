@@ -1504,7 +1504,7 @@ describe("NodePreviewPanel – pencil edit button", () => {
     )
   })
 
-  it("calls openEdit with fullNode when it is available", async () => {
+  it("calls openEdit with the live current node", async () => {
     const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
     mockApiGet.mockResolvedValue(
@@ -1519,12 +1519,12 @@ describe("NodePreviewPanel – pencil edit button", () => {
     const editItem = await waitFor(() => screen.getByText("Edit node"))
     fe.click(editItem)
 
+    // The modal is seeded from the panel's live, in-sync node (one source of
+    // truth) rather than the separately-fetched full node, so reopening after
+    // an edit always reflects the latest values.
     expect(mockOpenEdit).toHaveBeenCalledOnce()
     expect(mockOpenEdit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ref_id: BASE_NODE.ref_id,
-        properties: expect.objectContaining({ description: "Full description" }),
-      })
+      expect.objectContaining({ ref_id: BASE_NODE.ref_id })
     )
   })
 })

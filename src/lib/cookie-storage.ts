@@ -5,6 +5,8 @@
  * Cookies are written with Secure; SameSite=Strict; Path=/ to reduce XSS
  * exposure. All methods are no-ops during SSR (typeof window === "undefined").
  */
+export const AUTH_COOKIE_DAYS = 30
+
 export const cookieStorage = {
   getItem(key: string): string | null {
     if (typeof window === "undefined") return null
