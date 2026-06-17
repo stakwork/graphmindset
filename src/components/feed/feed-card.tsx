@@ -177,23 +177,24 @@ function CardBody({
         {(() => {
           const src = pickString(p, "source_link")
           if (!src) return null
+          let hostname: string | null = null
           try {
-            const hostname = new URL(src).hostname
-            return (
-              <a
-                href={src}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ExternalLink className="h-3 w-3" />
-                {hostname}
-              </a>
-            )
+            hostname = new URL(src).hostname
           } catch {
             return null
           }
+          return (
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ExternalLink className="h-3 w-3" />
+              {hostname}
+            </a>
+          )
         })()}
       </div>
     )
@@ -206,23 +207,24 @@ function CardBody({
         {(() => {
           const src = pickString(p, "source_link")
           if (!src) return null
+          let hostname: string | null = null
           try {
-            const hostname = new URL(src).hostname
-            return (
-              <a
-                href={src}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ExternalLink className="h-3 w-3" />
-                {hostname}
-              </a>
-            )
+            hostname = new URL(src).hostname
           } catch {
             return null
           }
+          return (
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ExternalLink className="h-3 w-3" />
+              {hostname}
+            </a>
+          )
         })()}
       </div>
     )

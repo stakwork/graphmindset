@@ -1140,7 +1140,7 @@ export function BudgetModal() {
               {reachedViaFirstPurchase && !isWithdrawSuccess && (
                 <div className="flex flex-col gap-2 rounded-md border border-border/50 bg-muted/30 p-3">
                   <p className="text-xs text-foreground/80">
-                    This token is the key to your balance. Store it somewhere safe — you'll need it to restore access if you clear your cookies or switch devices.
+                    This token is the key to your balance. Store it somewhere safe — you&apos;ll need it to restore access if you clear your cookies or switch devices.
                   </p>
                   <Button
                     variant="outline"

@@ -42,10 +42,11 @@ export function HotTakes() {
       const candidates = MOCK_NODES
         .filter((n) => n.node_type === "Clip" && clipQuote(n))
         .sort((a, b) => (b.date_added_to_graph ?? 0) - (a.date_added_to_graph ?? 0))
-      setClips(diversifyClipsByParent(candidates, MOCK_EDGES, {
+      const result = diversifyClipsByParent(candidates, MOCK_EDGES, {
         maxPerSource: MAX_PER_SOURCE,
         finalLimit: FINAL_LIMIT,
-      }))
+      })
+      Promise.resolve().then(() => setClips(result))
       return
     }
     const controller = new AbortController()
