@@ -420,21 +420,23 @@ export function MyContentPanel({ onClose }: { onClose: () => void }) {
 
                       return (
                         <div key={node.ref_id}>
-                          <div className="relative group">
-                            <NodeRow
-                              node={node}
-                              schemas={schemas}
-                              onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
-                              onMouseEnter={() => setHoveredNode(node)}
-                              onMouseLeave={() => setHoveredNode(null)}
-                              hideBoost={true}
-                              isAdmin={isAdmin}
-                              unlockCount={insight?.unlock_count}
-                              growthBadge={nodeBadge}
-                            />
+                          <div className="flex items-center group">
+                            <div className="flex-1 min-w-0 overflow-hidden">
+                              <NodeRow
+                                node={node}
+                                schemas={schemas}
+                                onClick={() => { setSelectedNode(node); setSidebarSelectedNode(node) }}
+                                onMouseEnter={() => setHoveredNode(node)}
+                                onMouseLeave={() => setHoveredNode(null)}
+                                hideBoost={true}
+                                isAdmin={isAdmin}
+                                unlockCount={insight?.unlock_count}
+                                growthBadge={nodeBadge}
+                              />
+                            </div>
                             {!isConfirming && (
                               <button
-                                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                                className="shrink-0 pl-3 pr-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                                 onClick={(e) => { e.stopPropagation(); setDeletingId(node.ref_id); setDeleteError(null) }}
                                 aria-label="Delete node"
                               >
