@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 // vi.mock calls are hoisted — declare factory functions using vi.hoisted
 const { mockApiPostHoisted, mockIsMocksEnabledHoisted, mockMockTransactionsHoisted, mockDecodeInvoiceAmountSatsHoisted } = vi.hoisted(() => {
   const mockApiPost = vi.fn()
-  let isMocksEnabled = false
+  const isMocksEnabled = false
   const mockTransactions: { transactions: Array<{ action: string; type: string; amount: number; created_at: string }> } = { transactions: [] }
   const mockDecodeInvoiceAmountSats = vi.fn().mockReturnValue(500)
   return {
