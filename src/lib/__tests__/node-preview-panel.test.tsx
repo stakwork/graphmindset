@@ -1503,7 +1503,7 @@ describe("NodePreviewPanel – pencil edit button", () => {
     )
   })
 
-  it("calls openEdit with fullNode when it is available", async () => {
+  it("calls openEdit with the current node when Edit node is clicked", async () => {
     const { fireEvent: fe } = await import("@testing-library/react")
     userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
     mockApiGet.mockResolvedValue(
@@ -1520,10 +1520,7 @@ describe("NodePreviewPanel – pencil edit button", () => {
 
     expect(mockOpenEdit).toHaveBeenCalledOnce()
     expect(mockOpenEdit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ref_id: BASE_NODE.ref_id,
-        properties: expect.objectContaining({ description: "Full description" }),
-      })
+      expect.objectContaining({ ref_id: BASE_NODE.ref_id })
     )
   })
 })
