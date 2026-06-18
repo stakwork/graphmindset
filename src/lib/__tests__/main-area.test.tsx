@@ -14,7 +14,13 @@ const mockNode = { ref_id: "clip-1", node_type: "Clip", label: "Test Clip" }
 const graphState = {
   selectedNode: null as unknown,
   clearSelection: vi.fn(),
+  returnTo: null as string | null,
+  setReturnTo: vi.fn(),
 }
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
 
 vi.mock("@/stores/graph-store", () => ({
   useGraphStore: (sel?: (s: unknown) => unknown) =>
@@ -105,6 +111,10 @@ describe("LeftPane pickMode()", () => {
     render(<LeftPane />)
     expect(screen.getByTestId("clips-panel")).toBeTruthy()
     expect(screen.queryByTestId("node-preview-panel")).toBeNull()
-    expect(screen.queryByTestId("feed-view")).toBeNull()
+    // FeedView is always mounted but hidden via CSS when not in feed mode
+    const feedView = screen.queryByTestId("feed-view")
+    if (feedView) {
+      expect(feedView.closest(".hidden") ?? feedView.parentElement?.closest(".hidden")).toBeTruthy()
+    }
   })
 })

@@ -26,6 +26,8 @@ interface GraphState {
   beginNeighborLoad: (refId: string) => void
   endNeighborLoad: (refId: string) => void
   clearSelection: () => void
+  returnTo: string | null
+  setReturnTo: (url: string | null) => void
 }
 
 function edgeKey(e: GraphEdge): string {
@@ -75,4 +77,6 @@ export const useGraphStore = create<GraphState>((set) => ({
     }),
   clearSelection: () =>
     set({ selectedNode: null, sidebarSelectedNode: null, hoveredNode: null }),
+  returnTo: null,
+  setReturnTo: (returnTo) => set({ returnTo }),
 }))
