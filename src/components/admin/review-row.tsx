@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import type { SchemaNode } from "@/app/ontology/page"
 import { DISPLAY_KEY_FALLBACKS, pickString } from "@/lib/node-display"
 import { useUserStore } from "@/stores/user-store"
+import { useGraphStore } from "@/stores/graph-store"
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -478,6 +479,7 @@ export function ReviewRow({
   selectionLockedReason,
 }: ReviewRowProps) {
   const router = useRouter()
+  const setReturnTo = useGraphStore((s) => s.setReturnTo)
   const { isAdmin } = useUserStore()
   const [expanded, setExpanded] = useState(false)
   const [approving, setApproving] = useState(false)
@@ -669,7 +671,7 @@ export function ReviewRow({
                       refId={id}
                       resolved={subjectMap.get(id)}
                       schemas={schemas}
-                      onClick={() => router.push(`/?ref=${id}`)}
+                      onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${id}`) }}
                     />
                   ))}
                 </div>
@@ -685,7 +687,7 @@ export function ReviewRow({
                   refId={direction.toId}
                   resolved={subjectMap.get(direction.toId)}
                   schemas={schemas}
-                  onClick={() => router.push(`/?ref=${direction.toId}`)}
+                  onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${direction.toId}`) }}
                 />
               </div>
             </div>
@@ -824,7 +826,7 @@ export function ReviewRow({
                         refId={subject.ref_id}
                         resolved={subject}
                         schemas={schemas}
-                        onClick={() => router.push(`/?ref=${subject.ref_id}`)}
+                        onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${subject.ref_id}`) }}
                       />
                     </div>
                   )}
@@ -977,7 +979,7 @@ export function ReviewRow({
                     refId={sn.ref_id}
                     resolved={sn}
                     schemas={schemas}
-                    onClick={() => router.push(`/?ref=${sn.ref_id}`)}
+                    onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${sn.ref_id}`) }}
                   />
                 ))}
               </div>

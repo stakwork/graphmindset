@@ -12,12 +12,16 @@ import { NodePreviewPanel } from "./node-preview-panel"
 import { cn } from "@/lib/utils"
 import { AgentPanel } from "@/components/agent/agent-panel"
 import { WorkflowsPanel } from "./workflows-panel"
+import { useRouter } from "next/navigation"
 
 type Mode = "preview" | "sources" | "mycontent" | "clips" | "following" | "agent" | "workflows" | "feed"
 
 export function LeftPane() {
+  const router = useRouter()
   const selectedNode = useGraphStore((s) => s.selectedNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
+  const returnTo = useGraphStore((s) => s.returnTo)
+  const setReturnTo = useGraphStore((s) => s.setReturnTo)
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)
   const clipsOpen = useAppStore((s) => s.clipsOpen)
@@ -31,6 +35,13 @@ export function LeftPane() {
   const setAgentOpen = useAppStore((s) => s.setAgentOpen)
   const setWorkflowsOpen = useAppStore((s) => s.setWorkflowsOpen)
   const schemas = useSchemaStore((s) => s.schemas)
+
+  function handleBack() {
+    const dest = returnTo
+    setReturnTo(null)
+    clearSelection()
+    if (dest) router.push(dest)
+  }
 
   function pickMode(): Mode {
     if (workflowsOpen) return "workflows"
@@ -51,7 +62,7 @@ export function LeftPane() {
 
       <div className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col">
         {mode === "preview" && selectedNode && (
-          <NodePreviewPanel node={selectedNode} onBack={clearSelection} schemas={schemas} />
+          <NodePreviewPanel node={selectedNode} onBack={handleBack} schemas={schemas} />
         )}
         {mode === "sources" && <SourcesPanel onClose={() => setSourcesOpen(false)} />}
         {mode === "mycontent" && <MyContentPanel onClose={() => setMyContentOpen(false)} />}
