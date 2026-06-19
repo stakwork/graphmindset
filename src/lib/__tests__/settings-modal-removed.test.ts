@@ -16,15 +16,23 @@ beforeEach(() => {
 
 describe("modal-store – settings removed", () => {
   it("valid modal ids do not include 'settings'", () => {
-    // Open each remaining valid modal and verify they work
-    const validIds = ["add", "budget", "editNode"] as const
-
-    for (const id of validIds) {
+    // "add" and "editNode" are activeModal values.
+    const activeIds = ["add", "editNode"] as const
+    for (const id of activeIds) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       useModalStore.getState().open(id as any)
       expect(useModalStore.getState().activeModal).toBe(id)
       useModalStore.getState().close()
     }
+
+    // "budget" is an independent overlay (so it can sit on top of another modal
+    // without closing it) — open() routes it to budgetOpen, not activeModal.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    useModalStore.getState().open("budget" as any)
+    expect(useModalStore.getState().budgetOpen).toBe(true)
+    expect(useModalStore.getState().activeModal).toBeNull()
+    useModalStore.getState().close()
+    expect(useModalStore.getState().budgetOpen).toBe(false)
   })
 
   it("activeModal starts as null after close", () => {

@@ -21,7 +21,14 @@ const mockClose = vi.fn()
 
 vi.mock("@/stores/modal-store", () => ({
   useModalStore: (sel?: (s: unknown) => unknown) => {
-    const state = { activeModal: "budget", close: mockClose }
+    // Budget modal is now an independent overlay: it reads budgetOpen and
+    // dismisses via closeBudget (both mapped to mockClose for assertions).
+    const state = {
+      budgetOpen: true,
+      closeBudget: mockClose,
+      activeModal: "budget",
+      close: mockClose,
+    }
     return sel ? sel(state) : state
   },
 }))

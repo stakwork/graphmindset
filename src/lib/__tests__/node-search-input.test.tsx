@@ -12,7 +12,7 @@ const { mockSearchNodes } = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/graph-api", () => ({
-  searchNodes: (...args: unknown[]) => mockSearchNodes(...args),
+  searchNodesForEdge: (...args: unknown[]) => mockSearchNodes(...args),
 }))
 
 vi.mock("@/lib/node-display", () => ({
