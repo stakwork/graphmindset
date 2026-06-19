@@ -18,6 +18,7 @@ interface Props {
   edges: SchemaEdge[]
   selectedId: string | null
   onSelect: (id: string) => void
+  selectedEdgeType?: string | null
 }
 
 function buildLayout(schemas: SchemaNode[], edges: SchemaEdge[]) {
@@ -87,7 +88,7 @@ function edgePath(
   return `M ${s.x} ${s.y} Q ${cx} ${cy} ${t.x} ${t.y}`
 }
 
-export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
+export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEdgeType }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown>>(null)
   const containerRef = useRef<SVGGElement>(null)
@@ -302,16 +303,22 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
             const labelX = mx + dy * 0.075
             const labelY = my - dx * 0.075
 
+            const isHighlighted = selectedEdgeType && e.edge_type === selectedEdgeType
+            const isHighlightMode = !!selectedEdgeType
+            const edgeOpacity = isHighlightMode ? (isHighlighted ? 1.0 : 0.12) : 0.6
+            const edgeStroke = isHighlighted ? "oklch(0.65 0.15 200)" : "oklch(0.45 0.1 200)"
+            const edgeWidth = isHighlighted ? "2" : "1"
+
             return (
               <g key={`r-${e.ref_id}`}>
                 <path
                   d={d}
                   fill="none"
-                  stroke="oklch(0.45 0.1 200)"
-                  strokeWidth="1"
+                  stroke={edgeStroke}
+                  strokeWidth={edgeWidth}
                   strokeDasharray="4 3"
                   markerEnd="url(#arrowhead-rel)"
-                  opacity={0.6}
+                  opacity={edgeOpacity}
                 />
                 <text
                   x={labelX}
@@ -320,6 +327,7 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect }: Props) {
                   dominantBaseline="middle"
                   className="text-[9px] font-mono"
                   fill="oklch(0.5 0.08 200)"
+                  opacity={edgeOpacity}
                 >
                   {e.edge_type}
                 </text>
