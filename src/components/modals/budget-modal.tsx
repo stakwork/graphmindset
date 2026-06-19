@@ -94,7 +94,7 @@ function WithdrawStep({
 }
 
 export function BudgetModal() {
-  const { activeModal, close } = useModalStore()
+  const { budgetOpen, closeBudget } = useModalStore()
   const { budget, setBudget } = useUserStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const [loading, setLoading] = useState(false)
@@ -174,8 +174,8 @@ export function BudgetModal() {
   }, [])
 
   useEffect(() => {
-    if (activeModal !== "budget") resetState()
-  }, [activeModal, resetState])
+    if (!budgetOpen) resetState()
+  }, [budgetOpen, resetState])
 
   useEffect(() => {
     return () => {
@@ -187,7 +187,7 @@ export function BudgetModal() {
   // resuming it or generating a new one — instead of silently auto-resuming.
   const resumeAttemptedRef = useRef(false)
   useEffect(() => {
-    if (activeModal !== "budget") {
+    if (!budgetOpen) {
       resumeAttemptedRef.current = false
       return
     }
@@ -210,7 +210,7 @@ export function BudgetModal() {
     setPendingChallenge(pending)
     setFirstPurchaseAmount(pending.amount)
     setStep("first-purchase")
-  }, [activeModal])
+  }, [budgetOpen])
 
   // Resume polling for the stored pending invoice. Does a single quick status
   // check first — if the invoice was already paid while the user was away,
@@ -553,7 +553,7 @@ export function BudgetModal() {
   const successDelta = amount ?? (reachedViaFirstPurchase ? firstPurchaseAmount : null)
 
   return (
-    <Dialog open={activeModal === "budget"} onOpenChange={() => close()}>
+    <Dialog open={budgetOpen} onOpenChange={() => closeBudget()}>
       <DialogContent className="border-border/50 bg-card noise-bg sm:max-w-sm">
         <DialogHeader>
           <DialogTitle className="font-heading text-lg tracking-wide flex items-center gap-2">

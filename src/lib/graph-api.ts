@@ -74,6 +74,38 @@ export async function searchNodes(
   )
 }
 
+// Lightweight node search for the edge-picker autocomplete. Hits the dedicated
+// /v2/nodes/search endpoint, which returns matches ONLY (no 1-hop neighbour
+// expansion, no edges) and just {node_type, ref_id, title}. Unlike /v2/nodes
+// this route is free on boltwall, so it's safe to call per keystroke.
+//
+// The lite payload is adapted to the GraphNode shape (title -> properties.name)
+// so existing consumers (NodeSearchInput, resolveNodeTitle) keep working without
+// any special-casing.
+export async function searchNodesForEdge(
+  query: string,
+  opts?: { limit?: number; node_type?: string },
+  signal?: AbortSignal
+): Promise<NodesListResponse> {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(opts?.limit ?? 10),
+  })
+  if (opts?.node_type) params.set("node_type", opts.node_type)
+
+  const res = await api.get<{
+    nodes: { node_type: string; ref_id: string; title: string | null }[]
+  }>(`/v2/nodes/search?${params}`, undefined, signal)
+
+  return {
+    nodes: (res.nodes ?? []).map((n) => ({
+      ref_id: n.ref_id,
+      node_type: n.node_type,
+      properties: { name: n.title ?? "" },
+    })),
+  }
+}
+
 // Latest 100 nodes added to the graph + their 1-hop edges. Used to populate
 // the canvas on initial mount before the user has issued a search.
 // `skip_cache=1` bypasses the backend's Redis response cache so we get a

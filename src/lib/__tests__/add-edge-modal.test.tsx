@@ -15,7 +15,7 @@ const { mockCreateEdge, mockSearchNodes } = vi.hoisted(() => ({
 
 vi.mock("@/lib/graph-api", () => ({
   createEdge: (...args: unknown[]) => mockCreateEdge(...args),
-  searchNodes: (...args: unknown[]) => mockSearchNodes(...args),
+  searchNodesForEdge: (...args: unknown[]) => mockSearchNodes(...args),
 }))
 
 vi.mock("@/lib/mock-data", () => ({
@@ -70,12 +70,21 @@ vi.mock("@/stores/modal-store", () => ({
 // ---------------------------------------------------------------------------
 // Schema store — per-selector mock with sample edges
 // ---------------------------------------------------------------------------
+// Edge schemas are directional source_type -> target_type. `source`/`target`
+// hold the connected schema NODES' ref_ids (not type names); type matching uses
+// source_type/target_type. FIXTURE_SOURCE is a Topic and FIXTURE_TARGET a
+// Person, so the Topic->Person edges are what the picker offers once both are
+// selected. `attributes` carry the edge type's property definitions.
 const SCHEMA_EDGES = [
-  { ref_id: "e1", edge_type: "HAS_TOPIC", from_type: "Person", to_type: "Topic" },
-  { ref_id: "e2", edge_type: "AUTHORED_BY", from_type: "Content", to_type: "Person" },
-  { ref_id: "e3", edge_type: "HAS_TOPIC", from_type: "Content", to_type: "Topic" }, // duplicate — should dedupe
-  { ref_id: "e4", edge_type: "CHILD_OF", from_type: "Episode", to_type: "Episode" }, // excluded
-  { ref_id: "e5", edge_type: "RELATED_TO", from_type: "Person", to_type: "Person" },
+  { ref_id: "e1", edge_type: "HAS_TOPIC", source: "s-topic", target: "s-person", source_type: "Topic", target_type: "Person" },
+  { ref_id: "e2", edge_type: "AUTHORED_BY", source: "s-content", target: "s-person", source_type: "Content", target_type: "Person" },
+  { ref_id: "e3", edge_type: "HAS_TOPIC", source: "s-content", target: "s-topic", source_type: "Content", target_type: "Topic" }, // duplicate edge_type — should dedupe
+  { ref_id: "e4", edge_type: "CHILD_OF", source: "s-ep", target: "s-ep", source_type: "Episode", target_type: "Episode" }, // excluded
+  { ref_id: "e5", edge_type: "RELATED_TO", source: "s-person", target: "s-person2", source_type: "Person", target_type: "Person" },
+  // Topic->Person with optional attribute definitions (schema-driven fields)
+  { ref_id: "e6", edge_type: "MENTIONS", source: "s-topic", target: "s-person", source_type: "Topic", target_type: "Person", attributes: { note: "?string", confidence: "?float" } },
+  // Topic->Person with a REQUIRED attribute
+  { ref_id: "e7", edge_type: "ROLE_AT", source: "s-topic", target: "s-person", source_type: "Topic", target_type: "Person", attributes: { role: "string" } },
 ]
 
 vi.mock("@/stores/schema-store", () => ({
@@ -167,6 +176,75 @@ describe("AddEdgeForm", () => {
       expect(screen.getAllByText("HAS_TOPIC").length).toBeGreaterThan(0)
       expect(screen.getAllByText("AUTHORED_BY").length).toBeGreaterThan(0)
       expect(screen.getAllByText("RELATED_TO").length).toBeGreaterThan(0)
+    })
+
+    it("renders schema-defined properties and sends filled ones as edge_data", async () => {
+      withSource(null)
+      render(<AddEdgeForm />)
+      await selectNode("Search source node…", FIXTURE_SOURCE) // Topic
+      await selectNode("Search target node…", FIXTURE_TARGET) // Person
+      const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
+      await userEvent.click(trigger)
+      await userEvent.click(screen.getByText("MENTIONS"))
+      // Optional field "note" (?string) renders with a type-hint placeholder
+      const noteInput = screen.getByPlaceholderText("string")
+      await userEvent.type(noteInput, "as discussed")
+      await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
+      await waitFor(() => {
+        expect(mockCreateEdge).toHaveBeenCalledWith({
+          source: "node-source-ref",
+          target: "node-target-ref",
+          edge_type: "MENTIONS",
+          edge_data: { note: "as discussed" },
+        })
+      })
+    })
+
+    it("blocks submit when a required schema property is empty", async () => {
+      withSource(null)
+      render(<AddEdgeForm />)
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
+      const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
+      await userEvent.click(trigger)
+      await userEvent.click(screen.getByText("ROLE_AT"))
+      await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
+      expect(screen.getByText(/Missing required property: role/i)).toBeDefined()
+      expect(mockCreateEdge).not.toHaveBeenCalled()
+    })
+
+    it("custom type mode sends a free-typed edge_type with create_schema_if_missing", async () => {
+      withSource(null)
+      render(<AddEdgeForm />)
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
+      // Switch to free-text mode and type a brand-new relationship type
+      await userEvent.click(screen.getByText("+ Custom type"))
+      const input = screen.getByPlaceholderText("e.g. FOUND_AT")
+      await userEvent.type(input, "found at")
+      await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
+      await waitFor(() => {
+        expect(mockCreateEdge).toHaveBeenCalledWith({
+          source: "node-source-ref",
+          target: "node-target-ref",
+          edge_type: "FOUND_AT",
+          create_schema_if_missing: true,
+        })
+      })
+    })
+
+    it("filters edge types to those valid for the selected source/target node types", async () => {
+      withSource(null)
+      render(<AddEdgeForm />)
+      // Topic (source) -> Person (target): only HAS_TOPIC is defined for this pair
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
+      const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
+      await userEvent.click(trigger)
+      expect(screen.getAllByText("HAS_TOPIC").length).toBeGreaterThan(0)
+      // Defined for other type pairs — must not be offered here
+      expect(screen.queryByText("AUTHORED_BY")).toBeNull()
+      expect(screen.queryByText("RELATED_TO")).toBeNull()
     })
   })
 
@@ -310,6 +388,13 @@ describe("AddEdgeForm", () => {
 
       await waitFor(() => expect(mockOpen).toHaveBeenCalledWith("budget"))
       expect(mockClose).not.toHaveBeenCalled()
+      // Form must be re-enabled (not wedged on "Creating…") so the user can
+      // retry after topping up.
+      await waitFor(() => {
+        const btn = screen.getByRole("button", { name: /add edge/i })
+        expect(btn).not.toBeDisabled()
+      })
+      expect(screen.queryByRole("button", { name: /creating/i })).toBeNull()
     })
 
     it("shows inline error and keeps the form mounted when createEdge rejects", async () => {
