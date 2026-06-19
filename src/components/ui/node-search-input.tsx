@@ -5,7 +5,7 @@ import { X, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { displayNodeType } from "@/lib/utils"
 import { resolveNodeTitle } from "@/lib/node-display"
-import { searchNodes, type GraphNode } from "@/lib/graph-api"
+import { searchNodesForEdge, type GraphNode } from "@/lib/graph-api"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useSchemaStore } from "@/stores/schema-store"
 import { AnchoredPopover } from "@/components/ui/anchored-popover"
@@ -63,7 +63,7 @@ export function NodeSearchInput({
     setLoading(true)
     setFetched(false)
 
-    searchNodes(debouncedQuery, { limit: 10 }, controller.signal)
+    searchNodesForEdge(debouncedQuery, { limit: 10 }, controller.signal)
       .then((res) => {
         if (!controller.signal.aborted) {
           setResults(res.nodes)

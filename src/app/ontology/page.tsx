@@ -42,9 +42,18 @@ export interface SchemaNode {
 
 export interface SchemaEdge {
   ref_id: string
+  // `source`/`target` are the connected schema NODES' ref_ids (used to lay out
+  // the ontology graph), NOT type names. Use `source_type`/`target_type` to
+  // match against a node's node_type.
   source: string
   target: string
   edge_type: string
+  source_type?: string
+  target_type?: string
+  // Attribute definitions for this edge type, e.g. { since: "?datetime",
+  // role: "string" }. A leading "?" marks the attribute optional. Present on
+  // the live /schema/all payload; absent on some mock fixtures.
+  attributes?: Record<string, string>
 }
 
 export default function OntologyPage() {
