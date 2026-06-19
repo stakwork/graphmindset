@@ -73,6 +73,9 @@ interface GraphViewProps {
    *  hover is ignored so nodes sweeping under a stationary cursor don't fire
    *  hover effects. Any existing hover is cleared on the rising edge. */
   suppressHover?: boolean;
+  /** When set, dims all edges whose label does not match this edge type string.
+   *  Matching edges render at full opacity. CHILD_OF / structural edges are unaffected. */
+  selectedEdgeType?: string;
 }
 
 const tmpObj = new THREE.Object3D();
@@ -591,7 +594,7 @@ function renderHighlightedLabel(label: string, term: string): React.ReactNode {
 }
 
 
-export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, layoutGeneration = 0, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover }: GraphViewProps) {
+export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minimap, whiteboardNodeId, onExitWhiteboard, onDetailNavigate, searchMatches, searchLabelMatches, topMatchRanks, searchTerm, pulses, recentNodes, expandedClusterId, layoutGeneration = 0, externalHoveredId, externalSelectedId, onGraphClick, nodeTypeIcons, onResetView, suppressHover, selectedEdgeType }: GraphViewProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const linesRef = useRef<THREE.LineSegments>(null);
   const highlightLinesRef = useRef<THREE.LineSegments>(null);
@@ -1592,7 +1595,11 @@ export function GraphView({ graph, viewState, onNodeClick, onHoverChange, minima
         const isHoverEdge = (e.src === hovered || e.dst === hovered);
         const isSelectedEdge = (e.src === selectedId || e.dst === selectedId);
         const interactionFactor = isHoverEdge ? 1.0 : isSelectedEdge ? 0.4 : 0.15;
-        const alpha = nodeAlpha * interactionFactor * crossQuiet;
+        // Edge type filter: dim non-matching edges when selectedEdgeType is set
+        const edgeTypeFilter = selectedEdgeType
+          ? (e.label === selectedEdgeType ? 1.0 : 0.05)
+          : 1.0;
+        const alpha = nodeAlpha * interactionFactor * crossQuiet * edgeTypeFilter;
         const baseIdx = i * CROSS_SUBDIVS;
 
         const path = bundlePaths.get(edgeKey(e.src, e.dst));

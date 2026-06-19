@@ -5,7 +5,8 @@ import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { TypeEditor } from "./type-editor"
-import { Plus, ArrowLeft, Box, Grid2x2, Search } from "lucide-react"
+import { EdgeTypePanel } from "./edge-type-panel"
+import { Plus, ArrowLeft, Box, Grid2x2, Search, ArrowRight } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 
 const OntologyGraph3D = dynamic(
@@ -65,6 +66,9 @@ export default function OntologyPage() {
   const [view3D, setView3D] = useState(false)
   const [search, setSearch] = useState("")
   const [schemaError, setSchemaError] = useState<string | null>(null)
+  const [sidebarTab, setSidebarTab] = useState<"nodes" | "edges">("nodes")
+  const [selectedEdgeType, setSelectedEdgeType] = useState<string | null>(null)
+  const [edgeSearch, setEdgeSearch] = useState("")
 
   useEffect(() => {
     if (isAuthenticated && !isAdmin) {
@@ -92,6 +96,31 @@ export default function OntologyPage() {
       .filter((s) => !q || s.type.toLowerCase().includes(q))
       .sort((a, b) => a.type.localeCompare(b.type))
   }, [store.schemas, search])
+
+  // Deduplicate edges by edge_type (exclude CHILD_OF), filter by edgeSearch, sort alphabetically
+  const visibleEdgeTypes = useMemo(() => {
+    const q = edgeSearch.trim().toLowerCase()
+    const countMap = new Map<string, number>()
+    for (const e of store.edges) {
+      if (e.edge_type === "CHILD_OF") continue
+      countMap.set(e.edge_type, (countMap.get(e.edge_type) ?? 0) + 1)
+    }
+    return Array.from(countMap.entries())
+      .filter(([edgeType]) => !q || edgeType.toLowerCase().includes(q))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([edgeType, count]) => ({ edgeType, count }))
+  }, [store.edges, edgeSearch])
+
+  const handleSwitchToEdges = useCallback(() => {
+    setSidebarTab("edges")
+    setSelectedId(null)
+  }, [])
+
+  const handleSwitchToNodes = useCallback(() => {
+    setSidebarTab("nodes")
+    setSelectedEdgeType(null)
+    setEdgeSearch("")
+  }, [])
 
   const handleUpdateSchema = useCallback(
     async (updated: SchemaNode) => {
@@ -140,10 +169,16 @@ export default function OntologyPage() {
     [isAdmin, selectedId, store]
   )
 
+  const filteredEdgesForPanel = useMemo(
+    () => store.edges.filter((e) => e.edge_type === selectedEdgeType),
+    [store.edges, selectedEdgeType]
+  )
+
   return (
     <div className="flex h-screen bg-background text-foreground">
       {/* Left: Type list */}
       <div className="w-[280px] shrink-0 border-r border-border flex flex-col bg-sidebar noise-bg">
+        {/* Header row */}
         <div className="relative z-10 flex items-center gap-2 p-4 border-b border-border">
           <Button
             size="sm"
@@ -153,9 +188,31 @@ export default function OntologyPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h2 className="text-sm font-heading font-semibold tracking-wide uppercase flex-1">
-            Node Types
-          </h2>
+
+          {/* Segmented tab control */}
+          <div className="flex-1 flex items-center gap-1 rounded-md bg-muted/40 p-0.5">
+            <button
+              onClick={handleSwitchToNodes}
+              className={`flex-1 text-[11px] font-medium rounded px-2 py-1 transition-colors ${
+                sidebarTab === "nodes"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Nodes
+            </button>
+            <button
+              onClick={handleSwitchToEdges}
+              className={`flex-1 text-[11px] font-medium rounded px-2 py-1 transition-colors ${
+                sidebarTab === "edges"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Edges
+            </button>
+          </div>
+
           <Button
             size="sm"
             variant="ghost"
@@ -165,59 +222,105 @@ export default function OntologyPage() {
           >
             {view3D ? <Grid2x2 className="h-4 w-4" /> : <Box className="h-4 w-4" />}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleAddType}
-            className="h-7 w-7 p-0"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+
+          {/* Only show + button in nodes tab */}
+          {sidebarTab === "nodes" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleAddType}
+              className="h-7 w-7 p-0"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )}
         </div>
+
+        {/* Search input */}
         <div className="relative z-10 p-2 border-b border-border">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search types..."
-              className="h-8 pl-8 text-sm"
-            />
+            {sidebarTab === "nodes" ? (
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search types..."
+                className="h-8 pl-8 text-sm"
+              />
+            ) : (
+              <Input
+                value={edgeSearch}
+                onChange={(e) => setEdgeSearch(e.target.value)}
+                placeholder="Search edge types..."
+                className="h-8 pl-8 text-sm"
+              />
+            )}
           </div>
         </div>
+
+        {/* List */}
         <div className="relative z-10 flex-1 overflow-y-auto p-2 space-y-1">
-          {visibleSchemas.length === 0 && (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
-              No types match &ldquo;{search}&rdquo;
-            </p>
+          {sidebarTab === "nodes" ? (
+            <>
+              {visibleSchemas.length === 0 && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  No types match &ldquo;{search}&rdquo;
+                </p>
+              )}
+              {visibleSchemas.map((schema) => (
+                <button
+                  key={schema.ref_id}
+                  onClick={() => setSelectedId(schema.ref_id)}
+                  className={`flex items-center gap-3 w-full rounded-md px-3 py-2 text-left transition-colors ${
+                    selectedId === schema.ref_id
+                      ? "bg-primary/10 text-foreground"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  }`}
+                >
+                  <div
+                    className="h-3 w-3 rounded-full shrink-0"
+                    style={{ backgroundColor: schema.color }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{schema.type}</p>
+                    {schema.parent && (
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        extends {schema.parent}
+                      </p>
+                    )}
+                  </div>
+                  <span className="ml-auto text-[10px] font-mono text-muted-foreground/60">
+                    {schema.attributes.length}
+                  </span>
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              {visibleEdgeTypes.length === 0 && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  No edge types match &ldquo;{edgeSearch}&rdquo;
+                </p>
+              )}
+              {visibleEdgeTypes.map(({ edgeType, count }) => (
+                <button
+                  key={edgeType}
+                  onClick={() => setSelectedEdgeType(edgeType)}
+                  className={`flex items-center gap-3 w-full rounded-md px-3 py-2 text-left transition-colors ${
+                    selectedEdgeType === edgeType
+                      ? "bg-primary/10 text-foreground"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  }`}
+                >
+                  <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                  <span className="text-sm font-mono font-medium truncate">{edgeType}</span>
+                  <span className="ml-auto text-[10px] font-mono text-muted-foreground/60">
+                    {count}
+                  </span>
+                </button>
+              ))}
+            </>
           )}
-          {visibleSchemas.map((schema) => (
-            <button
-              key={schema.ref_id}
-              onClick={() => setSelectedId(schema.ref_id)}
-              className={`flex items-center gap-3 w-full rounded-md px-3 py-2 text-left transition-colors ${
-                selectedId === schema.ref_id
-                  ? "bg-primary/10 text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              }`}
-            >
-              <div
-                className="h-3 w-3 rounded-full shrink-0"
-                style={{ backgroundColor: schema.color }}
-              />
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{schema.type}</p>
-                {schema.parent && (
-                  <p className="text-[10px] text-muted-foreground truncate">
-                    extends {schema.parent}
-                  </p>
-                )}
-              </div>
-              <span className="ml-auto text-[10px] font-mono text-muted-foreground/60">
-                {schema.attributes.length}
-              </span>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -229,6 +332,7 @@ export default function OntologyPage() {
             edges={store.edges}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            selectedEdgeType={selectedEdgeType}
           />
         ) : (
           <OntologyGraph
@@ -236,12 +340,13 @@ export default function OntologyPage() {
             edges={store.edges}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            selectedEdgeType={selectedEdgeType}
           />
         )}
       </div>
 
-      {/* Right: Type editor */}
-      {selected && (
+      {/* Right panel */}
+      {sidebarTab === "nodes" && selected && (
         <TypeEditor
           schema={selected}
           allSchemas={store.schemas}
@@ -251,6 +356,14 @@ export default function OntologyPage() {
           onClose={() => setSelectedId(null)}
           error={schemaError ?? undefined}
           onClearError={() => setSchemaError(null)}
+        />
+      )}
+      {sidebarTab === "edges" && selectedEdgeType !== null && (
+        <EdgeTypePanel
+          edgeType={selectedEdgeType}
+          edges={filteredEdgesForPanel}
+          allSchemas={store.schemas}
+          onClose={() => setSelectedEdgeType(null)}
         />
       )}
     </div>
