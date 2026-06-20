@@ -518,6 +518,17 @@ export interface SchemaDomainsResponse {
   hidden_domains: string[]
 }
 
+export type AuditEntry = { name: string; count: number }
+export type AuditCategory = {
+  healthy: AuditEntry[]
+  orphaned: AuditEntry[]
+  unused: AuditEntry[]
+}
+export type SchemaAuditData = {
+  node_labels: AuditCategory
+  relationship_types: AuditCategory
+}
+
 // Returns the available domain roots for this namespace plus the hidden_types
 // and hidden_domains lists (schema types/domains excluded from Domain_* labeling).
 export async function getSchemaDomains(
@@ -777,4 +788,8 @@ export async function dismissReview(
     undefined,
     signal
   )
+}
+
+export async function getSchemaAudit(): Promise<SchemaAuditData> {
+  return api.get<SchemaAuditData>("/schema/audit")
 }
