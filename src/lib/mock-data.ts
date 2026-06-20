@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, GraphData, Review, StakworkRun } from "./graph-api"
+import type { GraphNode, GraphEdge, GraphData, Review, StakworkRun, SchemaAuditData } from "./graph-api"
 import type { CreatorInsightsResponse } from "./creator-insights"
 
 export const MOCK_NODES: GraphNode[] = [
@@ -897,6 +897,35 @@ export const MOCK_DOMAINS = {
   domains: ["content", "codegraph", "workflow"],
   hidden_types: [] as string[],
   hidden_domains: [] as string[],
+}
+
+export const MOCK_SCHEMA_AUDIT: SchemaAuditData = {
+  node_labels: {
+    healthy: [
+      { name: "Topic", count: 312 },
+      { name: "Person", count: 84 },
+      { name: "Episode", count: 57 },
+    ],
+    orphaned: [
+      { name: "LegacyTag", count: 7 },
+      { name: "OldContent", count: 2 },
+    ],
+    unused: [
+      { name: "AgentSession", count: 0 },
+      { name: "EvalSet", count: 0 },
+    ],
+  },
+  relationship_types: {
+    healthy: [
+      { name: "RELATED_TO", count: 540 },
+      { name: "MENTIONED_IN", count: 201 },
+    ],
+    orphaned: [{ name: "OLD_LINK", count: 3 }],
+    unused: [
+      { name: "WORKS_AT", count: 0 },
+      { name: "HAS_PRICE", count: 0 },
+    ],
+  },
 }
 
 // Enriched Topic node for Deep Research mock UI (graphRAG-style)
