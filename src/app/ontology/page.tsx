@@ -31,6 +31,11 @@ export interface SchemaNode {
   parent: string
   color: string
   node_key: string
+  // The search domain this schema belongs to (lowercased). Domains are derived
+  // backend-side from `DISTINCT toLower(s.domain)`; a root type only registers as
+  // its own domain when this is set to its name. Omitted → backend defaults to
+  // "entity". Set explicitly by the Domains editor; left unset by the ontology editor.
+  domain?: string
   attributes: SchemaAttribute[]
   inherited_attributes?: SchemaAttribute[]
   title_key?: string
