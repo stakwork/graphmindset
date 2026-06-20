@@ -69,6 +69,9 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         title_key: updated.title_key ?? null,
         description_key: updated.description_key ?? null,
         attributes: serializeAttributes(updated.attributes),
+        // Only sent when set (Domains editor) so the ontology editor's behavior
+        // — backend defaulting domain to "entity" — is left untouched.
+        ...(updated.domain ? { domain: updated.domain } : {}),
       })
     } catch (err) {
       // Rollback optimistic update
@@ -93,6 +96,9 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         primary_color: schema.color,
         node_key: schema.node_key,
         attributes: serializeAttributes(schema.attributes),
+        // Only sent when set (Domains editor). Without it the backend defaults
+        // domain to "entity", so a root type would not register as its own domain.
+        ...(schema.domain ? { domain: schema.domain } : {}),
       })
 
       // Update with real ref_id from server
@@ -135,6 +141,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
           ref_id: string
           type: string
           parent?: string
+          domain?: string
           primary_color?: string
           secondary_color?: string
           node_key?: string
@@ -153,6 +160,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
         ref_id: s.ref_id,
         type: s.type ?? "",
         parent: s.parent ?? "",
+        domain: s.domain,
         color: s.primary_color ?? "#64748b",
         secondary_color: s.secondary_color,
         node_key: s.node_key ?? "name",
