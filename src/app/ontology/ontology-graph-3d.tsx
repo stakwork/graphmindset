@@ -23,6 +23,7 @@ interface Props {
   edges: SchemaEdge[]
   selectedId: string | null
   onSelect: (id: string) => void
+  selectedEdgeType?: string | null
 }
 
 function schemasToGraph(
@@ -120,7 +121,7 @@ function moveCameraToNode(
   cam.setLookAt(avgX, p.y + cameraHeight, avgZ + 0.1, avgX, p.y, avgZ, true)
 }
 
-export function OntologyGraph3D({ schemas, edges, selectedId, onSelect }: Props) {
+export function OntologyGraph3D({ schemas, edges, selectedId, onSelect, selectedEdgeType }: Props) {
   const cameraRef = useRef<CameraControlsImpl>(null)
 
   const { graph: baseGraph, indexMap } = useMemo(() => {
@@ -327,6 +328,7 @@ export function OntologyGraph3D({ schemas, edges, selectedId, onSelect }: Props)
           viewState={viewState}
           onNodeClick={handleNodeClick}
           onHoverChange={setHoveredId}
+          selectedEdgeType={selectedEdgeType ?? undefined}
         />
         <OffscreenIndicators
           graph={graph}
