@@ -557,6 +557,23 @@ export async function updateHiddenLists(
   return api.post<{ status: string }>("/about", body, undefined, signal)
 }
 
+// Re-apply canonical Domain_* labels to existing nodes of the given schema
+// types after their `domain` was assigned/renamed. New nodes already get the
+// right label at ingest; this catches up existing ones. Runs in a background
+// job server-side and returns immediately. No-op in mock mode.
+export async function relabelDomain(
+  types: string[],
+  signal?: AbortSignal
+): Promise<{ status: string; types: string[] }> {
+  if (isMocksEnabled()) return { status: "relabeling", types }
+  return api.post<{ status: string; types: string[] }>(
+    "/v2/schema/relabel-domain",
+    { types },
+    undefined,
+    signal
+  )
+}
+
 // Free preflight — no payment required
 export async function checkTopicExists(
   name: string,

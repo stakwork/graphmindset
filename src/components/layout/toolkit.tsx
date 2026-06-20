@@ -8,6 +8,7 @@ import {
   Settings,
   Zap,
   Network,
+  Boxes,
   BookMarked,
   ClipboardList,
   Heart,
@@ -223,6 +224,11 @@ export function Toolkit({
             onClick={() => router.push("/ontology")}
           />
           <ToolkitButton
+            icon={Boxes}
+            ariaLabel="Domains"
+            onClick={() => router.push("/domains")}
+          />
+          <ToolkitButton
             icon={ClipboardList}
             ariaLabel="Reviews"
             onClick={() => router.push("/admin/reviews")}
@@ -342,6 +348,7 @@ export function ToolkitFAB({
                 <div className="my-1 mx-2 h-px bg-border/60" />
                 {[
                   { icon: Network, label: "Ontology", action: () => router.push("/ontology") },
+                  { icon: Boxes, label: "Domains", action: () => router.push("/domains") },
                   {
                     icon: ClipboardList,
                     label: `Reviews${pendingCount > 0 ? ` (${pendingCount})` : ""}`,
