@@ -30,8 +30,16 @@ vi.mock("@/stores/user-store", () => ({
 }))
 
 const mockSetGraphMeta = vi.fn()
+const mockSetActiveSkin = vi.fn()
+
+const appStoreMockState = {
+  setGraphMeta: mockSetGraphMeta,
+  setActiveSkin: mockSetActiveSkin,
+}
 vi.mock("@/stores/app-store", () => ({
-  useAppStore: vi.fn(() => mockSetGraphMeta),
+  useAppStore: vi.fn((sel?: (s: typeof appStoreMockState) => unknown) =>
+    sel ? sel(appStoreMockState) : appStoreMockState
+  ),
 }))
 
 const mockApiGet = vi.fn()
@@ -141,5 +149,50 @@ describe("AuthGuard – handleIsAdmin", () => {
     })
     expect(screen.queryByText("Members Only")).not.toBeInTheDocument()
     expect(mockSetIsAuthenticated).toHaveBeenCalledWith(true)
+  })
+})
+
+describe("AuthGuard – fetchGraphMeta ui_skin", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("calls setActiveSkin('legal') when /about returns ui_skin: 'legal'", async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === "/about") return Promise.resolve({ title: "T", description: "", ui_skin: "legal" })
+      return Promise.resolve({ data: { isPublic: true, isAdmin: false, isMember: false } })
+    })
+
+    render(<AuthGuard><div>App</div></AuthGuard>)
+
+    await waitFor(() => {
+      expect(mockSetActiveSkin).toHaveBeenCalledWith("legal")
+    })
+  })
+
+  it("calls setActiveSkin('default') when /about returns no ui_skin", async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === "/about") return Promise.resolve({ title: "T", description: "" })
+      return Promise.resolve({ data: { isPublic: true, isAdmin: false, isMember: false } })
+    })
+
+    render(<AuthGuard><div>App</div></AuthGuard>)
+
+    await waitFor(() => {
+      expect(mockSetActiveSkin).toHaveBeenCalledWith("default")
+    })
+  })
+
+  it("calls setActiveSkin('default') when /about returns ui_skin: null", async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === "/about") return Promise.resolve({ title: "T", description: "", ui_skin: null })
+      return Promise.resolve({ data: { isPublic: true, isAdmin: false, isMember: false } })
+    })
+
+    render(<AuthGuard><div>App</div></AuthGuard>)
+
+    await waitFor(() => {
+      expect(mockSetActiveSkin).toHaveBeenCalledWith("default")
+    })
   })
 })

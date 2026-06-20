@@ -1,6 +1,7 @@
 "use client"
 
 import { create } from "zustand"
+import type { SkinId } from "@/skins/index"
 
 interface AppState {
   searchTerm: string
@@ -14,6 +15,7 @@ interface AppState {
   graphName: string
   graphDescription: string
   myContentRefreshKey: number
+  activeSkin: SkinId
 }
 
 interface AppActions {
@@ -33,6 +35,7 @@ interface AppActions {
   closeAllPanels: () => void
   setGraphMeta: (name: string, description: string) => void
   bumpMyContentRefresh: () => void
+  setActiveSkin: (skin: SkinId) => void
 }
 
 export type AppStore = AppState & AppActions
@@ -49,6 +52,7 @@ export const useAppStore = create<AppStore>((set) => ({
   graphName: "",
   graphDescription: "",
   myContentRefreshKey: 0,
+  activeSkin: "default" as SkinId,
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setMyContentOpen: (myContentOpen) => set({ myContentOpen, sourcesOpen: false, clipsOpen: false, followingOpen: false, agentOpen: false, workflowsOpen: false }),
@@ -71,4 +75,5 @@ export const useAppStore = create<AppStore>((set) => ({
   setGraphMeta: (graphName, graphDescription) =>
     set({ graphName, graphDescription }),
   bumpMyContentRefresh: () => set((s) => ({ myContentRefreshKey: s.myContentRefreshKey + 1 })),
+  setActiveSkin: (activeSkin) => set({ activeSkin }),
 }))

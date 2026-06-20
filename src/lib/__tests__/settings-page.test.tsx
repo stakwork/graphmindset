@@ -25,6 +25,8 @@ const appState = {
   graphName: "Test Graph",
   graphDescription: "A test description",
   setGraphMeta: vi.fn(),
+  activeSkin: "default" as string,
+  setActiveSkin: vi.fn(),
 }
 vi.mock("@/stores/app-store", () => ({
   useAppStore: (sel?: (s: unknown) => unknown) => (sel ? sel(appState) : appState),
@@ -63,6 +65,10 @@ vi.mock("@/components/modals/domain-settings", () => ({
 vi.mock("@/app/settings/schema-audit", () => ({
   SchemaAuditSettings: ({ open }: { open: boolean }) =>
     open ? <div data-testid="schema-audit-settings">Audit</div> : null,
+}))
+vi.mock("@/app/settings/appearance-settings", () => ({
+  AppearanceSettings: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="appearance-settings">Appearance</div> : null,
 }))
 
 // next/dynamic is used in the page; replace with a passthrough so mocked modules are used
@@ -335,5 +341,33 @@ describe("SettingsPage – back button", () => {
     const backBtn = screen.getByRole("button", { name: "" }) // ArrowLeft icon button
     fireEvent.click(backBtn)
     expect(mockPush).toHaveBeenCalledWith("/")
+  })
+})
+
+// ── Appearance tab ────────────────────────────────────────────────────────────
+
+describe("SettingsPage – Appearance tab", () => {
+  beforeEach(() => {
+    userState.isAuthenticated = true
+    userState.isAdmin = true
+    mockSearchParams = { get: () => null }
+  })
+
+  it("renders Appearance tab trigger for admin", async () => {
+    await renderPage()
+    expect(screen.getByRole("tab", { name: /Appearance/i })).toBeInTheDocument()
+  })
+
+  it("activates Appearance tab for ?tab=appearance", async () => {
+    mockSearchParams = { get: (k: string) => (k === "tab" ? "appearance" : null) }
+    await renderPage()
+    const tab = screen.getByRole("tab", { name: /Appearance/i })
+    expect(tab).toHaveAttribute("aria-selected", "true")
+  })
+
+  it("does not render Appearance tab for non-admins", async () => {
+    userState.isAdmin = false
+    await renderPage()
+    expect(screen.queryByRole("tab", { name: /Appearance/i })).not.toBeInTheDocument()
   })
 })
