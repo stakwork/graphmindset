@@ -28,8 +28,13 @@ const DomainSettings = dynamic(
   { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
 )
 
-const VALID_TABS = ["general", "radar", "janitor", "domains"] as const
-const ADMIN_ONLY_TABS = ["radar", "janitor", "domains"] as const
+const SchemaAuditSettings = dynamic(
+  () => import("@/app/settings/schema-audit").then((m) => m.SchemaAuditSettings),
+  { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
+)
+
+const VALID_TABS = ["general", "radar", "janitor", "domains", "audit"] as const
+const ADMIN_ONLY_TABS = ["radar", "janitor", "domains", "audit"] as const
 type TabId = (typeof VALID_TABS)[number]
 
 function resolveTab(raw: string | null, isAdmin: boolean): TabId {
@@ -118,6 +123,7 @@ function SettingsContent() {
               {isAdmin && <TabsTrigger value="radar">Schedule</TabsTrigger>}
               {isAdmin && <TabsTrigger value="janitor">Janitors</TabsTrigger>}
               {isAdmin && <TabsTrigger value="domains">Domains</TabsTrigger>}
+              {isAdmin && <TabsTrigger value="audit">Audit</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="general" className="space-y-4 pt-4">
@@ -191,6 +197,12 @@ function SettingsContent() {
                   title={name}
                   description={description}
                 />
+              </TabsContent>
+            )}
+
+            {isAdmin && (
+              <TabsContent value="audit" className="pt-4">
+                <SchemaAuditSettings open={activeTab === "audit"} />
               </TabsContent>
             )}
           </Tabs>

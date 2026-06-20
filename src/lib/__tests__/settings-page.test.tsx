@@ -60,6 +60,10 @@ vi.mock("@/components/modals/domain-settings", () => ({
   DomainSettings: ({ open }: { open: boolean }) =>
     open ? <div data-testid="domain-settings">Domains</div> : null,
 }))
+vi.mock("@/app/settings/schema-audit", () => ({
+  SchemaAuditSettings: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="schema-audit-settings">Audit</div> : null,
+}))
 
 // next/dynamic is used in the page; replace with a passthrough so mocked modules are used
 vi.mock("next/dynamic", () => ({
@@ -190,13 +194,14 @@ describe("SettingsPage – General tab", () => {
 // ── Admin-only tabs ───────────────────────────────────────────────────────────
 
 describe("SettingsPage – admin-only tabs", () => {
-  it("shows Schedule, Janitors, Domains tabs for admins", async () => {
+  it("shows Schedule, Janitors, Domains, Audit tabs for admins", async () => {
     userState.isAuthenticated = true
     userState.isAdmin = true
     await renderPage()
     expect(screen.getByRole("tab", { name: /Schedule/i })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /Janitors/i })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /Domains/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /Audit/i })).toBeInTheDocument()
   })
 
   it("does not show admin-only tabs for non-admins (not yet authenticated)", async () => {
@@ -207,6 +212,7 @@ describe("SettingsPage – admin-only tabs", () => {
     expect(screen.queryByRole("tab", { name: /Schedule/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: /Janitors/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: /Domains/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("tab", { name: /Audit/i })).not.toBeInTheDocument()
   })
 })
 
@@ -244,6 +250,13 @@ describe("SettingsPage – tab query param", () => {
     await renderPage()
     const domainsTab = screen.getByRole("tab", { name: /Domains/i })
     expect(domainsTab).toHaveAttribute("aria-selected", "true")
+  })
+
+  it("activates audit tab for ?tab=audit", async () => {
+    mockSearchParams = { get: (k: string) => (k === "tab" ? "audit" : null) }
+    await renderPage()
+    const auditTab = screen.getByRole("tab", { name: /Audit/i })
+    expect(auditTab).toHaveAttribute("aria-selected", "true")
   })
 
   it("falls back to general for unknown ?tab value", async () => {
