@@ -8,6 +8,7 @@ import { ToolCallRow } from "./tool-call-row"
 import { unlockNode } from "@/lib/unlock-node"
 import { useSchemaStore } from "@/stores/schema-store"
 import { cn } from "@/lib/utils"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { AgentMessage } from "@/lib/agent-api"
 import type { GraphNode } from "@/lib/graph-api"
 
@@ -138,16 +139,30 @@ export function MessageList({ messages }: MessageListProps) {
                   )}
 
                   {/* Agent answer */}
-                  {msg.content && (
+                  {(msg.content || msg.isStreaming) && (
                     <div
                       className={cn(
                         "bg-muted/40 border border-border/40 rounded-2xl rounded-tl-sm px-3 py-2.5",
                         msg.isStreaming && "animate-pulse-subtle"
                       )}
                     >
-                      <MarkdownText text={msg.content} />
-                      {msg.isStreaming && (
-                        <span className="inline-block h-3.5 w-0.5 bg-primary ml-0.5 animate-blink" />
+                      {msg.content ? (
+                        <>
+                          <MarkdownText text={msg.content} />
+                          {msg.isStreaming && (
+                            <span className="inline-block h-3.5 w-0.5 bg-primary ml-0.5 animate-blink" />
+                          )}
+                        </>
+                      ) : (
+                        /* Thinking placeholder — visible while streaming but no text has arrived yet */
+                        <div className="flex items-center gap-2 py-0.5">
+                          <span className="text-xs text-muted-foreground italic">Thinking…</span>
+                          <div className="flex gap-1 items-center">
+                            <Skeleton className="h-1.5 w-1.5 rounded-full" />
+                            <Skeleton className="h-1.5 w-1.5 rounded-full opacity-70" />
+                            <Skeleton className="h-1.5 w-1.5 rounded-full opacity-40" />
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
