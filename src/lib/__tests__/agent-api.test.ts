@@ -31,20 +31,36 @@ function makeOpts(overrides: Partial<StreamAgentOpts> = {}): StreamAgentOpts {
   }
 }
 
-function okResponse(body: object) {
+// ── SSE helpers ───────────────────────────────────────────────────────────────
+
+function makeSseResponse(chunks: object[]): Promise<Response> {
+  const encoder = new TextEncoder()
+  const lines = chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join("")
+  const bytes = encoder.encode(lines)
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes)
+      controller.close()
+    },
+  })
+
   return Promise.resolve(
-    new Response(JSON.stringify(body), {
+    new Response(stream, {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "text/event-stream" },
     })
   )
 }
 
+const defaultSseChunks = [
+  { type: "text-delta", textDelta: "hello " },
+  { type: "finish-message" },
+]
+
 beforeEach(() => {
   vi.clearAllMocks()
-  mockFetch.mockImplementation(() =>
-    okResponse({ answer: "hello", cited_ref_ids: [] })
-  )
+  mockFetch.mockImplementation(() => makeSseResponse(defaultSseChunks))
 })
 
 // ─── context field in POST body ──────────────────────────────────────────────
@@ -91,16 +107,153 @@ describe("streamAgent – context in POST body", () => {
     expect(body.context?.selectedRefId).toBe("vid-1")
   })
 
-  it("calls onDone with the API response answer", async () => {
-    mockFetch.mockImplementation(() =>
-      okResponse({ answer: "Final answer.", cited_ref_ids: ["n1"] })
+  it("includes stream: true in POST body", async () => {
+    const opts = makeOpts()
+    await streamAgent("Q?", opts)
+
+    const [, fetchOpts] = mockFetch.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(fetchOpts.body as string)
+    expect(body.stream).toBe(true)
+  })
+
+  it("sends Accept: text/event-stream header", async () => {
+    const opts = makeOpts()
+    await streamAgent("Q?", opts)
+
+    const [, fetchOpts] = mockFetch.mock.calls[0] as [string, RequestInit]
+    const headers = fetchOpts.headers as Record<string, string>
+    expect(headers["Accept"]).toBe("text/event-stream")
+  })
+})
+
+// ─── SSE streaming behaviour ──────────────────────────────────────────────────
+
+describe("streamAgent – SSE streaming", () => {
+  it("text-delta chunk calls onChunk with the delta string", async () => {
+    const onChunk = vi.fn()
+    await streamAgent(
+      "Q?",
+      makeOpts({
+        onChunk,
+        ...await makeSseResponse([
+          { type: "text-delta", textDelta: "Hello!" },
+          { type: "finish-message" },
+        ]).then(() => ({})),
+      })
     )
+    // Use a dedicated fetch mock for this test
+    const onChunk2 = vi.fn()
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([
+        { type: "text-delta", textDelta: "Hello!" },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onChunk: onChunk2 }))
+    expect(onChunk2).toHaveBeenCalledWith("Hello!")
+  })
+
+  it("tool-input-available calls onToolCall with status in-flight", async () => {
+    const onToolCall = vi.fn()
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([
+        {
+          type: "tool-input-available",
+          toolCallId: "tc-1",
+          toolName: "graph_search",
+          input: { q: "bitcoin" },
+        },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onToolCall }))
+    expect(onToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "tc-1",
+        tool: "graph_search",
+        params: { q: "bitcoin" },
+        status: "in-flight",
+      })
+    )
+  })
+
+  it("finish-step after tool-input-available calls onToolCall with status done", async () => {
+    const onToolCall = vi.fn()
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([
+        {
+          type: "tool-input-available",
+          toolCallId: "tc-2",
+          toolName: "graph_node",
+          input: { ref_id: "node-1" },
+        },
+        { type: "finish-step" },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onToolCall }))
+
+    const calls = onToolCall.mock.calls.map((c) => c[0])
+    const inFlight = calls.find((c) => c.id === "tc-2" && c.status === "in-flight")
+    const done = calls.find((c) => c.id === "tc-2" && c.status === "done")
+    expect(inFlight).toBeDefined()
+    expect(done).toBeDefined()
+  })
+
+  it("finish-message calls onDone with accumulated text and empty cited_ref_ids", async () => {
     const onDone = vi.fn()
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([
+        { type: "text-delta", textDelta: "Foo " },
+        { type: "text-delta", textDelta: "bar." },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onDone }))
+    expect(onDone).toHaveBeenCalledWith({ answer: "Foo bar.", cited_ref_ids: [] })
+  })
+
+  it("fallback onDone called when stream ends without finish-message", async () => {
+    const onDone = vi.fn()
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([{ type: "text-delta", textDelta: "Partial." }])
+    )
+    await streamAgent("Q?", makeOpts({ onDone }))
+    expect(onDone).toHaveBeenCalledWith({ answer: "Partial.", cited_ref_ids: [] })
+  })
+})
+
+// ─── 402 retry flow ────────────────────────────────────────────────────────────
+
+describe("streamAgent – 402 retry", () => {
+  it("pays L402 and retries on 402 response", async () => {
+    const { payL402 } = await import("@/lib/sphinx")
+    const onDone = vi.fn()
+
+    mockFetch
+      .mockResolvedValueOnce(new Response(null, { status: 402 }))
+      .mockImplementationOnce(() => makeSseResponse(defaultSseChunks))
+
     await streamAgent("Q?", makeOpts({ onDone }))
 
-    expect(onDone).toHaveBeenCalledWith({
-      answer: "Final answer.",
-      cited_ref_ids: ["n1"],
+    expect(payL402).toHaveBeenCalled()
+    expect(onDone).toHaveBeenCalled()
+  })
+})
+
+// ─── AbortSignal cancellation ─────────────────────────────────────────────────
+
+describe("streamAgent – AbortSignal", () => {
+  it("resolves without calling onError when aborted", async () => {
+    const onError = vi.fn()
+    const controller = new AbortController()
+
+    mockFetch.mockImplementationOnce(() => {
+      controller.abort()
+      return Promise.reject(new DOMException("Aborted", "AbortError"))
     })
+
+    await streamAgent("Q?", makeOpts({ onError, signal: controller.signal }))
+    expect(onError).not.toHaveBeenCalled()
   })
 })
