@@ -105,4 +105,22 @@ describe("detectSourceType", () => {
       })
     })
   })
+
+  describe("arXiv Paper URLs", () => {
+    it("detects arxiv.org/abs/<id> as ARXIV_PAPER", async () => {
+      expect(await detectSourceType("https://arxiv.org/abs/2301.00001")).toBe(SOURCE_TYPES.ARXIV_PAPER)
+    })
+
+    it("detects arxiv.org/pdf/<id> as ARXIV_PAPER", async () => {
+      expect(await detectSourceType("https://arxiv.org/pdf/2301.00001")).toBe(SOURCE_TYPES.ARXIV_PAPER)
+    })
+
+    it("detects arxiv.org/abs/<id> with http as ARXIV_PAPER", async () => {
+      expect(await detectSourceType("http://arxiv.org/abs/2301.00001")).toBe(SOURCE_TYPES.ARXIV_PAPER)
+    })
+
+    it("does NOT detect a non-arXiv HTTPS URL as ARXIV_PAPER (regression guard)", async () => {
+      expect(await detectSourceType("https://example.com/paper")).toBe(SOURCE_TYPES.WEB_PAGE)
+    })
+  })
 })
