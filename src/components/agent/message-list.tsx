@@ -1,16 +1,18 @@
 "use client"
 
-import { useRef, useEffect } from "react"
+import { useRef, useEffect, useState } from "react"
 import { Bot, User } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { NodeRow } from "@/components/layout/node-row"
 import { ToolCallRow } from "./tool-call-row"
 import { unlockNode } from "@/lib/unlock-node"
+import { getNode } from "@/lib/graph-api"
 import { useSchemaStore } from "@/stores/schema-store"
 import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { AgentMessage } from "@/lib/agent-api"
 import type { GraphNode } from "@/lib/graph-api"
+import type { SchemaNode } from "@/app/ontology/page"
 
 // Basic markdown renderer — bold, italic, inline code, line breaks, headings
 function MarkdownText({ text }: { text: string }) {
@@ -57,17 +59,64 @@ interface CitedNodesProps {
   refIds: string[]
 }
 
+function CitedNodeChip({ refId, schemas }: { refId: string; schemas: SchemaNode[] }) {
+  const [node, setNode] = useState<GraphNode | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    getNode(refId)
+      .then((n) => {
+        if (!cancelled) setNode(n as GraphNode)
+      })
+      .catch(() => {
+        // fall back to raw refId shown via stub node
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [refId])
+
+  if (loading) {
+    return <Skeleton data-testid="cited-node-skeleton" className="h-8 w-full rounded-md" />
+  }
+
+  const displayNode: GraphNode = node ?? {
+    ref_id: refId,
+    node_type: refId,
+    properties: { name: refId },
+  }
+
+  // Derive human-readable label
+  const label =
+    (displayNode.properties?.name as string | undefined) ??
+    (displayNode.properties?.title as string | undefined) ??
+    displayNode.node_type ??
+    refId
+
+  const nodeWithLabel: GraphNode = {
+    ...displayNode,
+    node_type: displayNode.node_type,
+    properties: { ...displayNode.properties, name: label },
+  }
+
+  return (
+    <NodeRow
+      node={nodeWithLabel}
+      schemas={schemas}
+      onClick={() => unlockNode(refId).catch(() => {})}
+      hideBoost
+    />
+  )
+}
+
 function CitedNodes({ refIds }: CitedNodesProps) {
   const schemas = useSchemaStore((s) => s.schemas)
 
   if (refIds.length === 0) return null
-
-  // Create minimal GraphNode stubs for display — real data fetched on click via unlockNode
-  const stubNodes: GraphNode[] = refIds.map((ref_id) => ({
-    ref_id,
-    node_type: "Unknown",
-    properties: { ref_id },
-  }))
 
   return (
     <div className="mt-3 pt-3 border-t border-border/40">
@@ -75,14 +124,8 @@ function CitedNodes({ refIds }: CitedNodesProps) {
         Sources
       </p>
       <div className="flex flex-col gap-0.5">
-        {stubNodes.map((node) => (
-          <NodeRow
-            key={node.ref_id}
-            node={node}
-            schemas={schemas}
-            onClick={() => unlockNode(node.ref_id).catch(() => {})}
-            hideBoost
-          />
+        {refIds.map((refId) => (
+          <CitedNodeChip key={refId} refId={refId} schemas={schemas} />
         ))}
       </div>
     </div>
