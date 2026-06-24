@@ -7,7 +7,7 @@ import { isMocksEnabled } from "./mock-data"
 
 export interface ToolCallEvent {
   id: string
-  tool: "graph_search" | "graph_node" | "graph_map" | string
+  tool: "graph_search" | "graph_node" | "graph_neighbors" | string
   params: Record<string, unknown>
   status: "in-flight" | "done" | "error"
   resultCount?: number

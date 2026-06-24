@@ -18,7 +18,7 @@ const TOOL_META: Record<
     label: "Fetch Node",
     color: "text-violet-400",
   },
-  graph_map: {
+  graph_neighbors: {
     icon: GitFork,
     label: "Explore",
     color: "text-emerald-400",
@@ -34,7 +34,7 @@ function summariseParams(tool: string, params: Record<string, unknown>): string 
   if (tool === "graph_node") {
     return String(params.ref_id ?? params.id ?? "")
   }
-  if (tool === "graph_map") {
+  if (tool === "graph_neighbors") {
     return String(params.ref_id ?? params.id ?? "")
   }
   return JSON.stringify(params).slice(0, 60)
