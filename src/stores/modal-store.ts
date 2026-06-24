@@ -18,8 +18,11 @@ interface ModalState {
   addTab: AddTab
   editingNode: GraphNode | null
   sourceNode: GraphNode | null
+  // Pre-selected node type for the Add Node form — allows callers to skip the
+  // type-selection step (e.g. "Add Lingo Node" toolbar shortcut).
+  preselectedNodeType: string | null
   open: (id: ModalId) => void
-  openAdd: (tab?: AddTab) => void
+  openAdd: (tab?: AddTab, nodeType?: string) => void
   setAddTab: (tab: AddTab) => void
   openEdit: (node: GraphNode) => void
   openAddEdge: (sourceNode?: GraphNode) => void
@@ -34,10 +37,17 @@ export const useModalStore = create<ModalState>((set) => ({
   addTab: "source",
   editingNode: null,
   sourceNode: null,
+  preselectedNodeType: null,
   // Route "budget" to the overlay so existing open("budget") callers show it on
   // top of whatever is open instead of replacing it.
   open: (id) => set(id === "budget" ? { budgetOpen: true } : { activeModal: id }),
-  openAdd: (tab) => set({ activeModal: "add", addTab: tab ?? "source", sourceNode: null }),
+  openAdd: (tab, nodeType) =>
+    set({
+      activeModal: "add",
+      addTab: tab ?? "source",
+      sourceNode: null,
+      preselectedNodeType: nodeType ?? null,
+    }),
   setAddTab: (tab) => set({ addTab: tab }),
   openEdit: (node) => set({ activeModal: "editNode", editingNode: node }),
   openAddEdge: (sourceNode?: GraphNode) =>
@@ -52,6 +62,7 @@ export const useModalStore = create<ModalState>((set) => ({
       addTab: "source",
       editingNode: null,
       sourceNode: null,
+      preselectedNodeType: null,
       budgetOpen: false,
     }),
 }))

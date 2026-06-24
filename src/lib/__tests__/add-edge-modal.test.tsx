@@ -34,6 +34,13 @@ vi.mock("@/stores/user-store", () => ({
     sel({ setBudget: vi.fn() }),
 }))
 
+// Graph store — AddEdgeForm calls addNodes on success.
+const mockAddNodes = vi.fn()
+vi.mock("@/stores/graph-store", () => ({
+  useGraphStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel({ addNodes: mockAddNodes }),
+}))
+
 // ---------------------------------------------------------------------------
 // Fixture nodes
 // ---------------------------------------------------------------------------
@@ -341,6 +348,29 @@ describe("AddEdgeForm", () => {
       await waitFor(() => {
         expect(screen.getByText("Edge created!")).toBeDefined()
       })
+    })
+
+    it("calls addNodes([], [createdEdge]) on successful edge creation", async () => {
+      mockCreateEdge.mockResolvedValueOnce({ ref_id: "new-edge-ref" })
+      withSource(null)
+      render(<AddEdgeForm />)
+      await selectNode("Search source node…", FIXTURE_SOURCE)
+      await selectNode("Search target node…", FIXTURE_TARGET)
+      const trigger = screen.getByText("Choose an edge type...").closest("button") as HTMLButtonElement
+      await userEvent.click(trigger)
+      await userEvent.click(screen.getByText("HAS_TOPIC"))
+      await userEvent.click(screen.getByRole("button", { name: /add edge/i }))
+      await waitFor(() => expect(mockAddNodes).toHaveBeenCalled())
+      expect(mockAddNodes).toHaveBeenCalledWith(
+        [],
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: "node-source-ref",
+            target: "node-target-ref",
+            edge_type: "HAS_TOPIC",
+          }),
+        ])
+      )
     })
 
     it("calls close after success auto-close timeout", async () => {
