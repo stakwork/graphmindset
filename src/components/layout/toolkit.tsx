@@ -10,6 +10,7 @@ import {
   Network,
   Boxes,
   BookMarked,
+  BookText,
   ClipboardList,
   Heart,
   Menu,
@@ -184,6 +185,7 @@ export function Toolkit({
       <Divider />
 
       <ToolkitButton icon={Plus} ariaLabel="Add to graph" onClick={() => openAdd("source")} />
+      <ToolkitButton icon={BookText} ariaLabel="Add Lingo Node" onClick={() => openAdd("node", "Lingo")} />
       <ToolkitButton
         icon={MessageSquare}
         ariaLabel="Graph Agent"
@@ -324,6 +326,7 @@ export function ToolkitFAB({
             {/* Action buttons — icon + label */}
             {[
               { icon: Plus, label: "Add to graph", action: () => openAdd("source"), active: false },
+              { icon: BookText, label: "Add Lingo Node", action: () => openAdd("node", "Lingo"), active: false },
               { icon: MessageSquare, label: "Graph Agent", action: onToggleAgent ?? (() => {}), active: agentOpen ?? false },
               { icon: BookMarked, label: "My Content", action: onToggleMyContent, active: myContentOpen },
               { icon: Heart, label: "Following", action: onToggleFollowing, active: followingOpen },

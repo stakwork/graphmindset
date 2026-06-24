@@ -8,8 +8,9 @@ import { NodeSearchInput } from "@/components/ui/node-search-input"
 import { useModalStore } from "@/stores/modal-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { useUserStore } from "@/stores/user-store"
+import { useGraphStore } from "@/stores/graph-store"
 import { getPrice, payL402 } from "@/lib/sphinx"
-import { createEdge, type GraphNode } from "@/lib/graph-api"
+import { createEdge, type GraphNode, type GraphEdge } from "@/lib/graph-api"
 import { displayNodeType } from "@/lib/utils"
 
 type Status = "idle" | "submitting" | "success" | "error"
@@ -51,6 +52,7 @@ export function AddEdgeForm() {
   const close = useModalStore((s) => s.close)
   const openModal = useModalStore((s) => s.open)
   const setBudget = useUserStore((s) => s.setBudget)
+  const addNodes = useGraphStore((s) => s.addNodes)
 
   const schemaEdges = useSchemaStore((s) => s.edges)
 
@@ -192,7 +194,7 @@ export function AddEdgeForm() {
       }
 
       const doCreate = async () => {
-        await createEdge({
+        const result = await createEdge({
           source: selectedSource.ref_id,
           target: selectedTarget.ref_id,
           edge_type: edgeType,
@@ -201,6 +203,16 @@ export function AddEdgeForm() {
           // schema types don't need it (the schema already exists).
           ...(customMode ? { create_schema_if_missing: true } : {}),
         })
+        // Reflect the new edge in the graph store immediately so ConnectionsSection
+        // updates without a reload.
+        const createdEdge: GraphEdge = {
+          source: selectedSource.ref_id,
+          target: selectedTarget.ref_id,
+          edge_type: edgeType,
+          // Backend may return ref_id on the created edge
+          ref_id: (result as { ref_id?: string } | null)?.ref_id,
+        }
+        addNodes([], [createdEdge])
         setStatus("success")
         setTimeout(() => close(), 1500)
       }

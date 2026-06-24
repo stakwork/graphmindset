@@ -71,11 +71,12 @@ function parseFieldValue(type: string, raw: string): unknown {
 
 export function AddNodeForm() {
   const { close } = useModalStore()
+  const preselectedNodeType = useModalStore((s) => s.preselectedNodeType)
   const setBudget = useUserStore((s) => s.setBudget)
   const pubKey = useUserStore((s) => s.pubKey)
   const schemas = useSchemaStore((s) => s.schemas)
 
-  const [selectedType, setSelectedType] = useState<string>("")
+  const [selectedType, setSelectedType] = useState<string>(preselectedNodeType ?? "")
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
   const [domains, setDomains] = useState<SchemaDomainsResponse | null>(null)
   const [price, setPrice] = useState<number | null>(null)
