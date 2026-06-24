@@ -432,6 +432,7 @@ export interface StakworkRun {
   created_at?: number
   started_at?: number
   finished_at?: number
+  project_id?: string | number
 }
 
 export async function getCronConfig(

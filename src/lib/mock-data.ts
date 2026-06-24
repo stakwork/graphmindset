@@ -811,6 +811,7 @@ export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
     created_at: mockRunTs(120),
     started_at: mockRunTs(119),
     finished_at: mockRunTs(110),
+    project_id: 123456,
   },
   {
     ref_id: "run-002",
@@ -858,6 +859,7 @@ export const MOCK_STAKWORK_RUNS: StakworkRun[] = [
     trigger: "MANUAL",
     status: "pending",
     created_at: mockRunTs(1),
+    project_id: 789012,
   },
   {
     ref_id: "mock-run-cr-1",
