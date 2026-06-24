@@ -37,6 +37,27 @@ export interface StreamAgentOpts {
   onError: (err: Error) => void
 }
 
+// Parses the agent's JSON envelope from accumulated text.
+// Strips the end-of-answer marker, extracts {answer, cited_ref_ids}.
+// Falls back to raw text on parse failure.
+function unwrapEnvelope(raw: string): { answer: string; cited_ref_ids: string[] } {
+  const END_MARKER = "[END_OF_" + "ANSWER]" // avoid literal in source
+  const stripped = raw.replace(END_MARKER, "").trim()
+  const jsonMatch = stripped.match(/\{[\s\S]*\}/)
+  let answer = stripped
+  let cited_ref_ids: string[] = []
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0])
+      if (parsed.answer) answer = parsed.answer
+      if (Array.isArray(parsed.cited_ref_ids)) cited_ref_ids = parsed.cited_ref_ids
+    } catch {
+      console.warn("[agent-api] envelope parse failed; falling back to raw text")
+    }
+  }
+  return { answer, cited_ref_ids }
+}
+
 // Builds a signed URL for a given API path
 async function buildSignedUrl(path: string): Promise<string> {
   const url = new URL(`${API_URL}${path}`)
@@ -97,11 +118,6 @@ async function mockStreamAgent(
     `The most prominent nodes relate to recent episodes and community discussions.\n\n` +
     `*(This is a mock response — connect to a real backend to get live answers.)*`
 
-  for (const word of answer.split(" ")) {
-    await delay(40)
-    opts.onChunk(word + " ")
-  }
-
   await delay(200)
   opts.onDone({ answer, cited_ref_ids: ["mock-node-1", "mock-node-2"] })
 }
@@ -144,7 +160,8 @@ async function processSSEStream(response: Response, opts: StreamAgentOpts): Prom
           case "text-delta": {
             const delta = (chunk.textDelta ?? chunk.delta ?? "") as string
             accumulatedText += delta
-            opts.onChunk(delta)
+            // Do NOT call opts.onChunk — suppress raw JSON from the bubble.
+            // Tool-call events stream live; the answer is parsed and delivered on finish.
             break
           }
           case "tool-input-available": {
@@ -167,14 +184,14 @@ async function processSSEStream(response: Response, opts: StreamAgentOpts): Prom
             break
           }
           case "finish-message": {
-            opts.onDone({ answer: accumulatedText, cited_ref_ids: [] })
+            opts.onDone(unwrapEnvelope(accumulatedText))
             return
           }
         }
       }
     }
     // Fallback if stream ends without finish-message
-    opts.onDone({ answer: accumulatedText, cited_ref_ids: [] })
+    opts.onDone(unwrapEnvelope(accumulatedText))
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") return
     opts.onError(err instanceof Error ? err : new Error(String(err)))

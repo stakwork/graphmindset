@@ -129,28 +129,16 @@ describe("streamAgent – context in POST body", () => {
 // ─── SSE streaming behaviour ──────────────────────────────────────────────────
 
 describe("streamAgent – SSE streaming", () => {
-  it("text-delta chunk calls onChunk with the delta string", async () => {
+  it("text-delta chunk does NOT call onChunk (answer suppressed until finish)", async () => {
     const onChunk = vi.fn()
-    await streamAgent(
-      "Q?",
-      makeOpts({
-        onChunk,
-        ...await makeSseResponse([
-          { type: "text-delta", textDelta: "Hello!" },
-          { type: "finish-message" },
-        ]).then(() => ({})),
-      })
-    )
-    // Use a dedicated fetch mock for this test
-    const onChunk2 = vi.fn()
     mockFetch.mockImplementationOnce(() =>
       makeSseResponse([
         { type: "text-delta", textDelta: "Hello!" },
         { type: "finish-message" },
       ])
     )
-    await streamAgent("Q?", makeOpts({ onChunk: onChunk2 }))
-    expect(onChunk2).toHaveBeenCalledWith("Hello!")
+    await streamAgent("Q?", makeOpts({ onChunk }))
+    expect(onChunk).not.toHaveBeenCalled()
   })
 
   it("tool-input-available calls onToolCall with status in-flight", async () => {
@@ -200,23 +188,92 @@ describe("streamAgent – SSE streaming", () => {
     expect(done).toBeDefined()
   })
 
-  it("finish-message calls onDone with accumulated text and empty cited_ref_ids", async () => {
+  it("finish-message parses JSON envelope: extracts answer and cited_ref_ids", async () => {
     const onDone = vi.fn()
+    const envelope = JSON.stringify({
+      answer: "The answer is 42.",
+      cited_ref_ids: ["node-abc", "node-xyz"],
+      usage: {},
+    })
     mockFetch.mockImplementationOnce(() =>
       makeSseResponse([
-        { type: "text-delta", textDelta: "Foo " },
-        { type: "text-delta", textDelta: "bar." },
+        { type: "text-delta", textDelta: envelope },
         { type: "finish-message" },
       ])
     )
     await streamAgent("Q?", makeOpts({ onDone }))
-    expect(onDone).toHaveBeenCalledWith({ answer: "Foo bar.", cited_ref_ids: [] })
+    expect(onDone).toHaveBeenCalledWith({
+      answer: "The answer is 42.",
+      cited_ref_ids: ["node-abc", "node-xyz"],
+    })
   })
 
-  it("fallback onDone called when stream ends without finish-message", async () => {
+  it("finish-message: envelope missing cited_ref_ids defaults to []", async () => {
     const onDone = vi.fn()
+    const envelope = JSON.stringify({ answer: "Short answer." })
     mockFetch.mockImplementationOnce(() =>
-      makeSseResponse([{ type: "text-delta", textDelta: "Partial." }])
+      makeSseResponse([
+        { type: "text-delta", textDelta: envelope },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onDone }))
+    expect(onDone).toHaveBeenCalledWith({ answer: "Short answer.", cited_ref_ids: [] })
+  })
+
+  it("finish-message: strips end-of-answer marker before parsing", async () => {
+    const onDone = vi.fn()
+    const envelope =
+      JSON.stringify({ answer: "Marked answer.", cited_ref_ids: ["ref-1"] }) +
+      "[END_OF_ANSWER]"
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([
+        { type: "text-delta", textDelta: envelope },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onDone }))
+    expect(onDone).toHaveBeenCalledWith({ answer: "Marked answer.", cited_ref_ids: ["ref-1"] })
+  })
+
+  it("finish-message: JSON inside a ```json fence is still extracted", async () => {
+    const onDone = vi.fn()
+    const fenced =
+      "```json\n" +
+      JSON.stringify({ answer: "Fenced answer.", cited_ref_ids: ["ref-2"] }) +
+      "\n```"
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([
+        { type: "text-delta", textDelta: fenced },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onDone }))
+    expect(onDone).toHaveBeenCalledWith({ answer: "Fenced answer.", cited_ref_ids: ["ref-2"] })
+  })
+
+  it("finish-message: falls back to raw text and warns on invalid JSON", async () => {
+    const onDone = vi.fn()
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([
+        { type: "text-delta", textDelta: "{ bad json }" },
+        { type: "finish-message" },
+      ])
+    )
+    await streamAgent("Q?", makeOpts({ onDone }))
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[agent-api] envelope parse failed")
+    )
+    expect(onDone).toHaveBeenCalledWith({ answer: "{ bad json }", cited_ref_ids: [] })
+    warnSpy.mockRestore()
+  })
+
+  it("fallback onDone called when stream ends without finish-message (parses envelope)", async () => {
+    const onDone = vi.fn()
+    const envelope = JSON.stringify({ answer: "Partial.", cited_ref_ids: [] })
+    mockFetch.mockImplementationOnce(() =>
+      makeSseResponse([{ type: "text-delta", textDelta: envelope }])
     )
     await streamAgent("Q?", makeOpts({ onDone }))
     expect(onDone).toHaveBeenCalledWith({ answer: "Partial.", cited_ref_ids: [] })
