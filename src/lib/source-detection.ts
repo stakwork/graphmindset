@@ -10,6 +10,7 @@ export const SOURCE_TYPES = {
   WEB_PAGE: "web_page",
   DOCUMENT: "document",
   LINK: "link",
+  ARXIV_PAPER: "arxiv_paper",
 } as const
 
 export type SourceType = (typeof SOURCE_TYPES)[keyof typeof SOURCE_TYPES]
@@ -36,6 +37,7 @@ const rssRegex =
 const youtubeChannelPattern =
   /https?:\/\/(www\.)?youtube\.com\/(user\/)?(@)?([\w-]+)/
 const githubRepoPattern = /https:\/\/github\.com\/[\w-]+\/[\w-]+/
+const arxivPattern = /https?:\/\/arxiv\.org\/(abs|pdf)\/[\d.]+/
 const genericUrlRegex = /^(https?|ftp):\/\/[^\s/$.?#].[^\s]*$/
 
 async function checkIfRSS(url: string): Promise<boolean> {
@@ -71,6 +73,7 @@ export async function detectSourceType(source: string): Promise<SourceType> {
   if (twitterHandlePattern.test(source)) return SOURCE_TYPES.TWITTER_HANDLE
   if (rssRegex.test(source)) return SOURCE_TYPES.RSS
   if (githubRepoPattern.test(source)) return SOURCE_TYPES.GITHUB_REPOSITORY
+  if (arxivPattern.test(source)) return SOURCE_TYPES.ARXIV_PAPER
 
   if (genericUrlRegex.test(source)) {
     const isRSS = await checkIfRSS(source)
@@ -105,6 +108,7 @@ export const SOURCE_TYPE_LABELS: Record<string, string> = {
   [SOURCE_TYPES.WEB_PAGE]: "Web Page",
   [SOURCE_TYPES.DOCUMENT]: "Document",
   [SOURCE_TYPES.LINK]: "Link",
+  [SOURCE_TYPES.ARXIV_PAPER]: "arXiv Paper",
 }
 
 const SUBSCRIPTION_TYPES: string[] = [
