@@ -7,7 +7,7 @@ import { isMocksEnabled } from "./mock-data"
 
 export interface ToolCallEvent {
   id: string
-  tool: "graph_search" | "graph_node" | "graph_map" | string
+  tool: "graph_search" | "graph_node" | "graph_neighbors" | string
   params: Record<string, unknown>
   status: "in-flight" | "done" | "error"
   resultCount?: number
@@ -35,6 +35,27 @@ export interface StreamAgentOpts {
   onToolCall: (event: ToolCallEvent) => void
   onDone: (result: { answer: string; cited_ref_ids: string[] }) => void
   onError: (err: Error) => void
+}
+
+// Parses the agent's JSON envelope from accumulated text.
+// Strips the end-of-answer marker, extracts {answer, cited_ref_ids}.
+// Falls back to raw text on parse failure.
+function unwrapEnvelope(raw: string): { answer: string; cited_ref_ids: string[] } {
+  const END_MARKER = "[END_OF_" + "ANSWER]" // avoid literal in source
+  const stripped = raw.replace(END_MARKER, "").trim()
+  const jsonMatch = stripped.match(/\{[\s\S]*\}/)
+  let answer = stripped
+  let cited_ref_ids: string[] = []
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0])
+      if (parsed.answer) answer = parsed.answer
+      if (Array.isArray(parsed.cited_ref_ids)) cited_ref_ids = parsed.cited_ref_ids
+    } catch {
+      console.warn("[agent-api] envelope parse failed; falling back to raw text")
+    }
+  }
+  return { answer, cited_ref_ids }
 }
 
 // Builds a signed URL for a given API path
@@ -97,13 +118,86 @@ async function mockStreamAgent(
     `The most prominent nodes relate to recent episodes and community discussions.\n\n` +
     `*(This is a mock response — connect to a real backend to get live answers.)*`
 
-  for (const word of answer.split(" ")) {
-    await delay(40)
-    opts.onChunk(word + " ")
-  }
-
   await delay(200)
   opts.onDone({ answer, cited_ref_ids: ["mock-node-1", "mock-node-2"] })
+}
+
+async function processSSEStream(response: Response, opts: StreamAgentOpts): Promise<void> {
+  if (!response.body) {
+    opts.onError(new Error("No response body for SSE stream"))
+    return
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let accumulatedText = ""
+  const inFlight = new Map<string, ToolCallEvent>()
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const events = buffer.split("\n\n")
+      // Keep the last (possibly incomplete) chunk in the buffer
+      buffer = events.pop() ?? ""
+
+      for (const event of events) {
+        const line = event.trim()
+        if (!line.startsWith("data:")) continue
+
+        const jsonStr = line.slice("data:".length).trim()
+        let chunk: Record<string, unknown>
+        try {
+          chunk = JSON.parse(jsonStr)
+        } catch {
+          continue
+        }
+
+        switch (chunk.type) {
+          case "text-delta": {
+            const delta = (chunk.textDelta ?? chunk.delta ?? "") as string
+            accumulatedText += delta
+            // Do NOT call opts.onChunk — suppress raw JSON from the bubble.
+            // Tool-call events stream live; the answer is parsed and delivered on finish.
+            break
+          }
+          case "tool-input-available": {
+            const id = (chunk.toolCallId ?? `${chunk.toolName}-${Date.now()}`) as string
+            const event: ToolCallEvent = {
+              id,
+              tool: chunk.toolName as string,
+              params: (chunk.input ?? {}) as Record<string, unknown>,
+              status: "in-flight",
+            }
+            inFlight.set(id, event)
+            opts.onToolCall(event)
+            break
+          }
+          case "finish-step": {
+            for (const stored of inFlight.values()) {
+              opts.onToolCall({ ...stored, status: "done" })
+            }
+            inFlight.clear()
+            break
+          }
+          case "finish-message": {
+            opts.onDone(unwrapEnvelope(accumulatedText))
+            return
+          }
+        }
+      }
+    }
+    // Fallback if stream ends without finish-message
+    opts.onDone(unwrapEnvelope(accumulatedText))
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return
+    opts.onError(err instanceof Error ? err : new Error(String(err)))
+  } finally {
+    reader.releaseLock()
+  }
 }
 
 export async function streamAgent(
@@ -120,7 +214,7 @@ export async function streamAgent(
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      Accept: "application/json",
+      Accept: "text/event-stream",
     }
     if (l402) headers["Authorization"] = l402
 
@@ -131,6 +225,7 @@ export async function streamAgent(
         headers,
         body: JSON.stringify({
           prompt,
+          stream: true,
           sessionId: opts.sessionId,
           ...(opts.context ? { context: opts.context } : {}),
         }),
@@ -159,18 +254,7 @@ export async function streamAgent(
       return
     }
 
-    let data: { answer?: string; cited_ref_ids?: string[] }
-    try {
-      data = await response.json()
-    } catch {
-      opts.onError(new Error("Invalid JSON from agent"))
-      return
-    }
-
-    opts.onDone({
-      answer: data.answer ?? "",
-      cited_ref_ids: data.cited_ref_ids ?? [],
-    })
+    await processSSEStream(response, opts)
   }
 
   return doRequest()

@@ -1647,7 +1647,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
 
           {/* Connections — always visible regardless of unlock state */}
           <div className="pt-2 border-t border-border/30">
-            <ConnectionsSection nodeRefId={currentNode.ref_id} schemas={schemas} onNavigate={handleNavigate} />
+            <ConnectionsSection nodeRefId={currentNode.ref_id} schemas={schemas} currentNode={currentNode} onNavigate={handleNavigate} />
           </div>
         </div>
       </ScrollArea>

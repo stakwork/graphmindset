@@ -25,6 +25,7 @@ interface GraphState {
   setSidebarSelectedNode: (node: GraphNode | null) => void
   beginNeighborLoad: (refId: string) => void
   endNeighborLoad: (refId: string) => void
+  removeEdge: (edgeRefId: string) => void
   clearSelection: () => void
   returnTo: string | null
   setReturnTo: (url: string | null) => void
@@ -75,6 +76,10 @@ export const useGraphStore = create<GraphState>((set) => ({
       next.delete(refId)
       return { loadingNeighborRefs: next }
     }),
+  removeEdge: (edgeRefId) =>
+    set((s) => ({
+      edges: s.edges.filter((e) => e.ref_id !== edgeRefId),
+    })),
   clearSelection: () =>
     set({ selectedNode: null, sidebarSelectedNode: null, hoveredNode: null }),
   returnTo: null,

@@ -228,3 +228,38 @@ describe("Toolkit (desktop strip)", () => {
     expect(modalOpen).not.toHaveBeenCalledWith("settings")
   })
 })
+
+// ── "Add Lingo Node" tests ────────────────────────────────────────────────────
+
+describe("ToolkitFAB – Add Lingo Node", () => {
+  it("shows 'Add Lingo Node' action in FAB popup", async () => {
+    const { ToolkitFAB } = await import("@/components/layout/toolkit")
+    render(<ToolkitFAB {...defaultProps} />)
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
+    expect(screen.getByText("Add Lingo Node")).toBeInTheDocument()
+  })
+
+  it("clicking 'Add Lingo Node' calls openAdd('node', 'Lingo') and closes popup", async () => {
+    const { ToolkitFAB } = await import("@/components/layout/toolkit")
+    render(<ToolkitFAB {...defaultProps} />)
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
+    fireEvent.click(screen.getByText("Add Lingo Node"))
+    expect(modalOpenAdd).toHaveBeenCalledWith("node", "Lingo")
+    expect(screen.queryByText("Add Lingo Node")).not.toBeInTheDocument()
+  })
+})
+
+describe("Toolkit (desktop) – Add Lingo Node", () => {
+  it("renders 'Add Lingo Node' button", async () => {
+    const { Toolkit } = await import("@/components/layout/toolkit")
+    render(<Toolkit {...defaultProps} />)
+    expect(screen.getByRole("button", { name: "Add Lingo Node" })).toBeInTheDocument()
+  })
+
+  it("clicking 'Add Lingo Node' calls openAdd('node', 'Lingo')", async () => {
+    const { Toolkit } = await import("@/components/layout/toolkit")
+    render(<Toolkit {...defaultProps} />)
+    fireEvent.click(screen.getByRole("button", { name: "Add Lingo Node" }))
+    expect(modalOpenAdd).toHaveBeenCalledWith("node", "Lingo")
+  })
+})

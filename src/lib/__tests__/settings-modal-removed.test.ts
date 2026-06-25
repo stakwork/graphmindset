@@ -46,3 +46,24 @@ describe("modal-store – settings removed", () => {
     expect(useModalStore.getState().activeModal).toBeNull()
   })
 })
+
+describe("modal-store – preselectedNodeType", () => {
+  it("openAdd('node', 'Lingo') sets preselectedNodeType to 'Lingo'", () => {
+    useModalStore.getState().openAdd("node", "Lingo")
+    expect(useModalStore.getState().preselectedNodeType).toBe("Lingo")
+    expect(useModalStore.getState().addTab).toBe("node")
+    expect(useModalStore.getState().activeModal).toBe("add")
+  })
+
+  it("close() resets preselectedNodeType to null", () => {
+    useModalStore.getState().openAdd("node", "Lingo")
+    useModalStore.getState().close()
+    expect(useModalStore.getState().preselectedNodeType).toBeNull()
+  })
+
+  it("openAdd() without nodeType sets preselectedNodeType to null", () => {
+    useModalStore.getState().openAdd("node", "Lingo")
+    useModalStore.getState().openAdd("source")
+    expect(useModalStore.getState().preselectedNodeType).toBeNull()
+  })
+})

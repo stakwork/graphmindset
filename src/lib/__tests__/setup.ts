@@ -17,3 +17,7 @@ Object.defineProperty(globalThis, "IntersectionObserver", {
   configurable: true,
   value: IntersectionObserverStub,
 })
+
+// scrollIntoView stub — jsdom doesn't implement it, but message-list.tsx
+// calls it via a useEffect on the bottom sentinel ref.
+Element.prototype.scrollIntoView = () => {}

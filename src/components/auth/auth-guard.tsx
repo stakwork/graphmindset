@@ -16,6 +16,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const { setBudget, setIsAdmin, setPubKey, setRouteHint, setIsAuthenticated } = useUserStore()
   const setGraphMeta = useAppStore((s) => s.setGraphMeta)
+  const setActiveSkin = useAppStore((s) => s.setActiveSkin)
 
   const handleAuth = useCallback(async () => {
     try {
@@ -101,12 +102,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         depth?: number
         sort_by?: string
         top_node_count?: number
+        ui_skin?: string
       }>("/about")
       setGraphMeta(res.title ?? "Knowledge Graph", res.description ?? "")
+      setActiveSkin((res.ui_skin as import("@/skins/index").SkinId) ?? "default")
     } catch {
       setGraphMeta("Knowledge Graph", "")
     }
-  }, [setGraphMeta])
+  }, [setGraphMeta, setActiveSkin])
 
   useEffect(() => {
     const init = async () => {

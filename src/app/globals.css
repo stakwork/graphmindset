@@ -268,6 +268,23 @@
   background: oklch(0.72 0.14 200 / 0.08);
 }
 
+/* ── Agent animations ──────────────────────────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.7; }
+}
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 4px;
@@ -281,4 +298,31 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.4 0.02 260);
+}
+
+/* ── Legal Skin Theme Tokens ───────────────────────────────────────────────── */
+.skin-legal {
+  --background:          oklch(0.09 0.03 250);   /* deep navy */
+  --foreground:          oklch(0.92 0.02 55);    /* warm cream */
+  --card:                oklch(0.12 0.04 250);
+  --card-foreground:     oklch(0.92 0.02 55);
+  --popover:             oklch(0.11 0.04 250);
+  --popover-foreground:  oklch(0.92 0.02 55);
+  --primary:             oklch(0.72 0.15 75);    /* gold */
+  --primary-foreground:  oklch(0.09 0.03 250);
+  --secondary:           oklch(0.16 0.04 250);
+  --secondary-foreground:oklch(0.88 0.02 55);
+  --muted:               oklch(0.15 0.035 250);
+  --muted-foreground:    oklch(0.55 0.02 55);
+  --accent:              oklch(0.16 0.04 250);
+  --accent-foreground:   oklch(0.92 0.02 55);
+  --border:              oklch(0.22 0.04 250);
+  --input:               oklch(0.16 0.04 250);
+  --ring:                oklch(0.65 0.13 75);    /* gold ring */
+  --cyan:                oklch(0.72 0.15 75);    /* remap cyan → gold */
+  --cyan-muted:          oklch(0.45 0.08 75);
+  --sidebar:             oklch(0.07 0.03 250);
+  --sidebar-foreground:  oklch(0.88 0.02 55);
+  --sidebar-primary:     oklch(0.72 0.15 75);
+  --sidebar-border:      oklch(0.20 0.04 250);
 }
