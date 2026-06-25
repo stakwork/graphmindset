@@ -6,7 +6,7 @@ import {
   fieldsForSchema,
   OPTIONAL_GROUP_ORDER,
 } from "@/lib/node-schema-utils"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 
 describe("humanizeFieldKey", () => {
   it("title-cases snake_case keys", () => {

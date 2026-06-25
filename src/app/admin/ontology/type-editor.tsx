@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { SelectCustom } from "@/components/ui/select-custom"
 import { MultiSelectCustom } from "@/components/ui/multi-select-custom"
 import { MAX_LENGTHS } from "@/lib/input-limits"
-import type { SchemaNode, SchemaAttribute, SchemaEdge } from "./page"
+import type { SchemaNode, SchemaAttribute, SchemaEdge } from "@/lib/schema-types"
 
 const COLORS = [
   "#6366f1", "#0d9488", "#d97706", "#8b5cf6", "#ef4444",

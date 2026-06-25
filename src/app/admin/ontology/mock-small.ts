@@ -1,4 +1,4 @@
-import type { SchemaNode, SchemaEdge } from "./page"
+import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
 
 // Trimmed from real /schema/all response
 export const SMALL_SCHEMAS: SchemaNode[] = [

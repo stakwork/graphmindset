@@ -49,7 +49,7 @@ vi.mock("@/hooks/use-neighbor-fetch", () => ({ useNeighborFetch: vi.fn() }))
 vi.mock("@/hooks/use-deep-link", () => ({ useDeepLink: vi.fn() }))
 vi.mock("@/hooks/use-panel-graph-sync", () => ({ usePanelGraphSync: vi.fn() }))
 vi.mock("@/lib/mock-data", () => ({ isMocksEnabled: vi.fn().mockReturnValue(false) }))
-vi.mock("@/app/ontology/mock-small", () => ({ SMALL_SCHEMAS: [] }))
+vi.mock("@/app/admin/ontology/mock-small", () => ({ SMALL_SCHEMAS: [] }))
 vi.mock("@/stores/schema-store", () => ({
   useSchemaStore: (sel?: (s: { schemas: unknown[]; fetchAll: () => void }) => unknown) => {
     const state = { schemas: [], fetchAll: vi.fn() }
@@ -170,7 +170,7 @@ describe("AppearanceSettings – skin selection and save", () => {
 
   async function renderAppearance(skinOverride = "default") {
     appStoreMockState.activeSkin = skinOverride
-    const { AppearanceSettings } = await import("@/app/settings/appearance-settings")
+    const { AppearanceSettings } = await import("@/components/admin/appearance-settings")
     render(<AppearanceSettings open={true} />)
   }
 
@@ -237,7 +237,7 @@ describe("AppearanceSettings – skin selection and save", () => {
   })
 
   it("renders nothing when open=false", async () => {
-    const { AppearanceSettings } = await import("@/app/settings/appearance-settings")
+    const { AppearanceSettings } = await import("@/components/admin/appearance-settings")
     const { container } = render(<AppearanceSettings open={false} />)
     expect(container.firstChild).toBeNull()
   })

@@ -30,7 +30,7 @@ import type {
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 import { HoverPreviewCard } from "./hover-preview-card"
 import { DISPLAY_KEY_FALLBACKS, resolveNodeThumbnail } from "@/lib/node-display"
 

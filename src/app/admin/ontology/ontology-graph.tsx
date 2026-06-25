@@ -7,7 +7,7 @@ import { select as d3Select } from "d3-selection"
 import "d3-transition"
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { SchemaNode, SchemaEdge } from "./page"
+import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
 
 const NODE_WIDTH = 160
 const NODE_HEIGHT = 56

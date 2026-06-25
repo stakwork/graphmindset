@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { AgentMessage } from "@/lib/agent-api"
 import type { GraphNode } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 
 // Basic markdown renderer — bold, italic, inline code, line breaks, headings
 function MarkdownText({ text }: { text: string }) {

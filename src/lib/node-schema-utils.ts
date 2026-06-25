@@ -1,4 +1,4 @@
-import type { SchemaNode, SchemaAttribute } from "@/app/ontology/page"
+import type { SchemaNode, SchemaAttribute } from "@/lib/schema-types"
 
 // Backend book-keeping attributes that are never user-facing.
 // owner_reference_id is set from the LSAT, weight/is_muted are

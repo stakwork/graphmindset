@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
-import { EdgeTypePanel } from "@/app/ontology/edge-type-panel"
-import type { SchemaEdge, SchemaNode } from "@/app/ontology/page"
+import { EdgeTypePanel } from "@/app/admin/ontology/edge-type-panel"
+import type { SchemaEdge, SchemaNode } from "@/lib/schema-types"
 
 // ---------------------------------------------------------------------------
 // Helpers

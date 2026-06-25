@@ -1,7 +1,7 @@
 "use client"
 
 import { create } from "zustand"
-import type { SchemaNode, SchemaEdge } from "@/app/ontology/page"
+import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
 import { api } from "@/lib/api"
 import { isMocksEnabled } from "@/lib/mock-data"
 

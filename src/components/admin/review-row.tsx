@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/tooltip"
 import { NodeRow } from "@/components/layout/node-row"
 import { Checkbox } from "@/components/ui/checkbox"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 import { DISPLAY_KEY_FALLBACKS, pickString } from "@/lib/node-display"
 import { useUserStore } from "@/stores/user-store"
 import { useGraphStore } from "@/stores/graph-store"

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Badge } from "@/components/ui/badge"
 import type { GraphNode } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 import { DISPLAY_KEY_FALLBACKS, capTitle } from "@/lib/node-display"
 const SNIPPET_KEYS = ["description", "text", "bio", "content", "body"] as const
 const CARD_WIDTH = 280

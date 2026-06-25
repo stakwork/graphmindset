@@ -6,7 +6,7 @@ import { pickString, resolveNodeBody, resolveNodeTitle, resolveNodeThumbnail, un
 import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { cn, formatCompactNumber } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 
 function timeAgo(value: unknown): string | null {
   const d = parseTimestamp(value)

@@ -223,12 +223,12 @@ export function Toolkit({
           <ToolkitButton
             icon={Network}
             ariaLabel="Ontology"
-            onClick={() => router.push("/ontology")}
+            onClick={() => router.push("/admin/ontology")}
           />
           <ToolkitButton
             icon={Boxes}
             ariaLabel="Domains"
-            onClick={() => router.push("/domains")}
+            onClick={() => router.push("/admin/domains")}
           />
           <ToolkitButton
             icon={ClipboardList}
@@ -238,8 +238,8 @@ export function Toolkit({
           />
           <ToolkitButton
             icon={Settings}
-            ariaLabel="Settings"
-            onClick={() => router.push("/settings")}
+            ariaLabel="Admin"
+            onClick={() => router.push("/admin")}
           />
         </>
       )}
@@ -350,14 +350,14 @@ export function ToolkitFAB({
               <>
                 <div className="my-1 mx-2 h-px bg-border/60" />
                 {[
-                  { icon: Network, label: "Ontology", action: () => router.push("/ontology") },
-                  { icon: Boxes, label: "Domains", action: () => router.push("/domains") },
+                  { icon: Network, label: "Ontology", action: () => router.push("/admin/ontology") },
+                  { icon: Boxes, label: "Domains", action: () => router.push("/admin/domains") },
                   {
                     icon: ClipboardList,
                     label: `Reviews${pendingCount > 0 ? ` (${pendingCount})` : ""}`,
                     action: () => router.push("/admin/reviews"),
                   },
-                  { icon: Settings, label: "Settings", action: () => router.push("/settings") },
+                  { icon: Settings, label: "Admin", action: () => router.push("/admin") },
                 ].map(({ icon: Icon, label, action }) => (
                   <button
                     key={label}

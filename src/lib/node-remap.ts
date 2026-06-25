@@ -1,4 +1,4 @@
-import type { SchemaAttribute } from "@/app/ontology/page"
+import type { SchemaAttribute } from "@/lib/schema-types"
 
 // ---------------------------------------------------------------------------
 // Jaro-Winkler string similarity — no external dependency

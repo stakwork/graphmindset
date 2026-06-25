@@ -57,7 +57,7 @@ vi.mock("@/lib/mock-data", () => ({
 }))
 
 async function renderAuditSettings(open = true) {
-  const { SchemaAuditSettings } = await import("@/app/settings/schema-audit")
+  const { SchemaAuditSettings } = await import("@/components/admin/schema-audit")
   return render(<SchemaAuditSettings open={open} />)
 }
 

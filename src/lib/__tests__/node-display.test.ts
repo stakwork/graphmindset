@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { capTitle, TITLE_MAX_LEN, resolveNodeTitle } from "@/lib/node-display"
 import type { GraphNode } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 
 describe("capTitle", () => {
   it("returns string unchanged when <= 120 chars", () => {

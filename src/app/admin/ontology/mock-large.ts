@@ -1,4 +1,4 @@
-import type { SchemaNode, SchemaEdge } from "./page"
+import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
 
 const COLORS = [
   "#6366f1", "#0d9488", "#d97706", "#8b5cf6", "#ef4444",
