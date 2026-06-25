@@ -13,7 +13,7 @@ import { useNeighborFetch } from "@/hooks/use-neighbor-fetch"
 import { useDeepLink } from "@/hooks/use-deep-link"
 import { usePanelGraphSync } from "@/hooks/use-panel-graph-sync"
 import { isMocksEnabled } from "@/lib/mock-data"
-import { SMALL_SCHEMAS } from "@/app/ontology/mock-small"
+import { SMALL_SCHEMAS } from "@/app/admin/ontology/mock-small"
 import { SKINS } from "@/skins/index"
 import { cn } from "@/lib/utils"
 

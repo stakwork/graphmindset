@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { fuzzyScore, computeMappings } from "@/lib/node-remap"
-import type { SchemaAttribute } from "@/app/ontology/page"
+import type { SchemaAttribute } from "@/lib/schema-types"
 
 // ---------------------------------------------------------------------------
 // Helpers

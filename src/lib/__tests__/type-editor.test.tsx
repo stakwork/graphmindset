@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { TypeEditor } from "@/app/ontology/type-editor"
-import type { SchemaNode, SchemaEdge } from "@/app/ontology/page"
+import { TypeEditor } from "@/app/admin/ontology/type-editor"
+import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
 
 const baseSchema: SchemaNode = {
   ref_id: "s-1",

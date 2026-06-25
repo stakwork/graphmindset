@@ -32,7 +32,7 @@ import {
   type FuzzyMapping,
   type UnmappedField,
 } from "@/lib/node-remap"
-import type { SchemaNode, SchemaAttribute } from "@/app/ontology/page"
+import type { SchemaNode, SchemaAttribute } from "@/lib/schema-types"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------

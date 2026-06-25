@@ -156,7 +156,7 @@ describe("ToolkitFAB", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
     expect(screen.queryByText("Ontology")).not.toBeInTheDocument()
     expect(screen.queryByText("Reviews")).not.toBeInTheDocument()
-    expect(screen.queryByText("Settings")).not.toBeInTheDocument()
+    expect(screen.queryByText("Admin")).not.toBeInTheDocument()
   })
 
   it("admin actions are present when isAdmin=true", async () => {
@@ -166,7 +166,7 @@ describe("ToolkitFAB", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
     expect(screen.getByText("Ontology")).toBeInTheDocument()
-    expect(screen.getByText("Settings")).toBeInTheDocument()
+    expect(screen.getByText("Admin")).toBeInTheDocument()
     // Reviews label (no pending count)
     expect(screen.getByText("Reviews")).toBeInTheDocument()
   })
@@ -190,15 +190,15 @@ describe("ToolkitFAB", () => {
     expect(screen.getByText("2.5k sats")).toBeInTheDocument()
   })
 
-  it("Settings button navigates to /settings via router.push (not openModal)", async () => {
+  it("Admin button navigates to /admin via router.push (not openModal)", async () => {
     userState.isAdmin = true
     const { ToolkitFAB } = await import("@/components/layout/toolkit")
     render(<ToolkitFAB {...defaultProps} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
-    fireEvent.click(screen.getByText("Settings"))
+    fireEvent.click(screen.getByText("Admin"))
 
-    expect(mockPush).toHaveBeenCalledWith("/settings")
+    expect(mockPush).toHaveBeenCalledWith("/admin")
     // must NOT call openModal for settings
     expect(modalOpen).not.toHaveBeenCalledWith("settings")
   })
@@ -216,15 +216,15 @@ describe("Toolkit (desktop strip)", () => {
     expect(root?.className).toContain("sm:flex")
   })
 
-  it("Settings button in desktop toolbar navigates to /settings via router.push", async () => {
+  it("Admin button in desktop toolbar navigates to /admin via router.push", async () => {
     userState.isAdmin = true
     const { Toolkit } = await import("@/components/layout/toolkit")
     render(<Toolkit {...defaultProps} />)
 
-    const settingsBtn = screen.getByRole("button", { name: "Settings" })
-    fireEvent.click(settingsBtn)
+    const adminBtn = screen.getByRole("button", { name: "Admin" })
+    fireEvent.click(adminBtn)
 
-    expect(mockPush).toHaveBeenCalledWith("/settings")
+    expect(mockPush).toHaveBeenCalledWith("/admin")
     expect(modalOpen).not.toHaveBeenCalledWith("settings")
   })
 })

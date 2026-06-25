@@ -1,5 +1,5 @@
 import type { GraphNode } from "./graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 
 export const TITLE_MAX_LEN = 120
 

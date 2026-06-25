@@ -18,54 +18,11 @@ import { Input } from "@/components/ui/input"
 import { useSchemaStore } from "@/stores/schema-store"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
-
-export interface SchemaAttribute {
-  key: string
-  type: string
-  required: boolean
-}
-
-export interface SchemaNode {
-  ref_id: string
-  type: string
-  parent: string
-  color: string
-  node_key: string
-  // The search domain this schema belongs to (lowercased). Domains are derived
-  // backend-side from `DISTINCT toLower(s.domain)`; a root type only registers as
-  // its own domain when this is set to its name. Omitted → backend defaults to
-  // "entity". Set explicitly by the Domains editor; left unset by the ontology editor.
-  domain?: string
-  attributes: SchemaAttribute[]
-  inherited_attributes?: SchemaAttribute[]
-  title_key?: string
-  index?: string
-  description_key?: string
-  icon?: string
-  secondary_color?: string
-  paid_properties?: string[]
-}
-
-export interface SchemaEdge {
-  ref_id: string
-  // `source`/`target` are the connected schema NODES' ref_ids (used to lay out
-  // the ontology graph), NOT type names. Use `source_type`/`target_type` to
-  // match against a node's node_type.
-  source: string
-  target: string
-  edge_type: string
-  source_type?: string
-  target_type?: string
-  // Attribute definitions for this edge type, e.g. { since: "?datetime",
-  // role: "string" }. A leading "?" marks the attribute optional. Present on
-  // the live /schema/all payload; absent on some mock fixtures.
-  attributes?: Record<string, string>
-}
+import type { SchemaNode } from "@/lib/schema-types"
 
 export default function OntologyPage() {
   const router = useRouter()
   const isAdmin = useUserStore((s) => s.isAdmin)
-  const isAuthenticated = useUserStore((s) => s.isAuthenticated)
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [view3D, setView3D] = useState(false)
@@ -74,13 +31,6 @@ export default function OntologyPage() {
   const [sidebarTab, setSidebarTab] = useState<"nodes" | "edges">("nodes")
   const [selectedEdgeType, setSelectedEdgeType] = useState<string | null>(null)
   const [edgeSearch, setEdgeSearch] = useState("")
-
-  useEffect(() => {
-    if (isAuthenticated && !isAdmin) {
-      router.replace("/")
-      return
-    }
-  }, [isAdmin, isAuthenticated, router])
 
   useEffect(() => {
     if (isMocksEnabled()) {
@@ -188,7 +138,7 @@ export default function OntologyPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/admin")}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />

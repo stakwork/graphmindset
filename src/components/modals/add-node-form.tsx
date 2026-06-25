@@ -17,7 +17,7 @@ import {
   getSchemaDomains,
   type SchemaDomainsResponse,
 } from "@/lib/graph-api"
-import type { SchemaNode, SchemaAttribute } from "@/app/ontology/page"
+import type { SchemaNode, SchemaAttribute } from "@/lib/schema-types"
 import {
   fieldsForSchema,
   humanizeFieldKey,

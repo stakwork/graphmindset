@@ -22,7 +22,7 @@ import { getAttachables } from "@/lib/graph-api"
 import type { GraphNode } from "@/lib/graph-api"
 import { resolveNodeTitle, resolveNodeThumbnail, pickString } from "@/lib/node-display"
 import { displayNodeType, cn } from "@/lib/utils"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 
 interface AttachableEmbedsProps {
   nodeRefId: string

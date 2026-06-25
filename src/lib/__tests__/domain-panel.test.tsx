@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { DomainPanel, type DomainRow } from "@/app/domains/domain-panel"
-import type { SchemaNode } from "@/app/ontology/page"
+import { DomainPanel, type DomainRow } from "@/app/admin/domains/domain-panel"
+import type { SchemaNode } from "@/lib/schema-types"
 
 function schema(type: string, domain?: string): SchemaNode {
   return {
@@ -37,6 +37,8 @@ const defaultProps = {
   onAddTypes: vi.fn(),
   onRemoveType: vi.fn(),
   onToggleHidden: vi.fn(),
+  hiddenTypes: new Set<string>(),
+  onToggleTypeHidden: vi.fn(),
   onDelete: vi.fn(),
   onClose: vi.fn(),
 }
@@ -77,6 +79,30 @@ describe("DomainPanel", () => {
     render(<DomainPanel {...defaultProps} onToggleHidden={onToggleHidden} />)
     await userEvent.click(screen.getByRole("switch"))
     expect(onToggleHidden).toHaveBeenCalledWith(true)
+  })
+
+  it("hiding a member type calls onToggleTypeHidden", async () => {
+    const onToggleTypeHidden = vi.fn()
+    render(<DomainPanel {...defaultProps} onToggleTypeHidden={onToggleTypeHidden} />)
+    const row = screen.getByText("TwitterAccount").closest("div")!.parentElement!
+    const hideBtn = within(row).getByTitle(/Hide type from search/)
+    await userEvent.click(hideBtn)
+    expect(onToggleTypeHidden).toHaveBeenCalledWith("TwitterAccount", true)
+  })
+
+  it("shows a hidden member type as toggleable back on", async () => {
+    const onToggleTypeHidden = vi.fn()
+    render(
+      <DomainPanel
+        {...defaultProps}
+        hiddenTypes={new Set(["TwitterAccount"])}
+        onToggleTypeHidden={onToggleTypeHidden}
+      />
+    )
+    const row = screen.getByText("TwitterAccount").closest("div")!.parentElement!
+    const showBtn = within(row).getByTitle(/Show type in search/)
+    await userEvent.click(showBtn)
+    expect(onToggleTypeHidden).toHaveBeenCalledWith("TwitterAccount", false)
   })
 
   it("delete is unavailable while the domain has members", () => {

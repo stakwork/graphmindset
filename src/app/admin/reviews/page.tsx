@@ -6,7 +6,6 @@ import { ArrowLeft, ArrowRightLeft, GitMerge, Layers, Network, Pencil, PlusSquar
 import { useDebounce } from "@/hooks/use-debounce"
 import { Input } from "@/components/ui/input"
 import type { LucideIcon } from "lucide-react"
-import { useUserStore } from "@/stores/user-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { approveReview, dismissReview, listReviews } from "@/lib/graph-api"
@@ -67,7 +66,6 @@ function SkeletonRows() {
 
 export default function ReviewsPage() {
   const router = useRouter()
-  const { isAdmin } = useUserStore()
   const { setPendingCount } = useReviewStore()
   const schemas = useSchemaStore((s) => s.schemas)
 
@@ -89,11 +87,6 @@ export default function ReviewsPage() {
   const [bulkError, setBulkError] = useState<string | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
-
-  // Redirect non-admins
-  useEffect(() => {
-    if (!isAdmin) router.replace("/")
-  }, [isAdmin, router])
 
   const fetchReviews = useCallback(
     async (currentSkip = 0, options?: { silent?: boolean }) => {
@@ -231,8 +224,6 @@ export default function ReviewsPage() {
   const totalPages = Math.ceil(total / PAGE_SIZE)
   const currentPage = Math.floor(skip / PAGE_SIZE) + 1
 
-  if (!isAdmin) return null
-
   return (
     <div className="flex h-full flex-col bg-background text-foreground overflow-hidden">
       {/* Title row */}
@@ -240,7 +231,7 @@ export default function ReviewsPage() {
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/admin")}
           className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />

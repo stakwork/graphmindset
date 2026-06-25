@@ -9,7 +9,8 @@ import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { MultiSelectCustom } from "@/components/ui/multi-select-custom"
 import { MAX_LENGTHS } from "@/lib/input-limits"
-import type { SchemaNode } from "@/app/ontology/page"
+import { cn } from "@/lib/utils"
+import type { SchemaNode } from "@/lib/schema-types"
 
 export interface DomainRow {
   /** Lowercased domain identifier (the canonical key). */
@@ -29,6 +30,9 @@ interface DomainPanelProps {
   onAddTypes: (typeNames: string[]) => void
   onRemoveType: (typeName: string) => void
   onToggleHidden: (hidden: boolean) => void
+  /** Node types currently hidden from search (hidden_types). */
+  hiddenTypes: Set<string>
+  onToggleTypeHidden: (typeName: string, hidden: boolean) => void
   onDelete: () => void
   onClose: () => void
   busy?: boolean
@@ -48,6 +52,8 @@ export function DomainPanel({
   onAddTypes,
   onRemoveType,
   onToggleHidden,
+  hiddenTypes,
+  onToggleTypeHidden,
   onDelete,
   onClose,
   busy,
@@ -181,7 +187,7 @@ export function DomainPanel({
             ) : (
               <Eye className="h-3.5 w-3.5 text-muted-foreground" />
             )}
-            <span className="text-xs text-foreground">Hidden from search</span>
+            <span className="text-xs text-foreground">Hide entire domain from search</span>
           </div>
           <Switch
             checked={domain.hidden}
@@ -210,33 +216,53 @@ export function DomainPanel({
             </p>
           ) : (
             <div className="rounded-md border border-border/40 divide-y divide-border/30 max-h-56 overflow-y-auto">
-              {domain.members.map((m) => (
-                <div
-                  key={m.ref_id || m.type}
-                  className="flex items-center gap-2 px-3 py-2"
-                >
+              {domain.members.map((m) => {
+                const typeHidden = hiddenTypes.has(m.type)
+                return (
                   <div
-                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: m.color }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-foreground truncate">{m.type}</p>
-                    {m.parent && (
-                      <p className="text-[10px] font-mono text-muted-foreground/70 truncate">
-                        ↳ {m.parent}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => onRemoveType(m.type)}
-                    disabled={busy}
-                    title="Remove from domain (moves to entity)"
-                    className="text-muted-foreground/40 hover:text-destructive transition-colors shrink-0 disabled:opacity-40"
+                    key={m.ref_id || m.type}
+                    className="flex items-center gap-2 px-3 py-2"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
+                    <div
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: m.color }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-foreground truncate">{m.type}</p>
+                      {m.parent && (
+                        <p className="text-[10px] font-mono text-muted-foreground/70 truncate">
+                          ↳ {m.parent}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => onToggleTypeHidden(m.type, !typeHidden)}
+                      disabled={busy}
+                      title={typeHidden ? "Show type in search" : "Hide type from search"}
+                      className={cn(
+                        "shrink-0 transition-colors disabled:opacity-40",
+                        typeHidden
+                          ? "text-amber-300/90 hover:text-amber-300"
+                          : "text-muted-foreground/40 hover:text-foreground"
+                      )}
+                    >
+                      {typeHidden ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => onRemoveType(m.type)}
+                      disabled={busy}
+                      title="Remove from domain (moves to entity)"
+                      className="text-muted-foreground/40 hover:text-destructive transition-colors shrink-0 disabled:opacity-40"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
 

@@ -16,7 +16,7 @@ import {
   PrevNodeIndicator,
 } from "@/graph-viz-kit"
 import type { Graph, ViewState, RawNode, RawEdge } from "@/graph-viz-kit"
-import type { SchemaNode, SchemaEdge } from "./page"
+import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
 
 interface Props {
   schemas: SchemaNode[]

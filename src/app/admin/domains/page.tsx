@@ -8,12 +8,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MultiSelectCustom } from "@/components/ui/multi-select-custom"
 import { DomainPanel, type DomainRow } from "./domain-panel"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 import { useSchemaStore } from "@/stores/schema-store"
-import { useUserStore } from "@/stores/user-store"
 import { useAppStore } from "@/stores/app-store"
 import { isMocksEnabled, MOCK_DOMAINS } from "@/lib/mock-data"
-import { SMALL_SCHEMAS, SMALL_EDGES } from "@/app/ontology/mock-small"
+import { SMALL_SCHEMAS, SMALL_EDGES } from "@/app/admin/ontology/mock-small"
 import {
   getSchemaDomains,
   updateHiddenLists,
@@ -35,8 +34,6 @@ function capitalize(s: string): string {
 
 export default function DomainsPage() {
   const router = useRouter()
-  const isAdmin = useUserStore((s) => s.isAdmin)
-  const isAuthenticated = useUserStore((s) => s.isAuthenticated)
   const store = useSchemaStore()
   const { graphName, graphDescription } = useAppStore()
 
@@ -51,10 +48,6 @@ export default function DomainsPage() {
   const [creating, setCreating] = useState(false)
   const [createName, setCreateName] = useState("")
   const [createTypes, setCreateTypes] = useState<string[]>([])
-
-  useEffect(() => {
-    if (isAuthenticated && !isAdmin) router.replace("/")
-  }, [isAdmin, isAuthenticated, router])
 
   const reloadDomains = useCallback(async () => {
     setLoadingDomains(true)
@@ -199,6 +192,35 @@ export default function DomainsPage() {
     [domainsInfo, graphName, graphDescription]
   )
 
+  // Per-type visibility (hidden_types). Mirrors handleToggleHidden but operates
+  // on individual node types rather than whole domains.
+  const handleToggleTypeHidden = useCallback(
+    async (typeName: string, hidden: boolean) => {
+      const current = new Set(domainsInfo?.hidden_types ?? [])
+      if (hidden) current.add(typeName)
+      else current.delete(typeName)
+      const next = Array.from(current).sort()
+      setBusy(true)
+      setError(null)
+      try {
+        if (!isMocksEnabled()) {
+          await updateHiddenLists(graphName, graphDescription, next, undefined)
+        }
+        setDomainsInfo((prev) => (prev ? { ...prev, hidden_types: next } : prev))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update visibility")
+      } finally {
+        setBusy(false)
+      }
+    },
+    [domainsInfo, graphName, graphDescription]
+  )
+
+  const hiddenTypes = useMemo(
+    () => new Set(domainsInfo?.hidden_types ?? []),
+    [domainsInfo]
+  )
+
   const handleDelete = useCallback(
     async (row: DomainRow) => {
       // Empty domains are derived away on reload; just clean up a stale hidden entry.
@@ -241,8 +263,6 @@ export default function DomainsPage() {
     [store.schemas]
   )
 
-  if (isAuthenticated && !isAdmin) return null
-
   const loading = loadingDomains && store.loading
 
   return (
@@ -253,7 +273,7 @@ export default function DomainsPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/admin")}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -389,6 +409,8 @@ export default function DomainsPage() {
               onAddTypes={(types) => handleAddTypes(selectedRow, types)}
               onRemoveType={handleRemoveType}
               onToggleHidden={(hidden) => handleToggleHidden(selectedRow, hidden)}
+              hiddenTypes={hiddenTypes}
+              onToggleTypeHidden={handleToggleTypeHidden}
               onDelete={() => handleDelete(selectedRow)}
               onClose={() => setSelectedKey(null)}
               busy={busy}

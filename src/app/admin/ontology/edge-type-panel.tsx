@@ -4,7 +4,7 @@ import { X, GitMerge } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
-import type { SchemaEdge, SchemaNode } from "./page"
+import type { SchemaEdge, SchemaNode } from "@/lib/schema-types"
 
 interface Props {
   edgeType: string

@@ -9,7 +9,7 @@ import { pickString, DISPLAY_KEY_FALLBACKS, capTitle } from "@/lib/node-display"
 import { getStatusBadge } from "@/lib/node-status"
 import { cn, displayNodeType } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 import { formatDateAbsolute } from "@/lib/date-format"
 
 interface NodeRowProps {

@@ -9,7 +9,7 @@ import { useModalStore } from "@/stores/modal-store"
 import { pickString, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { displayNodeType } from "@/lib/utils"
 import { deleteEdge } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 import type { GraphNode } from "@/lib/graph-api"
 
 interface ConnectionsSectionProps {

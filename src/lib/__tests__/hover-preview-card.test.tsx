@@ -2,7 +2,7 @@ import { render } from "@testing-library/react"
 import { describe, it, expect } from "vitest"
 import { HoverPreviewCard } from "@/components/universe/hover-preview-card"
 import type { GraphNode } from "@/lib/graph-api"
-import type { SchemaNode } from "@/app/ontology/page"
+import type { SchemaNode } from "@/lib/schema-types"
 
 const baseSchema: SchemaNode = {
   type: "topic",
