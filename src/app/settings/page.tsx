@@ -33,8 +33,13 @@ const SchemaAuditSettings = dynamic(
   { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
 )
 
-const VALID_TABS = ["general", "radar", "janitor", "domains", "audit"] as const
-const ADMIN_ONLY_TABS = ["radar", "janitor", "domains", "audit"] as const
+const ActivitySettings = dynamic(
+  () => import("@/app/settings/activity").then((m) => m.ActivitySettings),
+  { ssr: false, loading: () => <p className="text-sm text-muted-foreground">Loading…</p> }
+)
+
+const VALID_TABS = ["general", "radar", "janitor", "activity", "domains", "audit"] as const
+const ADMIN_ONLY_TABS = ["radar", "janitor", "activity", "domains", "audit"] as const
 type TabId = (typeof VALID_TABS)[number]
 
 function resolveTab(raw: string | null, isAdmin: boolean): TabId {
@@ -122,6 +127,7 @@ function SettingsContent() {
               <TabsTrigger value="general">General</TabsTrigger>
               {isAdmin && <TabsTrigger value="radar">Schedule</TabsTrigger>}
               {isAdmin && <TabsTrigger value="janitor">Janitors</TabsTrigger>}
+              {isAdmin && <TabsTrigger value="activity">Activity</TabsTrigger>}
               {isAdmin && <TabsTrigger value="domains">Domains</TabsTrigger>}
               {isAdmin && <TabsTrigger value="audit">Audit</TabsTrigger>}
             </TabsList>
@@ -187,6 +193,12 @@ function SettingsContent() {
             {isAdmin && (
               <TabsContent value="janitor" className="pt-4">
                 <JanitorSettings open={activeTab === "janitor"} />
+              </TabsContent>
+            )}
+
+            {isAdmin && (
+              <TabsContent value="activity" className="pt-4">
+                <ActivitySettings open={activeTab === "activity"} />
               </TabsContent>
             )}
 
