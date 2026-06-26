@@ -202,7 +202,7 @@ describe("ReviewRow", () => {
 
     // Confirm in the popover triggers the API
     await user.click(getByText("Confirm"))
-    await waitFor(() => expect(mockApproveReview).toHaveBeenCalledWith("rv-approve-me"))
+    await waitFor(() => expect(mockApproveReview).toHaveBeenCalledWith("rv-approve-me", undefined))
     await waitFor(() => expect(onRefresh).toHaveBeenCalled())
   })
 
@@ -935,6 +935,168 @@ describe("ReviewRow", () => {
     )
     await user.click(getByText("Add schema edge (incomplete)"))
     expect(getByText("Proposed Schema Edge")).toBeTruthy()
+  })
+})
+
+// ── Interactive merge controls ───────────────────────────────────────────────
+
+describe("ReviewRow merge_nodes interactive controls", () => {
+  const user = userEvent.setup()
+  const noop = () => {}
+
+  function makeMergeReview(overrides: Partial<Review> = {}): Review {
+    return makeReview({
+      action_name: "merge_nodes",
+      action_payload: { from: ["n2", "n3"], to: "n1" },
+      subject_nodes: [
+        { ref_id: "n1", node_type: "Topic", properties: { name: "Node One" } },
+        { ref_id: "n2", node_type: "Topic", properties: { name: "Node Two" } },
+        { ref_id: "n3", node_type: "Topic", properties: { name: "Node Three" } },
+      ],
+      ...overrides,
+    })
+  }
+
+  beforeEach(() => {
+    mockApproveReview.mockReset()
+    mockApproveReview.mockResolvedValue({ status: "approved" })
+  })
+
+  it("shows all sources checked by default on expand", async () => {
+    const { getByText, getAllByRole } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    // Expand the row
+    await user.click(getByText("Node Two"))
+    // Both source checkboxes should be checked
+    const checkboxes = getAllByRole("checkbox")
+    expect(checkboxes.length).toBeGreaterThanOrEqual(2)
+    checkboxes.forEach((cb) => {
+      expect((cb as HTMLInputElement).checked).toBe(true)
+    })
+  })
+
+  it("shows canonical node with locked indicator, no checkbox", async () => {
+    const { getByText, getByLabelText, queryByLabelText } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    // Expand the row by clicking the chevron/row area — click on rationale text not present;
+    // click the row container via the role=button
+    const rowBtn = getByText("Node Two").closest("[role='button']") ?? getByText("Node Two")
+    await user.click(rowBtn)
+    // canonical locked indicator present
+    expect(getByLabelText("Canonical node (locked)")).toBeTruthy()
+    // No checkbox for canonical (n1 is toId)
+    expect(queryByLabelText("Include n1 in merge")).toBeNull()
+  })
+
+  it("unchecking last source shows mergeError and disables Approve", async () => {
+    const review = makeMergeReview({
+      action_payload: { from: ["n2"], to: "n1" },
+      subject_nodes: [
+        { ref_id: "n1", node_type: "Topic", properties: { name: "Node One" } },
+        { ref_id: "n2", node_type: "Topic", properties: { name: "Node Two" } },
+      ],
+    })
+    const { getByText, getByRole, findByText } = render(
+      <ReviewRow schemas={[]} review={review} onRefresh={noop} />
+    )
+    // Expand
+    await user.click(getByText("Node One"))
+
+    // Uncheck the only source checkbox
+    const checkbox = getByRole("checkbox")
+    await user.click(checkbox)
+
+    // Error message visible
+    await findByText("Select at least one source node to merge")
+
+    // Approve button should be disabled
+    const approveBtn = getByText("Merge")
+    expect((approveBtn as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it("unchecking a source marks isModified; approve called with override", async () => {
+    const review = makeMergeReview()
+    const { getByText, getAllByRole } = render(
+      <ReviewRow schemas={[]} review={review} onRefresh={noop} />
+    )
+    // Expand
+    await user.click(getByText("Node Two"))
+
+    // Uncheck first source (n2)
+    const checkboxes = getAllByRole("checkbox")
+    // First checkbox corresponds to first source in fromIds after filtering canonical
+    await user.click(checkboxes[0])
+
+    // Approve → popover opens → confirm
+    await user.click(getByText("Merge"))
+    await user.click(getByText("Confirm"))
+
+    await waitFor(() => {
+      expect(mockApproveReview).toHaveBeenCalledWith(
+        "rv-test-001",
+        expect.objectContaining({ to: "n1" })
+      )
+    })
+    // The override from[] should NOT include the unchecked source
+    const call = mockApproveReview.mock.calls[0]
+    const override = call[1] as { from: string[]; to: string }
+    expect(override).toBeDefined()
+    expect(override.to).toBe("n1")
+    expect(override.from).not.toContain("n2")
+  })
+
+  it("approve called without override when no changes made", async () => {
+    const review = makeMergeReview()
+    const { getByText } = render(
+      <ReviewRow schemas={[]} review={review} onRefresh={noop} />
+    )
+    // Do NOT expand; just approve directly from compact row (no changes made)
+    await user.click(getByText("Merge"))
+    await user.click(getByText("Confirm"))
+
+    await waitFor(() => {
+      expect(mockApproveReview).toHaveBeenCalledWith("rv-test-001", undefined)
+    })
+  })
+
+  it("clicking Set as canonical on source promotes it and moves old canonical to sources", async () => {
+    const review = makeMergeReview({
+      action_payload: { from: ["n2"], to: "n1" },
+      subject_nodes: [
+        { ref_id: "n1", node_type: "Topic", properties: { name: "Node One" } },
+        { ref_id: "n2", node_type: "Topic", properties: { name: "Node Two" } },
+      ],
+    })
+    const { getByText, getByLabelText, queryByLabelText } = render(
+      <ReviewRow schemas={[]} review={review} onRefresh={noop} />
+    )
+    // Expand
+    await user.click(getByText("Node One"))
+
+    // Click "Set as canonical" on n2 (the source)
+    const setCanonicalBtn = getByLabelText("Set n2 as canonical")
+    await user.click(setCanonicalBtn)
+
+    // Now n2 is canonical (locked indicator present), n1 is in sources
+    await waitFor(() => {
+      expect(getByLabelText("Canonical node (locked)")).toBeTruthy()
+      expect(queryByLabelText("Set n2 as canonical")).toBeNull()
+      expect(getByLabelText("Include n1 in merge")).toBeTruthy()
+    })
+
+    // isModified should be true — approve with override
+    await user.click(getByText("Merge"))
+    await user.click(getByText("Confirm"))
+
+    await waitFor(() => {
+      const call = mockApproveReview.mock.calls[0]
+      const override = call[1] as { from: string[]; to: string }
+      expect(override).toBeDefined()
+      expect(override.to).toBe("n2")
+      expect(override.from).toContain("n1")
+    })
   })
 })
 
