@@ -279,6 +279,8 @@ function ConfirmActionPopover({
   loading,
   onConfirm,
   minWidthClass,
+  disabled,
+  disabledReason,
 }: {
   tone: "approve" | "dismiss"
   triggerLabel: string
@@ -289,6 +291,8 @@ function ConfirmActionPopover({
   loading: boolean
   onConfirm: (reason: string) => void
   minWidthClass?: string
+  disabled?: boolean
+  disabledReason?: string
 }) {
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState("")
@@ -331,20 +335,24 @@ function ConfirmActionPopover({
       <button
         ref={triggerRef}
         type="button"
+        disabled={disabled || loading}
+        title={disabled ? disabledReason : undefined}
         onClick={(e) => {
           e.stopPropagation()
-          setOpen((v) => !v)
+          if (!disabled) setOpen((v) => !v)
         }}
         className={cn(
           "rounded border px-2 py-0.5 text-[11px] font-medium transition-all text-center",
           minWidthClass,
-          isApprove
-            ? open
-              ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-200"
-              : "border-emerald-500/40 bg-emerald-500/5 text-emerald-300 hover:border-emerald-500/70 hover:bg-emerald-500/15"
-            : open
-              ? "border-muted-foreground/60 bg-transparent text-foreground"
-              : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
+          disabled
+            ? "cursor-not-allowed border-border/40 bg-transparent text-muted-foreground/40"
+            : isApprove
+              ? open
+                ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-200"
+                : "border-emerald-500/40 bg-emerald-500/5 text-emerald-300 hover:border-emerald-500/70 hover:bg-emerald-500/15"
+              : open
+                ? "border-muted-foreground/60 bg-transparent text-foreground"
+                : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
         )}
       >
         {triggerLabel}
@@ -486,12 +494,24 @@ export function ReviewRow({
   const [dismissing, setDismissing] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
 
+  // ── Merge-specific interactive state ────────────────────────────────────────
+  const [checkedSources, setCheckedSources] = useState<Set<string>>(new Set())
+  const [canonicalId, setCanonicalId] = useState<string>("")
+
   const relativeTime = formatDateRelative(review.created_at, review.created_at ?? "")
 
   const direction = useMemo(
     () => extractDirection(review.action_name, review.action_payload),
     [review.action_name, review.action_payload]
   )
+
+  // Reset merge state whenever the direction changes (e.g. review prop update)
+  useEffect(() => {
+    if (direction && review.action_name === "merge_nodes") {
+      setCheckedSources(new Set(direction.fromIds))
+      setCanonicalId(direction.toId)
+    }
+  }, [direction, review.action_name])
 
   const subjectMap = useMemo(() => {
     const map = new Map<string, SubjectNode>()
@@ -505,12 +525,37 @@ export function ReviewRow({
   )
   const labels = ACTION_LABELS[review.action_name] ?? DEFAULT_ACTION_LABELS
 
+  // ── Merge derived values ─────────────────────────────────────────────────────
+  const effectiveFrom = useMemo(() => [...checkedSources], [checkedSources])
+
+  const mergeError = useMemo<string | null>(() => {
+    if (review.action_name !== "merge_nodes") return null
+    if (checkedSources.size === 0) return "Select at least one source node to merge"
+    return null
+  }, [review.action_name, checkedSources])
+
+  const isModified = useMemo(() => {
+    if (review.action_name !== "merge_nodes" || !direction) return false
+    if (canonicalId !== direction.toId) return true
+    const originalSet = new Set(direction.fromIds)
+    if (checkedSources.size !== originalSet.size) return true
+    for (const id of checkedSources) {
+      if (!originalSet.has(id)) return true
+    }
+    return false
+  }, [review.action_name, direction, canonicalId, checkedSources])
+
   async function handleApprove() {
     if (!isAdmin) return
+    if (mergeError) return
     setApproving(true)
     setInlineError(null)
     try {
-      const res = await approveReview(review.ref_id)
+      const override =
+        review.action_name === "merge_nodes" && isModified
+          ? { from: effectiveFrom, to: canonicalId }
+          : undefined
+      const res = await approveReview(review.ref_id, override)
       if (res.error_message || res.status === "failed") {
         setInlineError(res.error_message ?? "Approval failed")
       }
@@ -619,6 +664,8 @@ export function ReviewRow({
                 loading={approving}
                 onConfirm={() => handleApprove()}
                 minWidthClass="min-w-[68px]"
+                disabled={mergeError !== null}
+                disabledReason={mergeError ?? undefined}
               />
               <ConfirmActionPopover
                 tone="dismiss"
@@ -658,7 +705,110 @@ export function ReviewRow({
       {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-border/40 bg-background/30 px-4 py-3">
-          {direction ? (
+          {direction && review.action_name === "merge_nodes" ? (
+            (() => {
+              // All nodes in the review (original fromIds + original toId), excluding current canonical
+              const allNodeIds = [...direction.fromIds, direction.toId]
+              const uniqueNodeIds = Array.from(new Set(allNodeIds))
+              const sourceSlots = uniqueNodeIds.filter((id) => id !== canonicalId)
+
+              return (
+                <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
+                    {/* Sources column */}
+                    <div>
+                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Sources ({sourceSlots.length})
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {sourceSlots.map((id) => {
+                          const isChecked = checkedSources.has(id)
+                          return (
+                            <div key={id} className="flex items-center gap-1.5">
+                              <Checkbox
+                                checked={isChecked}
+                                onChange={(checked) => {
+                                  setCheckedSources((prev) => {
+                                    const next = new Set(prev)
+                                    if (checked) next.add(id)
+                                    else next.delete(id)
+                                    return next
+                                  })
+                                }}
+                                ariaLabel={`Include ${id} in merge`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <SubjectListItem
+                                  refId={id}
+                                  resolved={subjectMap.get(id)}
+                                  schemas={schemas}
+                                  onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${id}`) }}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                title="Set as canonical"
+                                aria-label={`Set ${id} as canonical`}
+                                onClick={() => {
+                                  const prevCanonical = canonicalId
+                                  setCanonicalId(id)
+                                  setCheckedSources((prev) => {
+                                    const next = new Set(prev)
+                                    // The promoted source leaves sources; old canonical joins sources (checked)
+                                    next.delete(id)
+                                    next.add(prevCanonical)
+                                    return next
+                                  })
+                                }}
+                                className="shrink-0 flex h-4 w-4 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
+                              >
+                                <span className="h-2 w-2 rounded-full" />
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Arrow */}
+                    <div className="flex items-center justify-center px-2">
+                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60" />
+                    </div>
+
+                    {/* Canonical column */}
+                    <div>
+                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Canonical (survives)
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="min-w-0 flex-1">
+                          <SubjectListItem
+                            refId={canonicalId}
+                            resolved={subjectMap.get(canonicalId)}
+                            schemas={schemas}
+                            onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${canonicalId}`) }}
+                          />
+                        </div>
+                        {/* Locked "canonical" radio indicator */}
+                        <div
+                          title="Current canonical node"
+                          aria-label="Canonical node (locked)"
+                          className="shrink-0 flex h-4 w-4 items-center justify-center rounded-full border border-primary/60 bg-primary/10 text-primary"
+                        >
+                          <span className="h-2 w-2 rounded-full bg-primary" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Merge error */}
+                  {mergeError && (
+                    <p className="text-[11px] text-amber-400">{mergeError}</p>
+                  )}
+                </div>
+              )
+            })()
+          ) : direction ? (
             <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
               <div>
                 <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">

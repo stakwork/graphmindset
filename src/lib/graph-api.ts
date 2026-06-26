@@ -763,6 +763,7 @@ export async function listReviews(
 
 export async function approveReview(
   refId: string,
+  overridePayload?: { from: string[]; to: string },
   signal?: AbortSignal
 ): Promise<{ status: string; error_message?: string }> {
   if (isMocksEnabled()) {
@@ -775,9 +776,10 @@ export async function approveReview(
     }
     return { status: "approved" }
   }
+  const body = overridePayload ? { override_payload: overridePayload } : {}
   return api.post<{ status: string; error_message?: string }>(
     `/v2/reviews/${refId}/approve`,
-    {},
+    body,
     undefined,
     signal
   )
