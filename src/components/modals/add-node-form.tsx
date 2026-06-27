@@ -386,7 +386,12 @@ export function AddNodeForm() {
           return
         }
         setStatus("error")
-        setErrorMsg("Something went wrong. Please try again.")
+        if (err instanceof Response) {
+          const body = await err.json().catch(() => null) as { errorCode?: string; message?: string } | null
+          setErrorMsg(body?.message || body?.errorCode || `Node creation failed (HTTP ${err.status})`)
+        } else {
+          setErrorMsg("Something went wrong. Please try again.")
+        }
       }
     },
     [selectedSchema, fields, visibleFields, fieldValues, selectedFile, setBudget, close]
