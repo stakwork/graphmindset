@@ -18,6 +18,29 @@ import { Checkbox } from "@/components/ui/checkbox"
 import type { SchemaNode } from "@/lib/schema-types"
 import { DISPLAY_KEY_FALLBACKS, pickString } from "@/lib/node-display"
 import { useUserStore } from "@/stores/user-store"
+
+const IMAGE_FIELD_KEY = "image_url"
+
+function ProposedChangeValue({ fieldKey, value }: { fieldKey: string; value: unknown }) {
+  const [imgError, setImgError] = useState(false)
+  const strValue = String(value)
+
+  if (fieldKey === IMAGE_FIELD_KEY && typeof value === "string" && value.length > 0 && !imgError) {
+    return (
+      <div className="col-span-2">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={strValue}
+          alt="image preview"
+          className="max-h-40 w-full rounded-md border border-border/50 object-contain bg-muted/20"
+          onError={() => setImgError(true)}
+        />
+      </div>
+    )
+  }
+
+  return <span className="break-all text-foreground/90">{strValue}</span>
+}
 import { useGraphStore } from "@/stores/graph-store"
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -1001,7 +1024,7 @@ export function ReviewRow({
                         {changedEntries.map(([k, v]) => (
                           <>
                             <span key={`k-${k}`} className="text-muted-foreground">{k}</span>
-                            <span key={`v-${k}`} className="break-all text-foreground/90">{String(v)}</span>
+                            <ProposedChangeValue key={`v-${k}`} fieldKey={k} value={v} />
                           </>
                         ))}
                       </div>

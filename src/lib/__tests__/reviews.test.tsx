@@ -761,6 +761,87 @@ describe("ReviewRow", () => {
     expect(getByText("Node Being Edited")).toBeTruthy()
   })
 
+  // ── edit_node image_url preview ───────────────────────────────────────────
+
+  it("edit_node image_url change renders an img with the proposed URL as src", async () => {
+    const user = userEvent.setup()
+    const imgUrl = "https://example.com/photo.jpg"
+    const { getByText, container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          action_name: "edit_node",
+          action_payload: {
+            ref_id: "n8",
+            node_type: "Person",
+            properties: { image_url: imgUrl },
+          },
+          subject_ids: ["n8"],
+          subject_nodes: [{ ref_id: "n8", node_type: "Person", properties: { name: "Alice", image_url: "https://old.com/old.jpg" } }],
+          display_label: "Edit Alice",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Edit Alice"))
+    const img = container.querySelector("img[alt='image preview']") as HTMLImageElement
+    expect(img).toBeTruthy()
+    expect(img.src).toBe(imgUrl)
+  })
+
+  it("edit_node non-image properties still render as plain text", async () => {
+    const user = userEvent.setup()
+    const { getByText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          action_name: "edit_node",
+          action_payload: {
+            ref_id: "n8",
+            node_type: "Person",
+            properties: { name: "Bob Updated" },
+          },
+          subject_ids: ["n8"],
+          subject_nodes: [{ ref_id: "n8", node_type: "Person", properties: { name: "Bob" } }],
+          display_label: "Edit Bob",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Edit Bob"))
+    expect(getByText("Bob Updated")).toBeTruthy()
+  })
+
+  it("edit_node image_url falls back to URL string on image load error", async () => {
+    const user = userEvent.setup()
+    const brokenUrl = "https://example.invalid/content-c5-broken.jpg"
+    const { getByText, container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({
+          action_name: "edit_node",
+          action_payload: {
+            ref_id: "n8",
+            node_type: "Person",
+            properties: { image_url: brokenUrl },
+          },
+          subject_ids: ["n8"],
+          subject_nodes: [{ ref_id: "n8", node_type: "Person", properties: { name: "Charlie" } }],
+          display_label: "Edit Charlie",
+        })}
+        onRefresh={noop}
+      />
+    )
+    await user.click(getByText("Edit Charlie"))
+    // Trigger the error handler
+    const img = container.querySelector("img[alt='image preview']") as HTMLImageElement
+    expect(img).toBeTruthy()
+    fireEvent.error(img)
+    // After error, the img should be replaced by the raw URL string
+    expect(getByText(brokenUrl)).toBeTruthy()
+    expect(container.querySelector("img[alt='image preview']")).toBeNull()
+  })
+
   // ── add_schema_node_type ──────────────────────────────────────────────────
 
   it("renders add_schema_node_type row without crashing with valid payload", () => {
