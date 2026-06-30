@@ -16,7 +16,7 @@ export const SOURCE_TYPES = {
 export type SourceType = (typeof SOURCE_TYPES)[keyof typeof SOURCE_TYPES]
 
 const twitterHandlePattern =
-  /\b(?:twitter\.com|x\.com)\/(?:@)?([\w_]+)(?:$|\?[^/]*$)/
+  /\b(?:twitter\.com|x\.com)\/(?:@)?([\w_]+)\/?(?:$|\?[^/]*$)/
 const youtubeRegex =
   /(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=([A-Za-z0-9_-]+)/
 const youtubeLiveRegex =
