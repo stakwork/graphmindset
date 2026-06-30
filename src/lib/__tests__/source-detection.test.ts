@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { detectSourceType, SOURCE_TYPES } from "../source-detection"
+import { detectSourceType, extractNameFromSource, SOURCE_TYPES } from "../source-detection"
 
 // Mock fetch for RSS probe (checkIfRSS) - default to non-RSS
 vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -103,6 +103,48 @@ describe("detectSourceType", () => {
         }))
         expect(await detectSourceType("https://example.com/somepage")).toBe(SOURCE_TYPES.WEB_PAGE)
       })
+    })
+  })
+
+  describe("Twitter Handle URLs", () => {
+    it("detects x.com/handle (no slash) as TWITTER_HANDLE", async () => {
+      expect(await detectSourceType("https://x.com/sama")).toBe(SOURCE_TYPES.TWITTER_HANDLE)
+    })
+
+    it("detects x.com/handle/ (trailing slash) as TWITTER_HANDLE", async () => {
+      expect(await detectSourceType("https://x.com/sama/")).toBe(SOURCE_TYPES.TWITTER_HANDLE)
+    })
+
+    it("detects twitter.com/handle (no slash) as TWITTER_HANDLE", async () => {
+      expect(await detectSourceType("https://twitter.com/sama")).toBe(SOURCE_TYPES.TWITTER_HANDLE)
+    })
+
+    it("detects twitter.com/handle/ (trailing slash) as TWITTER_HANDLE", async () => {
+      expect(await detectSourceType("https://twitter.com/sama/")).toBe(SOURCE_TYPES.TWITTER_HANDLE)
+    })
+
+    it("detects x.com/@handle (no slash) as TWITTER_HANDLE", async () => {
+      expect(await detectSourceType("https://x.com/@sama")).toBe(SOURCE_TYPES.TWITTER_HANDLE)
+    })
+
+    it("detects x.com/@handle/ (trailing slash) as TWITTER_HANDLE", async () => {
+      expect(await detectSourceType("https://x.com/@sama/")).toBe(SOURCE_TYPES.TWITTER_HANDLE)
+    })
+
+    it("detects x.com/handle/?ref=x (trailing slash + query) as TWITTER_HANDLE", async () => {
+      expect(await detectSourceType("https://x.com/sama/?ref=x")).toBe(SOURCE_TYPES.TWITTER_HANDLE)
+    })
+
+    it("detects x.com/handle/status/123 as TWEET (regression guard)", async () => {
+      expect(await detectSourceType("https://x.com/sama/status/123456")).toBe(SOURCE_TYPES.TWEET)
+    })
+
+    it("extractNameFromSource returns @sama for no-slash URL", () => {
+      expect(extractNameFromSource("https://x.com/sama", SOURCE_TYPES.TWITTER_HANDLE)).toBe("@sama")
+    })
+
+    it("extractNameFromSource returns @sama for trailing-slash URL", () => {
+      expect(extractNameFromSource("https://x.com/sama/", SOURCE_TYPES.TWITTER_HANDLE)).toBe("@sama")
     })
   })
 
