@@ -3,14 +3,15 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useUserStore } from "@/stores/user-store"
+import { AuthGuard } from "@/components/auth/auth-guard"
 
 /**
- * Single admin guard for the whole `/admin/*` console. Replaces the per-page
- * redirects that previously lived in settings/ontology/domains/reviews. Auth
- * itself is established at the app root by AuthGuard; here we only gate on the
- * resolved isAdmin flag.
+ * Single admin guard for the whole `/admin/*` console. AuthGuard establishes
+ * auth + the isAdmin flag for the section (on a direct load/refresh of an admin
+ * route, not just when navigating in from `/`); the inner gate then redirects
+ * non-admins to `/`.
  */
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+function AdminGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const isAuthenticated = useUserStore((s) => s.isAuthenticated)
   const isAdmin = useUserStore((s) => s.isAdmin)
@@ -22,4 +23,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (isAuthenticated && !isAdmin) return null
 
   return <>{children}</>
+}
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthGuard>
+      <AdminGate>{children}</AdminGate>
+    </AuthGuard>
+  )
 }
