@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { TypeEditor } from "./type-editor"
 import { EdgeTypePanel } from "./edge-type-panel"
-import { Plus, ArrowLeft, Box, Grid2x2, Search, ArrowRight } from "lucide-react"
+import { EdgeCreatePanel, type NewEdgeParams } from "./edge-create-panel"
+import { Plus, ArrowLeft, Box, Grid2x2, Search, ArrowRight, HelpCircle } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 
 const OntologyGraph3D = dynamic(
@@ -15,10 +16,10 @@ const OntologyGraph3D = dynamic(
 )
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { useSchemaStore } from "@/stores/schema-store"
+import { useSchemaStore, serializeAttributes } from "@/stores/schema-store"
 import { isMocksEnabled } from "@/lib/mock-data"
 import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
-import type { SchemaNode } from "@/lib/schema-types"
+import type { SchemaNode, SchemaEdge, SchemaAttribute } from "@/lib/schema-types"
 
 export default function OntologyPage() {
   const router = useRouter()
@@ -31,6 +32,13 @@ export default function OntologyPage() {
   const [sidebarTab, setSidebarTab] = useState<"nodes" | "edges">("nodes")
   const [selectedEdgeType, setSelectedEdgeType] = useState<string | null>(null)
   const [edgeSearch, setEdgeSearch] = useState("")
+  const [edgeError, setEdgeError] = useState<string | null>(null)
+  // Non-null while the "new relationship" panel is open; the optional source/
+  // target prefill the form (set when a connection is drawn on the graph).
+  const [edgeCreate, setEdgeCreate] = useState<{ source?: string; target?: string } | null>(null)
+  // Non-null while a draft (unsaved) new node type is being authored.
+  const [draftType, setDraftType] = useState<SchemaNode | null>(null)
+  const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
     if (isMocksEnabled()) {
@@ -69,12 +77,15 @@ export default function OntologyPage() {
   const handleSwitchToEdges = useCallback(() => {
     setSidebarTab("edges")
     setSelectedId(null)
+    setDraftType(null)
+    setEdgeCreate(null)
   }, [])
 
   const handleSwitchToNodes = useCallback(() => {
     setSidebarTab("nodes")
     setSelectedEdgeType(null)
     setEdgeSearch("")
+    setEdgeCreate(null)
   }, [])
 
   const handleUpdateSchema = useCallback(
@@ -90,30 +101,41 @@ export default function OntologyPage() {
     [isAdmin, store]
   )
 
-  const handleAddType = useCallback(async () => {
+  // Open a draft "new type" form. Nothing is persisted until the user clicks
+  // Create — clicking + no longer writes a NewType record to the server.
+  const handleStartAddType = useCallback(() => {
     if (!isAdmin) return
-    // Find next available name
     const existing = new Set(store.schemas.map((s) => s.type))
     let n = 1
     while (existing.has(`NewType${n}`)) n++
 
-    const id = `s-${Date.now()}`
-    const newSchema: SchemaNode = {
-      ref_id: id,
+    setEdgeCreate(null)
+    setSelectedId(null)
+    setSchemaError(null)
+    setDraftType({
+      ref_id: `s-${Date.now()}`,
       type: `NewType${n}`,
       parent: "Thing",
       color: "#64748b",
       node_key: "name",
       attributes: [{ key: "name", type: "string", required: true }],
-    }
-    try {
-      await store.addSchema(newSchema)
-      setSchemaError(null)
-    } catch (err) {
-      setSchemaError(err instanceof Error ? err.message : "Failed to save schema")
-    }
-    setSelectedId(id)
-  }, [isAdmin, store])
+    })
+  }, [isAdmin, store.schemas])
+
+  const handleCreateType = useCallback(
+    async (draft: SchemaNode) => {
+      if (!isAdmin) return
+      try {
+        const refId = await store.addSchema(draft)
+        setSchemaError(null)
+        setDraftType(null)
+        setSelectedId(refId)
+      } catch (err) {
+        setSchemaError(err instanceof Error ? err.message : "Failed to create type")
+      }
+    },
+    [isAdmin, store]
+  )
 
   const handleDeleteSchema = useCallback(
     (refId: string) => {
@@ -128,6 +150,92 @@ export default function OntologyPage() {
     () => store.edges.filter((e) => e.edge_type === selectedEdgeType),
     [store.edges, selectedEdgeType]
   )
+
+  const typeToRefId = useCallback(
+    (typeName: string) => store.schemas.find((s) => s.type === typeName)?.ref_id ?? typeName,
+    [store.schemas]
+  )
+
+  const buildEdge = useCallback(
+    (
+      sourceType: string,
+      targetType: string,
+      edgeType: string,
+      attributes: SchemaAttribute[]
+    ): SchemaEdge => ({
+      ref_id: `e-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+      source: typeToRefId(sourceType),
+      target: typeToRefId(targetType),
+      // Match the backend's normalization so optimistic UI lines up with the saved value.
+      edge_type: edgeType.trim().toUpperCase().replace(/\s+/g, "_"),
+      source_type: sourceType,
+      target_type: targetType,
+      attributes: serializeAttributes(attributes),
+    }),
+    [typeToRefId]
+  )
+
+  const handleCreateEdge = useCallback(
+    async ({ sourceType, targetType, edgeType, attributes }: NewEdgeParams) => {
+      if (!isAdmin) return
+      const edge = buildEdge(sourceType, targetType, edgeType, attributes)
+      try {
+        await store.addEdge(edge)
+        setEdgeError(null)
+        setEdgeCreate(null)
+        setSelectedId(null)
+        setSidebarTab("edges")
+        setSelectedEdgeType(edge.edge_type)
+      } catch (err) {
+        setEdgeError(err instanceof Error ? err.message : "Failed to create relationship")
+      }
+    },
+    [isAdmin, buildEdge, store]
+  )
+
+  const handleAddConnection = useCallback(
+    async (sourceType: string, targetType: string) => {
+      if (!isAdmin || !selectedEdgeType) return
+      const edge = buildEdge(sourceType, targetType, selectedEdgeType, [])
+      try {
+        await store.addEdge(edge)
+        setEdgeError(null)
+      } catch (err) {
+        setEdgeError(err instanceof Error ? err.message : "Failed to add connection")
+      }
+    },
+    [isAdmin, selectedEdgeType, buildEdge, store]
+  )
+
+  const handleDeleteConnection = useCallback(
+    (refId: string) => {
+      if (!isAdmin) return
+      store.removeEdge(refId)
+    },
+    [isAdmin, store]
+  )
+
+  const handleSaveEdgeAttributes = useCallback(
+    async (attrs: SchemaAttribute[]) => {
+      if (!isAdmin || !selectedEdgeType) return
+      const serialized = serializeAttributes(attrs)
+      const targets = store.edges.filter((e) => e.edge_type === selectedEdgeType)
+      try {
+        await Promise.all(targets.map((e) => store.updateEdge({ ...e, attributes: serialized })))
+        setEdgeError(null)
+      } catch (err) {
+        setEdgeError(err instanceof Error ? err.message : "Failed to update attributes")
+      }
+    },
+    [isAdmin, selectedEdgeType, store]
+  )
+
+  const handleDeleteEdgeType = useCallback(async () => {
+    if (!isAdmin || !selectedEdgeType) return
+    const targets = store.edges.filter((e) => e.edge_type === selectedEdgeType)
+    await Promise.all(targets.map((e) => store.removeEdge(e.ref_id)))
+    setSelectedEdgeType(null)
+  }, [isAdmin, selectedEdgeType, store])
 
   return (
     <div className="flex h-screen bg-background text-foreground">
@@ -171,6 +279,16 @@ export default function OntologyPage() {
           <Button
             size="sm"
             variant="ghost"
+            onClick={() => setShowHelp((v) => !v)}
+            className={`h-7 w-7 p-0 hover:text-foreground ${showHelp ? "text-foreground" : "text-muted-foreground"}`}
+            title="How to add types & relationships"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </Button>
+
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => setView3D(!view3D)}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
             title={view3D ? "Switch to 2D" : "Switch to 3D"}
@@ -178,18 +296,57 @@ export default function OntologyPage() {
             {view3D ? <Grid2x2 className="h-4 w-4" /> : <Box className="h-4 w-4" />}
           </Button>
 
-          {/* Only show + button in nodes tab */}
-          {sidebarTab === "nodes" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleAddType}
-              className="h-7 w-7 p-0"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={
+              sidebarTab === "nodes"
+                ? handleStartAddType
+                : () => {
+                    setEdgeError(null)
+                    setEdgeCreate({})
+                  }
+            }
+            disabled={!isAdmin}
+            title={sidebarTab === "nodes" ? "Add type" : "Add relationship"}
+            className="h-7 w-7 p-0"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
+
+        {/* Help / tips */}
+        {showHelp && (
+          <div className="relative z-10 border-b border-border bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground">
+            {sidebarTab === "nodes" ? (
+              <>
+                <p className="mb-1 font-medium text-foreground">Add a type (node)</p>
+                <ol className="list-decimal space-y-0.5 pl-4">
+                  <li>Click the <span className="font-medium text-foreground">+</span> button above.</li>
+                  <li>Name it and pick a <span className="font-medium text-foreground">parent</span> to inherit attributes.</li>
+                  <li>Add <span className="font-medium text-foreground">attributes</span> (the fields each node holds).</li>
+                  <li>Choose a <span className="font-medium text-foreground">unique key</span>, then <span className="font-medium text-foreground">Create type</span>.</li>
+                </ol>
+                <p className="mt-2 text-muted-foreground/70">
+                  Click any type to edit it (changes save on <span className="font-medium text-foreground">Save</span>). Selecting a node focuses its neighborhood; press Esc to zoom back out.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mb-1 font-medium text-foreground">Add a relationship (edge)</p>
+                <ol className="list-decimal space-y-0.5 pl-4">
+                  <li>Click the <span className="font-medium text-foreground">+</span> button above.</li>
+                  <li>Name it, e.g. <span className="font-mono text-foreground">AUTHORED_BY</span>.</li>
+                  <li>Pick the <span className="font-medium text-foreground">From</span> and <span className="font-medium text-foreground">To</span> types (arrow points From → To).</li>
+                  <li>Click <span className="font-medium text-foreground">Create relationship</span>.</li>
+                </ol>
+                <p className="mt-2 text-muted-foreground/70">
+                  Select a relationship to add/remove its connections or edit its attributes.
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Search input */}
         <div className="relative z-10 p-2 border-b border-border">
@@ -225,7 +382,11 @@ export default function OntologyPage() {
               {visibleSchemas.map((schema) => (
                 <button
                   key={schema.ref_id}
-                  onClick={() => setSelectedId(schema.ref_id)}
+                  onClick={() => {
+                    setDraftType(null)
+                    setEdgeCreate(null)
+                    setSelectedId(schema.ref_id)
+                  }}
                   className={`flex items-center gap-3 w-full rounded-md px-3 py-2 text-left transition-colors ${
                     selectedId === schema.ref_id
                       ? "bg-primary/10 text-foreground"
@@ -295,32 +456,73 @@ export default function OntologyPage() {
             edges={store.edges}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            onClear={() => setSelectedId(null)}
             selectedEdgeType={selectedEdgeType}
           />
         )}
       </div>
 
-      {/* Right panel */}
-      {sidebarTab === "nodes" && selected && (
+      {/* Right panel — create flow takes precedence over the inspectors */}
+      {edgeCreate ? (
+        <EdgeCreatePanel
+          allSchemas={store.schemas}
+          initialSource={edgeCreate.source}
+          initialTarget={edgeCreate.target}
+          onCreate={handleCreateEdge}
+          onClose={() => {
+            setEdgeCreate(null)
+            setEdgeError(null)
+          }}
+          error={edgeError ?? undefined}
+          onClearError={() => setEdgeError(null)}
+        />
+      ) : draftType ? (
         <TypeEditor
+          key="new-type"
+          schema={draftType}
+          allSchemas={store.schemas}
+          edges={store.edges}
+          canEdit={isAdmin}
+          isNew
+          onSave={handleUpdateSchema}
+          onCreate={handleCreateType}
+          onDelete={handleDeleteSchema}
+          onClose={() => {
+            setDraftType(null)
+            setSchemaError(null)
+          }}
+          error={schemaError ?? undefined}
+          onClearError={() => setSchemaError(null)}
+        />
+      ) : sidebarTab === "nodes" && selected ? (
+        <TypeEditor
+          key={selected.ref_id}
           schema={selected}
           allSchemas={store.schemas}
           edges={store.edges}
-          onUpdate={handleUpdateSchema}
+          canEdit={isAdmin}
+          onSave={handleUpdateSchema}
           onDelete={handleDeleteSchema}
           onClose={() => setSelectedId(null)}
           error={schemaError ?? undefined}
           onClearError={() => setSchemaError(null)}
         />
-      )}
-      {sidebarTab === "edges" && selectedEdgeType !== null && (
+      ) : sidebarTab === "edges" && selectedEdgeType !== null ? (
         <EdgeTypePanel
+          key={selectedEdgeType}
           edgeType={selectedEdgeType}
           edges={filteredEdgesForPanel}
           allSchemas={store.schemas}
+          canEdit={isAdmin}
           onClose={() => setSelectedEdgeType(null)}
+          onAddConnection={handleAddConnection}
+          onDeleteConnection={handleDeleteConnection}
+          onSaveAttributes={handleSaveEdgeAttributes}
+          onDeleteType={handleDeleteEdgeType}
+          error={edgeError ?? undefined}
+          onClearError={() => setEdgeError(null)}
         />
-      )}
+      ) : null}
     </div>
   )
 }

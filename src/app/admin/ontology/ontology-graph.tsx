@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import dagre from "dagre"
 import { zoom as d3Zoom, zoomIdentity, ZoomBehavior, ZoomTransform } from "d3-zoom"
 import { select as d3Select } from "d3-selection"
@@ -8,16 +8,36 @@ import "d3-transition"
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
+import { getSchemaIcon } from "@/lib/schema-icons"
 
 const NODE_WIDTH = 160
 const NODE_HEIGHT = 56
 const PADDING = 60
+const DIM_OPACITY = 0.22
+
+/** Point on a node card's border along the line from its center toward (towardX, towardY). */
+function rectBorderPoint(cx: number, cy: number, towardX: number, towardY: number) {
+  const dx = towardX - cx
+  const dy = towardY - cy
+  if (dx === 0 && dy === 0) return { x: cx, y: cy }
+  const hw = NODE_WIDTH / 2
+  const hh = NODE_HEIGHT / 2
+  const scale = 1 / Math.max(Math.abs(dx) / hw, Math.abs(dy) / hh)
+  return { x: cx + dx * scale, y: cy + dy * scale }
+}
+
+/** Truncate a label to fit a node card, appending an ellipsis when cut. */
+function truncate(label: string, max: number): string {
+  return label.length > max ? `${label.slice(0, max - 1)}…` : label
+}
 
 interface Props {
   schemas: SchemaNode[]
   edges: SchemaEdge[]
   selectedId: string | null
   onSelect: (id: string) => void
+  /** Clear the selection (Esc / background click) to return to the full view. */
+  onClear?: () => void
   selectedEdgeType?: string | null
 }
 
@@ -65,35 +85,75 @@ function buildLayout(schemas: SchemaNode[], edges: SchemaEdge[]) {
   return g
 }
 
-function edgePath(
+/**
+ * Layout for the "selected view": the selected node plus its immediate
+ * neighbors only (parent + children via hierarchy, and anything directly
+ * related), laid out compactly so the relevant slice is close together.
+ */
+function buildFocusedLayout(
+  schemas: SchemaNode[],
+  edges: SchemaEdge[],
+  selectedId: string
+) {
+  const selected = schemas.find((s) => s.ref_id === selectedId)
+  if (!selected) return buildLayout(schemas, edges)
+
+  const members = new Set<string>([selectedId])
+  let hasChildOf = false
+  for (const e of edges) {
+    if (e.edge_type === "CHILD_OF") {
+      hasChildOf = true
+      if (e.target === selectedId) members.add(e.source) // a child of selected
+      if (e.source === selectedId) members.add(e.target) // the parent of selected
+    } else if (e.source === selectedId) {
+      members.add(e.target)
+    } else if (e.target === selectedId) {
+      members.add(e.source)
+    }
+  }
+  // Fallback to the parent field when there are no CHILD_OF edges.
+  if (!hasChildOf) {
+    if (selected.parent) {
+      const p = schemas.find((s) => s.type === selected.parent)
+      if (p) members.add(p.ref_id)
+    }
+    for (const s of schemas) {
+      if (s.parent && s.parent === selected.type) members.add(s.ref_id)
+    }
+  }
+
+  const memberSchemas = schemas.filter((s) => members.has(s.ref_id))
+  const memberEdges = edges.filter((e) => members.has(e.source) && members.has(e.target))
+  return buildLayout(memberSchemas, memberEdges)
+}
+
+function edgeHierarchyPath(
   g: dagre.graphlib.Graph,
   source: string,
-  target: string,
-  isHierarchy: boolean
+  target: string
 ): string {
   const s = g.node(source)
   const t = g.node(target)
   if (!s || !t) return ""
-
-  if (isHierarchy) {
-    // Straight line for parent-child
-    return `M ${s.x} ${s.y + NODE_HEIGHT / 2} L ${t.x} ${t.y - NODE_HEIGHT / 2}`
-  }
-
-  // Curved line for relationships
-  const dx = t.x - s.x
-  const dy = t.y - s.y
-  const cx = s.x + dx * 0.5 + dy * 0.15
-  const cy = s.y + dy * 0.5 - dx * 0.15
-  return `M ${s.x} ${s.y} Q ${cx} ${cy} ${t.x} ${t.y}`
+  // Straight line for parent-child, anchored to card top/bottom borders.
+  return `M ${s.x} ${s.y + NODE_HEIGHT / 2} L ${t.x} ${t.y - NODE_HEIGHT / 2}`
 }
 
-export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEdgeType }: Props) {
+export function OntologyGraph({ schemas, edges, selectedId, onSelect, onClear, selectedEdgeType }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown>>(null)
   const containerRef = useRef<SVGGElement>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
 
-  const g = useMemo(() => buildLayout(schemas, edges), [schemas, edges])
+  // Hover takes precedence over selection for connection tracing.
+  const focusId = hoveredId ?? selectedId
+
+  // Selecting a node collapses the canvas to a focused view of just that node
+  // and its immediate neighbors; otherwise the full ontology is laid out.
+  const g = useMemo(
+    () => (selectedId ? buildFocusedLayout(schemas, edges, selectedId) : buildLayout(schemas, edges)),
+    [schemas, edges, selectedId]
+  )
 
   const graphInfo = useMemo(() => {
     const graph = g.graph()
@@ -122,6 +182,24 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
     }
     return set
   }, [schemas, edges])
+
+  // When a node is focused (hovered or selected), collect its incident edges and
+  // neighbor nodes so everything else can be dimmed for connection tracing.
+  const { focusNodes, focusEdges } = useMemo(() => {
+    if (!focusId) {
+      return { focusNodes: null as Set<string> | null, focusEdges: null as Set<string> | null }
+    }
+    const nodes = new Set<string>([focusId])
+    const incident = new Set<string>()
+    for (const e of edges) {
+      if (e.source === focusId || e.target === focusId) {
+        incident.add(e.ref_id)
+        nodes.add(e.source)
+        nodes.add(e.target)
+      }
+    }
+    return { focusNodes: nodes, focusEdges: incident }
+  }, [focusId, edges])
 
   // Compute the fit-to-graph transform
   function getFitTransform(svgWidth: number, svgHeight: number): ZoomTransform {
@@ -172,28 +250,15 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphInfo])
 
-  // Select-to-focus: animate to center the selected node
+  // Esc clears the selection and returns to the full ontology view.
   useEffect(() => {
-    if (!selectedId || !svgRef.current || !zoomRef.current) return
-    const node = g.node(selectedId)
-    if (!node) return
-
-    const rect = svgRef.current.getBoundingClientRect()
-    const svgWidth = rect.width || 800
-    const svgHeight = rect.height || 600
-
-    const currentTransform = (d3Select(svgRef.current).property("__zoom") as ZoomTransform | null) ?? zoomIdentity
-    const targetScale = currentTransform.k < 2.0 ? 2.0 : currentTransform.k
-
-    const tx = svgWidth / 2 - node.x * targetScale
-    const ty = svgHeight / 2 - node.y * targetScale
-    const newTransform = zoomIdentity.translate(tx, ty).scale(targetScale)
-
-    d3Select(svgRef.current)
-      .transition()
-      .duration(450)
-      .call(zoomRef.current.transform, newTransform)
-  }, [selectedId, g])
+    if (!selectedId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClear?.()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selectedId, onClear])
 
   function handleZoomIn() {
     if (!svgRef.current || !zoomRef.current) return
@@ -250,6 +315,29 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
               fill="oklch(0.5 0.1 200)"
             />
           </marker>
+          {/* Direction-coded arrowheads, used when an edge is incident to the focused node */}
+          <marker
+            id="arrowhead-out"
+            viewBox="0 0 10 7"
+            refX="10"
+            refY="3.5"
+            markerWidth="8"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <polygon points="0 0, 10 3.5, 0 7" fill="oklch(0.72 0.16 200)" />
+          </marker>
+          <marker
+            id="arrowhead-in"
+            viewBox="0 0 10 7"
+            refX="10"
+            refY="3.5"
+            markerWidth="8"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <polygon points="0 0, 10 3.5, 0 7" fill="oklch(0.80 0.15 70)" />
+          </marker>
         </defs>
 
         {/* All transformable content inside a single <g> for d3-zoom */}
@@ -273,16 +361,27 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
 
           {/* Hierarchy edges (CHILD_OF) */}
           {edges.filter((e) => e.edge_type === "CHILD_OF").map((e) => {
-            const d = edgePath(g, e.target, e.source, true)
+            const d = edgeHierarchyPath(g, e.target, e.source)
+            const emphasized = focusEdges?.has(e.ref_id) ?? false
+            const opacity = focusEdges
+              ? emphasized
+                ? 1
+                : DIM_OPACITY
+              : selectedEdgeType
+                ? DIM_OPACITY
+                : 0.85
             return (
               <path
                 key={`h-${e.ref_id}`}
                 d={d}
                 fill="none"
-                stroke="oklch(0.3 0.02 260)"
-                strokeWidth="1.5"
+                // Brighten + thicken the incident hierarchy edge on focus so a
+                // hover reads clearly even for nodes with no relationship edges.
+                stroke={emphasized ? "oklch(0.62 0.04 260)" : "oklch(0.3 0.02 260)"}
+                strokeWidth={emphasized ? 2.5 : 1.5}
                 strokeDasharray="6 4"
                 markerEnd="url(#arrowhead)"
+                opacity={opacity}
               />
             )
           })}
@@ -291,23 +390,62 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
           {edges.map((e) => {
             const key = `${e.source}→${e.target}`
             if (hierarchyEdges.has(key)) return null
-            const d = edgePath(g, e.source, e.target, false)
             const sourceNode = g.node(e.source)
             const targetNode = g.node(e.target)
             if (!sourceNode || !targetNode) return null
 
-            const mx = (sourceNode.x + targetNode.x) / 2
-            const my = (sourceNode.y + targetNode.y) / 2
-            const dx = targetNode.x - sourceNode.x
-            const dy = targetNode.y - sourceNode.y
-            const labelX = mx + dy * 0.075
-            const labelY = my - dx * 0.075
+            // Anchor endpoints to the card borders so arrowheads stay visible
+            // and the curve doesn't run through node interiors.
+            const sp = rectBorderPoint(sourceNode.x, sourceNode.y, targetNode.x, targetNode.y)
+            const tp = rectBorderPoint(targetNode.x, targetNode.y, sourceNode.x, sourceNode.y)
+            const dx = tp.x - sp.x
+            const dy = tp.y - sp.y
+            const ctrlX = sp.x + dx * 0.5 + dy * 0.15
+            const ctrlY = sp.y + dy * 0.5 - dx * 0.15
+            const d = `M ${sp.x} ${sp.y} Q ${ctrlX} ${ctrlY} ${tp.x} ${tp.y}`
 
-            const isHighlighted = selectedEdgeType && e.edge_type === selectedEdgeType
-            const isHighlightMode = !!selectedEdgeType
-            const edgeOpacity = isHighlightMode ? (isHighlighted ? 1.0 : 0.12) : 0.6
-            const edgeStroke = isHighlighted ? "oklch(0.65 0.15 200)" : "oklch(0.45 0.1 200)"
-            const edgeWidth = isHighlighted ? "2" : "1"
+            // Label at the quadratic curve's midpoint (t = 0.5).
+            const labelX = 0.25 * sp.x + 0.5 * ctrlX + 0.25 * tp.x
+            const labelY = 0.25 * sp.y + 0.5 * ctrlY + 0.25 * tp.y
+            const labelW = e.edge_type.length * 5.6 + 10
+
+            const isTypeHighlighted = selectedEdgeType === e.edge_type
+            let edgeOpacity: number
+            if (focusEdges) {
+              edgeOpacity = focusEdges.has(e.ref_id) ? 1 : DIM_OPACITY
+            } else if (selectedEdgeType) {
+              edgeOpacity = isTypeHighlighted ? 1 : 0.12
+            } else {
+              edgeOpacity = 0.6
+            }
+
+            // Direction-code edges incident to the focused node: outgoing (cyan)
+            // vs incoming (amber). Otherwise fall back to the default blue.
+            const incidentToFocus = focusEdges?.has(e.ref_id) ?? false
+            const isOutgoing = incidentToFocus && e.source === focusId
+            const isIncoming = incidentToFocus && e.target === focusId
+            const isEmphasized = incidentToFocus || isTypeHighlighted
+            let edgeStroke: string
+            let marker: string
+            let labelFill: string
+            if (isOutgoing) {
+              edgeStroke = "oklch(0.72 0.16 200)"
+              marker = "url(#arrowhead-out)"
+              labelFill = "oklch(0.78 0.15 200)"
+            } else if (isIncoming) {
+              edgeStroke = "oklch(0.80 0.15 70)"
+              marker = "url(#arrowhead-in)"
+              labelFill = "oklch(0.84 0.14 70)"
+            } else if (isTypeHighlighted) {
+              edgeStroke = "oklch(0.65 0.15 200)"
+              marker = "url(#arrowhead-rel)"
+              labelFill = "oklch(0.75 0.12 200)"
+            } else {
+              edgeStroke = "oklch(0.45 0.1 200)"
+              marker = "url(#arrowhead-rel)"
+              labelFill = "oklch(0.6 0.08 200)"
+            }
+            const edgeWidth = isEmphasized ? "2" : "1"
 
             return (
               <g key={`r-${e.ref_id}`}>
@@ -317,7 +455,19 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
                   stroke={edgeStroke}
                   strokeWidth={edgeWidth}
                   strokeDasharray="4 3"
-                  markerEnd="url(#arrowhead-rel)"
+                  markerEnd={marker}
+                  opacity={edgeOpacity}
+                />
+                {/* Backing pill keeps the label readable over edges and the grid */}
+                <rect
+                  x={labelX - labelW / 2}
+                  y={labelY - 8}
+                  width={labelW}
+                  height={16}
+                  rx={4}
+                  fill="oklch(0.06 0.02 260)"
+                  stroke="oklch(0.22 0.02 260)"
+                  strokeWidth="0.5"
                   opacity={edgeOpacity}
                 />
                 <text
@@ -325,8 +475,8 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
                   y={labelY}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  className="text-[9px] font-mono"
-                  fill="oklch(0.5 0.08 200)"
+                  className="text-[10px] font-mono"
+                  fill={labelFill}
                   opacity={edgeOpacity}
                 >
                   {e.edge_type}
@@ -343,13 +493,23 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
             const y = node.y - NODE_HEIGHT / 2
             const isSelected = s.ref_id === selectedId
             const attrCount = s.attributes.length
+            const nodeOpacity = focusNodes
+              ? focusNodes.has(s.ref_id)
+                ? 1
+                : DIM_OPACITY
+              : 1
+            const Icon = getSchemaIcon(s.icon)
 
             return (
               <g
                 key={s.ref_id}
                 onClick={() => onSelect(s.ref_id)}
+                onMouseEnter={() => setHoveredId(s.ref_id)}
+                onMouseLeave={() => setHoveredId(null)}
                 className="cursor-pointer"
+                opacity={nodeOpacity}
               >
+                <title>{s.type}</title>
                 {/* Outer halo for selected */}
                 {isSelected && (
                   <rect
@@ -402,26 +562,36 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
                   fill={s.color}
                 />
 
+                {/* Type icon */}
+                <Icon
+                  x={x + 12}
+                  y={y + 20}
+                  width={16}
+                  height={16}
+                  color={s.color}
+                />
+
                 {/* Type name */}
                 <text
-                  x={x + 16}
+                  x={x + 36}
                   y={y + 22}
                   className="text-[13px] font-semibold"
                   fill="oklch(0.9 0.01 260)"
                 >
-                  {s.type}
+                  {truncate(s.type, 13)}
                 </text>
 
-                {/* Attribute count */}
-                <text
-                  x={x + 16}
-                  y={y + 40}
-                  className="text-[10px] font-mono"
-                  fill="oklch(0.5 0.02 260)"
-                >
-                  {attrCount} attr{attrCount !== 1 ? "s" : ""}
-                  {s.parent ? ` · ${s.parent}` : ""}
-                </text>
+                {/* Parent type */}
+                {s.parent && (
+                  <text
+                    x={x + 36}
+                    y={y + 40}
+                    className="text-[10px] font-mono"
+                    fill="oklch(0.5 0.02 260)"
+                  >
+                    extends {truncate(s.parent, 16)}
+                  </text>
+                )}
 
                 {/* Attribute count badge */}
                 <rect
@@ -446,6 +616,34 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, selectedEd
           })}
         </g>
       </svg>
+
+      {/* Legend overlay */}
+      <div className="pointer-events-none absolute bottom-4 left-4 flex flex-col gap-1.5 rounded-md border border-border/40 bg-background/70 px-3 py-2 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <svg width="22" height="6" className="shrink-0">
+            <line x1="0" y1="3" x2="22" y2="3" stroke="oklch(0.4 0.02 260)" strokeWidth="1.5" strokeDasharray="6 4" />
+          </svg>
+          <span className="text-[10px] text-muted-foreground">extends (CHILD_OF)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <svg width="22" height="6" className="shrink-0">
+            <line x1="0" y1="3" x2="22" y2="3" stroke="oklch(0.55 0.12 200)" strokeWidth="1.5" strokeDasharray="4 3" />
+          </svg>
+          <span className="text-[10px] text-muted-foreground">relationship</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <svg width="22" height="6" className="shrink-0">
+            <line x1="0" y1="3" x2="22" y2="3" stroke="oklch(0.72 0.16 200)" strokeWidth="2" strokeDasharray="4 3" />
+          </svg>
+          <span className="text-[10px] text-muted-foreground">outgoing (from focus)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <svg width="22" height="6" className="shrink-0">
+            <line x1="0" y1="3" x2="22" y2="3" stroke="oklch(0.80 0.15 70)" strokeWidth="2" strokeDasharray="4 3" />
+          </svg>
+          <span className="text-[10px] text-muted-foreground">incoming (to focus)</span>
+        </div>
+      </div>
 
       {/* Zoom controls overlay */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-1">

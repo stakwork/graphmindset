@@ -17,7 +17,8 @@ const defaultProps = {
   schema: baseSchema,
   allSchemas: [baseSchema],
   edges: [] as SchemaEdge[],
-  onUpdate: vi.fn(),
+  canEdit: true,
+  onSave: vi.fn(),
   onDelete: vi.fn(),
   onClose: vi.fn(),
 }
@@ -42,11 +43,11 @@ describe("TypeEditor – error prop", () => {
 
   it("calls onClearError when an attribute is edited", async () => {
     const onClearError = vi.fn()
-    const onUpdate = vi.fn()
+    const onSave = vi.fn()
     render(
       <TypeEditor
         {...defaultProps}
-        onUpdate={onUpdate}
+        onSave={onSave}
         error="some error"
         onClearError={onClearError}
       />
