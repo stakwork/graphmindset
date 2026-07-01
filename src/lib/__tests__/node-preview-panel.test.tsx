@@ -25,15 +25,17 @@ vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => mockApiGet(...args) },
 }))
 
-// --- mock graph-api deep research helpers ---
-const { mockTriggerDeepResearch, mockGetLatestStakworkRun, mockGetNode, mockGetAttachables } = vi.hoisted(() => ({
+// --- mock graph-api deep research + enrich helpers ---
+const { mockTriggerDeepResearch, mockTriggerEnrich, mockGetLatestStakworkRun, mockGetNode, mockGetAttachables } = vi.hoisted(() => ({
   mockTriggerDeepResearch: vi.fn(),
+  mockTriggerEnrich: vi.fn(),
   mockGetLatestStakworkRun: vi.fn(),
   mockGetNode: vi.fn().mockResolvedValue(null),
   mockGetAttachables: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
 }))
 vi.mock("@/lib/graph-api", () => ({
   triggerDeepResearch: (...args: unknown[]) => mockTriggerDeepResearch(...args),
+  triggerEnrich: (...args: unknown[]) => mockTriggerEnrich(...args),
   getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
   getNode: (...args: unknown[]) => mockGetNode(...args),
   getAttachables: (...args: unknown[]) => mockGetAttachables(...args),
@@ -2171,5 +2173,142 @@ describe("NodePreviewPanel – TranscriptChatWidget visibility", () => {
       expect(screen.getByRole("button", { name: /unlock for 10 sats/i })).toBeInTheDocument()
     })
     expect(screen.queryByTestId("transcript-chat-widget")).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Enrich button — eligibility, states, polling, admin-gating
+// ---------------------------------------------------------------------------
+describe("NodePreviewPanel – Enrich button", () => {
+  const ENRICH_TYPES = ["Person", "Organization", "Product", "Location", "Topic"] as const
+
+  const makeEnrichNode = (node_type: string): GraphNode => ({
+    ref_id: `enrich-${node_type.toLowerCase()}`,
+    node_type,
+    properties: { name: `Test ${node_type}` },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    userStoreOverrides = { pubKey: "03admin", routeHint: "", isAdmin: true }
+    mockGetLatestStakworkRun.mockResolvedValue(null)
+    mockTriggerEnrich.mockResolvedValue({ stakwork_run_ref_id: "mock-enrich-run-abc" })
+  })
+
+  it.each(ENRICH_TYPES)("renders Enrich button for %s nodes when isAdmin", async (nodeType) => {
+    const node = makeEnrichNode(nodeType)
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByTestId("enrich-button")).toBeInTheDocument())
+    expect(screen.getByTestId("enrich-button")).toHaveTextContent("Enrich")
+  })
+
+  it("does NOT render Enrich button when isAdmin is false", async () => {
+    userStoreOverrides = { pubKey: "03user", routeHint: "", isAdmin: false }
+    const node = makeEnrichNode("Person")
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByText("Test Person")).toBeInTheDocument())
+    expect(screen.queryByTestId("enrich-button")).toBeNull()
+  })
+
+  it("does NOT render Enrich button for unsupported node types even when isAdmin", async () => {
+    const node: GraphNode = {
+      ref_id: "ep-unsupported",
+      node_type: "Episode",
+      properties: { episode_title: "Some Episode", media_url: "https://example.com/a.mp3" },
+    }
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByText("Some Episode")).toBeInTheDocument())
+    expect(screen.queryByTestId("enrich-button")).toBeNull()
+  })
+
+  it("shows 'Enriching…' and is disabled after click while in-flight", async () => {
+    const node = makeEnrichNode("Person")
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByTestId("enrich-button")).toBeInTheDocument())
+
+    screen.getByTestId("enrich-button").click()
+
+    await waitFor(() => {
+      expect(screen.getByTestId("enrich-button")).toHaveTextContent("Enriching…")
+      expect(screen.getByTestId("enrich-button")).toBeDisabled()
+    })
+  })
+
+  it("calls triggerEnrich with the node ref_id on click", async () => {
+    const node = makeEnrichNode("Organization")
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByTestId("enrich-button")).toBeInTheDocument())
+
+    screen.getByTestId("enrich-button").click()
+
+    expect(mockTriggerEnrich).toHaveBeenCalledWith(node.ref_id)
+  })
+
+  it("shows 'Enrich failed' when triggerEnrich throws", async () => {
+    mockTriggerEnrich.mockRejectedValueOnce(new Error("Network error"))
+    const node = makeEnrichNode("Product")
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+    await waitFor(() => expect(screen.getByTestId("enrich-button")).toBeInTheDocument())
+
+    screen.getByTestId("enrich-button").click()
+
+    await waitFor(() =>
+      expect(screen.getByTestId("enrich-button")).toHaveTextContent("Enrich failed")
+    )
+    expect(screen.getByTestId("enrich-button")).not.toBeDisabled()
+  })
+
+  it("shows 'View Enrich run' link once enrichRunProjectId is set via polling", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockGetLatestStakworkRun
+        .mockResolvedValueOnce({
+          ref_id: "enrich-run-1",
+          job_type: "web_search_enrich",
+          status: "RUNNING",
+          created_at: 0,
+          project_id: 42000,
+        })
+
+      const node = makeEnrichNode("Location")
+      mockApiGet.mockResolvedValue(makeGraphData(node))
+      render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+      await waitFor(() => expect(screen.getByTestId("enrich-button")).toBeInTheDocument())
+
+      screen.getByTestId("enrich-button").click()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(screen.getByText("View Enrich run")).toBeInTheDocument()
+      )
+      const link = screen.getByText("View Enrich run").closest("a")
+      expect(link).toHaveAttribute("href", "https://jobs.stakwork.com/admin/projects/42000")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("on Topic node: both Deep Research and Enrich buttons are present for admin", async () => {
+    const node: GraphNode = {
+      ref_id: "topic-both",
+      node_type: "Topic",
+      properties: { name: "Dual Action Topic" },
+    }
+    mockApiGet.mockResolvedValue(makeGraphData(node))
+    mockTriggerDeepResearch.mockResolvedValue({ stakwork_run_ref_id: "mock-dr-run" })
+    render(<NodePreviewPanel node={node} onBack={vi.fn()} schemas={[]} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("deep-research-button")).toBeInTheDocument()
+      expect(screen.getByTestId("enrich-button")).toBeInTheDocument()
+    })
+    expect(screen.getByTestId("deep-research-button")).toHaveTextContent("Deep Research")
+    expect(screen.getByTestId("enrich-button")).toHaveTextContent("Enrich")
   })
 })
