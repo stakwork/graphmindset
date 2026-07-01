@@ -432,6 +432,7 @@ export interface StakworkRun {
   created_at?: number
   started_at?: number
   finished_at?: number
+  project_id?: number
 }
 
 export async function getCronConfig(
@@ -629,6 +630,23 @@ export async function triggerDeepResearch(
   )
 }
 
+// Admin-only enrich (web search) — no payment gate
+export async function triggerEnrich(
+  refId: string,
+  signal?: AbortSignal
+): Promise<{ stakwork_run_ref_id: string }> {
+  if (isMocksEnabled()) {
+    _mockDeepResearchPollCounts[refId + "_enrich"] = 0
+    return { stakwork_run_ref_id: "mock-enrich-run-" + refId }
+  }
+  return api.post<{ stakwork_run_ref_id: string }>(
+    `/v2/nodes/${refId}/enrich`,
+    {},
+    undefined,
+    signal
+  )
+}
+
 // Free poll — returns null when no run exists (404)
 export async function getLatestStakworkRun(
   refId: string,
@@ -636,18 +654,20 @@ export async function getLatestStakworkRun(
   signal?: AbortSignal
 ): Promise<StakworkRun | null> {
   if (isMocksEnabled()) {
-    const count = (_mockDeepResearchPollCounts[refId] ?? 0) + 1
-    _mockDeepResearchPollCounts[refId] = count
+    const mockKey = jobType === "web_search_enrich" ? refId + "_enrich" : refId
+    const count = (_mockDeepResearchPollCounts[mockKey] ?? 0) + 1
+    _mockDeepResearchPollCounts[mockKey] = count
+    const runPrefix = jobType === "web_search_enrich" ? "mock-enrich-run-" : "mock-deep-run-"
     if (count <= 2) {
       return {
-        ref_id: "mock-deep-run-" + refId,
+        ref_id: runPrefix + refId,
         job_type: jobType,
         status: "RUNNING",
         created_at: Math.floor(Date.now() / 1000),
       }
     }
     return {
-      ref_id: "mock-deep-run-" + refId,
+      ref_id: runPrefix + refId,
       job_type: jobType,
       status: "COMPLETED",
       created_at: Math.floor(Date.now() / 1000),

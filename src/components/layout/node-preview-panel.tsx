@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal, Search } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -23,7 +23,7 @@ import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, unescapeText, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge, isBlockedStatus, isInProgress } from "@/lib/node-status"
 import type { GraphNode, GraphData, StakworkRun } from "@/lib/graph-api"
-import { triggerDeepResearch, getLatestStakworkRun, getNode, isGraphData } from "@/lib/graph-api"
+import { triggerDeepResearch, triggerEnrich, getLatestStakworkRun, getNode, isGraphData } from "@/lib/graph-api"
 import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/lib/schema-types"
@@ -35,6 +35,7 @@ import { formatDateAbsolute, formatDateRelative } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
 
 const DEEP_RESEARCH_NODE_TYPES = ["Topic"]
+const ENRICH_NODE_TYPES = ["Person", "Organization", "Product", "Location", "Topic"] as const
 
 const INTERNAL_FIELDS = new Set([
   "ref_id", "pubkey", "owner_reference_id", "node_type", "date_added_to_graph", "status", "project_id",
@@ -793,6 +794,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [deepResearchLoading, setDeepResearchLoading] = useState(false)
   const deepResearchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Enrich state
+  const [enrichLoading, setEnrichLoading] = useState(false)
+  const [enrichStatus, setEnrichStatus] = useState<DeepResearchStatus>(null)
+  const [enrichRunProjectId, setEnrichRunProjectId] = useState<number | null>(null)
+  const enrichPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   function isDeepResearchInFlight(status: DeepResearchStatus): boolean {
     return status === "PENDING" || status === "RUNNING"
   }
@@ -848,6 +855,10 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         clearInterval(deepResearchPollRef.current)
         deepResearchPollRef.current = null
       }
+      if (enrichPollRef.current) {
+        clearInterval(enrichPollRef.current)
+        enrichPollRef.current = null
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNode.ref_id])
@@ -863,6 +874,40 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
       setDeepResearchStatus("FAILED")
     } finally {
       setDeepResearchLoading(false)
+    }
+  }
+
+  function startEnrichPoll(refId: string) {
+    if (enrichPollRef.current) clearInterval(enrichPollRef.current)
+    enrichPollRef.current = setInterval(async () => {
+      try {
+        const run = await getLatestStakworkRun(refId, "web_search_enrich")
+        if (!run) return
+        const mapped = mapRunStatus(run.status)
+        setEnrichStatus(mapped)
+        if (run.project_id) setEnrichRunProjectId(run.project_id)
+        if (mapped !== "PENDING" && mapped !== "RUNNING") {
+          if (enrichPollRef.current) clearInterval(enrichPollRef.current)
+          enrichPollRef.current = null
+          if (mapped === "COMPLETED") setProbeNonce((n) => n + 1)
+        }
+      } catch {
+        // silent — keep polling
+      }
+    }, 5000)
+  }
+
+  async function handleEnrich() {
+    if (enrichLoading || isDeepResearchInFlight(enrichStatus)) return
+    setEnrichLoading(true)
+    setEnrichStatus("PENDING")
+    try {
+      await triggerEnrich(currentNode.ref_id)
+      startEnrichPoll(currentNode.ref_id)
+    } catch {
+      setEnrichStatus("FAILED")
+    } finally {
+      setEnrichLoading(false)
     }
   }
 
@@ -1460,6 +1505,54 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                   </>
                 )}
               </Button>
+            </div>
+          )}
+
+          {/* Enrich — admin-only, Person/Organization/Product/Location/Topic */}
+          {isAdmin && ENRICH_NODE_TYPES.includes(currentNode.node_type as typeof ENRICH_NODE_TYPES[number]) && (
+            <div className="pt-1 space-y-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                disabled={enrichLoading || isDeepResearchInFlight(enrichStatus)}
+                onClick={handleEnrich}
+                data-testid="enrich-button"
+                title="Enrich this node via web search"
+              >
+                {isDeepResearchInFlight(enrichStatus) ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Enriching…
+                  </>
+                ) : enrichStatus === "COMPLETED" ? (
+                  <>
+                    <Search className="h-3.5 w-3.5 mr-1.5" />
+                    Enriched
+                  </>
+                ) : (enrichStatus === "FAILED" || enrichStatus === "ERROR" || enrichStatus === "HALTED") ? (
+                  <>
+                    <Search className="h-3.5 w-3.5 mr-1.5" />
+                    Enrich failed
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-3.5 w-3.5 mr-1.5" />
+                    Enrich
+                  </>
+                )}
+              </Button>
+              {enrichRunProjectId && (
+                <a
+                  href={`https://jobs.stakwork.com/admin/projects/${enrichRunProjectId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  View Enrich run
+                </a>
+              )}
             </div>
           )}
 
