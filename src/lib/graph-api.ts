@@ -832,3 +832,47 @@ export async function dismissReview(
 export async function getSchemaAudit(): Promise<SchemaAuditData> {
   return api.get<SchemaAuditData>("/schema/audit")
 }
+
+// ── Legal document ingestion ─────────────────────────────────────────────────
+
+// URL path — submits a publicly accessible PDF URL to the legal workflow.
+export async function addLegalDocument(
+  pdfUrl: string,
+  signal?: AbortSignal
+): Promise<{ status: string; nodes: Array<Record<string, unknown>>; status_messages: string[] }> {
+  const l402 = await getL402()
+  const headers: Record<string, string> = {}
+  if (l402) headers["Authorization"] = l402
+  return api.post("/v2/legal", { pdf_url: pdfUrl }, headers, signal)
+}
+
+// File path — multipart POST, mirrors addImageContent pattern.
+export async function addLegalDocumentFile(
+  file: File,
+  signal?: AbortSignal
+): Promise<{ status: string; nodes: Array<Record<string, unknown>>; status_messages: string[] }> {
+  const url = new URL(`${API_URL}/v2/legal/upload`)
+
+  const signed = await getSignedMessage()
+  if (signed.signature) {
+    url.searchParams.append("sig", signed.signature)
+    url.searchParams.append("msg", signed.message)
+  }
+
+  const l402 = await getL402()
+  const headers: Record<string, string> = {}
+  if (l402) headers["Authorization"] = l402
+
+  const form = new FormData()
+  form.append("file", file)
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form,
+    signal: signal ?? new AbortController().signal,
+  })
+
+  if (!response.ok) throw response
+  return response.json()
+}
