@@ -833,9 +833,51 @@ export async function getSchemaAudit(): Promise<SchemaAuditData> {
   return api.get<SchemaAuditData>("/schema/audit")
 }
 
-// -------------------------------------------------------------------------
-// Legal Domain Seed
-// -------------------------------------------------------------------------
+// ── Legal document ingestion ─────────────────────────────────────────────────
+
+// URL path — submits a publicly accessible PDF URL to the legal workflow.
+export async function addLegalDocument(
+  pdfUrl: string,
+  signal?: AbortSignal
+): Promise<{ status: string; nodes: Array<Record<string, unknown>>; status_messages: string[] }> {
+  const l402 = await getL402()
+  const headers: Record<string, string> = {}
+  if (l402) headers["Authorization"] = l402
+  return api.post("/v2/legal", { pdf_url: pdfUrl }, headers, signal)
+}
+
+// File path — multipart POST, mirrors addImageContent pattern.
+export async function addLegalDocumentFile(
+  file: File,
+  signal?: AbortSignal
+): Promise<{ status: string; nodes: Array<Record<string, unknown>>; status_messages: string[] }> {
+  const url = new URL(`${API_URL}/v2/legal/upload`)
+
+  const signed = await getSignedMessage()
+  if (signed.signature) {
+    url.searchParams.append("sig", signed.signature)
+    url.searchParams.append("msg", signed.message)
+  }
+
+  const l402 = await getL402()
+  const headers: Record<string, string> = {}
+  if (l402) headers["Authorization"] = l402
+
+  const form = new FormData()
+  form.append("file", file)
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: form,
+    signal: signal ?? new AbortController().signal,
+  })
+
+  if (!response.ok) throw response
+  return response.json()
+}
+
+// ── Legal Domain Seed ─────────────────────────────────────────────────────────
 
 // Curated Agreement-first seed for the legal skin.
 // 1. Fetch up to 10 Agreement nodes.
@@ -844,7 +886,6 @@ export async function getSchemaAudit(): Promise<SchemaAuditData> {
 // 4. Top-up to 10 Orgs / 10 Persons if needed.
 // 5. Filter edges to only those where both endpoints exist in the final set.
 export async function getLegalInitialNodes(signal?: AbortSignal): Promise<GraphData> {
-  // Step 1: Fetch agreements
   const agreementsResp = await api.get<NodesListResponse>(
     "/v2/nodes/latest?node_type=Agreement&limit=10&skip_cache=1",
     undefined,
@@ -852,7 +893,6 @@ export async function getLegalInitialNodes(signal?: AbortSignal): Promise<GraphD
   )
   const agreements: GraphNode[] = agreementsResp.nodes ?? []
 
-  // Step 2 & 3: Expand each agreement's neighbours and deduplicate
   const orgs = new Map<string, GraphNode>()
   const persons = new Map<string, GraphNode>()
   const allEdges: GraphEdge[] = []
@@ -870,13 +910,11 @@ export async function getLegalInitialNodes(signal?: AbortSignal): Promise<GraphD
         }
         allEdges.push(...(expanded.edges ?? []))
       } catch (err) {
-        // Skip failed expansions — don't abort the whole seed
         console.warn(`[getLegalInitialNodes] expand failed for ${agreement.ref_id}:`, err)
       }
     })
   )
 
-  // Step 4: Top-up to 10 of each type
   if (orgs.size < 10) {
     try {
       const topupResp = await api.get<NodesListResponse>(
@@ -909,7 +947,6 @@ export async function getLegalInitialNodes(signal?: AbortSignal): Promise<GraphD
     }
   }
 
-  // Step 5: Build final node set
   const finalNodes: GraphNode[] = [
     ...agreements,
     ...orgs.values(),
@@ -917,7 +954,6 @@ export async function getLegalInitialNodes(signal?: AbortSignal): Promise<GraphD
   ]
   const finalRefIds = new Set<string>(finalNodes.map((n) => n.ref_id))
 
-  // Step 6: Filter and deduplicate edges
   const seenEdges = new Set<string>()
   const filteredEdges: GraphEdge[] = []
   for (const edge of allEdges) {

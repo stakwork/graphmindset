@@ -1,6 +1,6 @@
 "use client"
 
-import { Sparkles, Workflow, GitMerge } from "lucide-react"
+import { Sparkles, Workflow, GitMerge, Scale } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -10,28 +10,39 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useModalStore, type AddTab } from "@/stores/modal-store"
+import { useAppStore } from "@/stores/app-store"
 import { AddSourceForm } from "@/components/modals/add-source-form"
 import { AddNodeForm } from "@/components/modals/add-node-form"
 import { AddEdgeForm } from "@/components/modals/add-edge-form"
-
-// All three modes are open to everyone — like Add Node, edge creation is a
-// paid action gated by sats (handled in the form), not by role.
-const TABS: { id: AddTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: "source", label: "Smart", icon: Sparkles },
-  { id: "node", label: "Node", icon: Workflow },
-  { id: "edge", label: "Edge", icon: GitMerge },
-]
+import { AddLegalForm } from "@/components/modals/add-legal-form"
 
 export function AddModal() {
   const activeModal = useModalStore((s) => s.activeModal)
   const tab = useModalStore((s) => s.addTab)
   const setTab = useModalStore((s) => s.setAddTab)
   const close = useModalStore((s) => s.close)
+  const activeSkin = useAppStore((s) => s.activeSkin)
 
   const isOpen = activeModal === "add"
+  const isLegalSkin = activeSkin === "legal"
 
-  // Guard against a stale/invalid tab id.
-  const activeTab = TABS.some((t) => t.id === tab) ? tab : "source"
+  // Build tabs dynamically based on active skin.
+  const TABS: { id: AddTab; label: string; icon: React.ComponentType<{ className?: string }> }[] =
+    isLegalSkin
+      ? [
+          { id: "legal", label: "Legal", icon: Scale },
+          { id: "source", label: "Other", icon: Sparkles },
+          { id: "node", label: "Node", icon: Workflow },
+          { id: "edge", label: "Edge", icon: GitMerge },
+        ]
+      : [
+          { id: "source", label: "Smart", icon: Sparkles },
+          { id: "node", label: "Node", icon: Workflow },
+          { id: "edge", label: "Edge", icon: GitMerge },
+        ]
+
+  // Guard against a stale/invalid tab id — falls back to the first available tab.
+  const activeTab = TABS.some((t) => t.id === tab) ? tab : TABS[0].id
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
@@ -71,6 +82,7 @@ export function AddModal() {
 
         {/* Only the active tab is mounted — gives each form fresh state and
             re-runs its on-mount fetches when selected. */}
+        {activeTab === "legal" && <AddLegalForm />}
         {activeTab === "source" && <AddSourceForm />}
         {activeTab === "node" && <AddNodeForm />}
         {activeTab === "edge" && <AddEdgeForm />}
