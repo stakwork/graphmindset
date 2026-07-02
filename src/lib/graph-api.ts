@@ -876,3 +876,95 @@ export async function addLegalDocumentFile(
   if (!response.ok) throw response
   return response.json()
 }
+
+// ── Legal Domain Seed ─────────────────────────────────────────────────────────
+
+// Curated Agreement-first seed for the legal skin.
+// 1. Fetch up to 10 Agreement nodes.
+// 2. Expand each agreement's 1-hop neighbours; collect Orgs and Persons.
+// 3. Deduplicate by ref_id (Maps).
+// 4. Top-up to 10 Orgs / 10 Persons if needed.
+// 5. Filter edges to only those where both endpoints exist in the final set.
+export async function getLegalInitialNodes(signal?: AbortSignal): Promise<GraphData> {
+  const agreementsResp = await api.get<NodesListResponse>(
+    "/v2/nodes/latest?node_type=Agreement&limit=10&skip_cache=1",
+    undefined,
+    signal
+  )
+  const agreements: GraphNode[] = agreementsResp.nodes ?? []
+
+  const orgs = new Map<string, GraphNode>()
+  const persons = new Map<string, GraphNode>()
+  const allEdges: GraphEdge[] = []
+
+  await Promise.all(
+    agreements.map(async (agreement) => {
+      try {
+        const expanded = await getNode(agreement.ref_id, "edges", signal)
+        for (const node of expanded.nodes ?? []) {
+          if (node.node_type === "Organization") {
+            if (!orgs.has(node.ref_id)) orgs.set(node.ref_id, node)
+          } else if (node.node_type === "Person") {
+            if (!persons.has(node.ref_id)) persons.set(node.ref_id, node)
+          }
+        }
+        allEdges.push(...(expanded.edges ?? []))
+      } catch (err) {
+        console.warn(`[getLegalInitialNodes] expand failed for ${agreement.ref_id}:`, err)
+      }
+    })
+  )
+
+  if (orgs.size < 10) {
+    try {
+      const topupResp = await api.get<NodesListResponse>(
+        "/v2/nodes/latest?node_type=Organization&limit=10&skip_cache=1",
+        undefined,
+        signal
+      )
+      for (const node of topupResp.nodes ?? []) {
+        if (orgs.size >= 10) break
+        if (!orgs.has(node.ref_id)) orgs.set(node.ref_id, node)
+      }
+    } catch (err) {
+      console.warn("[getLegalInitialNodes] Organization top-up failed:", err)
+    }
+  }
+
+  if (persons.size < 10) {
+    try {
+      const topupResp = await api.get<NodesListResponse>(
+        "/v2/nodes/latest?node_type=Person&limit=10&skip_cache=1",
+        undefined,
+        signal
+      )
+      for (const node of topupResp.nodes ?? []) {
+        if (persons.size >= 10) break
+        if (!persons.has(node.ref_id)) persons.set(node.ref_id, node)
+      }
+    } catch (err) {
+      console.warn("[getLegalInitialNodes] Person top-up failed:", err)
+    }
+  }
+
+  const finalNodes: GraphNode[] = [
+    ...agreements,
+    ...orgs.values(),
+    ...persons.values(),
+  ]
+  const finalRefIds = new Set<string>(finalNodes.map((n) => n.ref_id))
+
+  const seenEdges = new Set<string>()
+  const filteredEdges: GraphEdge[] = []
+  for (const edge of allEdges) {
+    if (!finalRefIds.has(edge.source) || !finalRefIds.has(edge.target)) continue
+    const key = edge.ref_id
+      ? edge.ref_id
+      : `${edge.source}__${edge.target}__${edge.edge_type}`
+    if (seenEdges.has(key)) continue
+    seenEdges.add(key)
+    filteredEdges.push(edge)
+  }
+
+  return { nodes: finalNodes, edges: filteredEdges }
+}

@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { Network, Loader2 } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
@@ -7,7 +8,8 @@ import { useSchemaStore } from "@/stores/schema-store"
 import { GraphCanvas } from "@/components/universe/graph-canvas"
 import { SearchBar } from "@/components/search/search-bar"
 import { Toolkit, ToolkitFAB } from "@/components/layout/toolkit"
-import type { GraphNode } from "@/lib/graph-api"
+import { getLegalInitialNodes, type GraphNode } from "@/lib/graph-api"
+import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 
 // ── Legal Network Header ─────────────────────────────────────────────────────
 
@@ -59,6 +61,35 @@ export function LegalGraphPane() {
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const loadingNeighbors = useGraphStore((s) => s.loadingNeighborRefs.size > 0)
   const schemas = useSchemaStore((s) => s.schemas)
+  const setGraphData = useGraphStore((s) => s.setGraphData)
+  const setLoading = useGraphStore((s) => s.setLoading)
+
+  useEffect(() => {
+    if (useGraphStore.getState().nodes.length > 0) return
+    if (isMocksEnabled()) {
+      setGraphData(MOCK_NODES, MOCK_EDGES)
+      return
+    }
+    const controller = new AbortController()
+    let cancelled = false
+    setLoading(true)
+    ;(async () => {
+      try {
+        const result = await getLegalInitialNodes(controller.signal)
+        if (cancelled) return
+        setGraphData(result.nodes, result.edges)
+      } catch (err) {
+        console.error("[legal-graph-pane] getLegalInitialNodes failed:", err)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const sourcesOpen = useAppStore((s) => s.sourcesOpen)
   const myContentOpen = useAppStore((s) => s.myContentOpen)

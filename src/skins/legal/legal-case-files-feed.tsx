@@ -3,9 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
-import { useSchemaStore } from "@/stores/schema-store"
-import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
-import { getLatestNodes } from "@/lib/graph-api"
 import { cn } from "@/lib/utils"
 import type { GraphNode } from "@/lib/graph-api"
 
@@ -88,8 +85,6 @@ export function LegalCaseFilesFeed() {
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
   const setSidebarSelectedNode = useGraphStore((s) => s.setSidebarSelectedNode)
   const clearSelection = useGraphStore((s) => s.clearSelection)
-  const setGraphData = useGraphStore((s) => s.setGraphData)
-  const setLoading = useGraphStore((s) => s.setLoading)
   const searchTerm = useAppStore((s) => s.searchTerm)
 
   const [activeType, setActiveType] = useState<string | null>(null)
@@ -98,31 +93,6 @@ export function LegalCaseFilesFeed() {
     clearSelection()
     setActiveType(null)
   }, [searchTerm, clearSelection])
-
-  useEffect(() => {
-    if (useGraphStore.getState().nodes.length > 0) return
-    if (isMocksEnabled()) {
-      setGraphData(MOCK_NODES, MOCK_EDGES)
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    ;(async () => {
-      try {
-        const result = await getLatestNodes()
-        if (cancelled) return
-        setGraphData(result.nodes ?? [], result.edges ?? [])
-      } catch (err) {
-        console.error("[legal-feed] getLatestNodes failed:", err)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const typeCounts = useMemo(() => {
     const counts = new Map<string, number>()
