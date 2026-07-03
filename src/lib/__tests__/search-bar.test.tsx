@@ -25,10 +25,11 @@ vi.mock("@/stores/graph-store", () => ({
 
 const setSearchTerm = vi.fn()
 const closeAllPanels = vi.fn()
+let mockActiveSkin: string | null = null
 
 vi.mock("@/stores/app-store", () => ({
   useAppStore: (sel?: (s: unknown) => unknown) => {
-    const state = { setSearchTerm, closeAllPanels }
+    const state = { setSearchTerm, closeAllPanels, activeSkin: mockActiveSkin }
     return sel ? sel(state) : state
   },
 }))
@@ -48,8 +49,9 @@ vi.mock("@/stores/modal-store", () => ({
 }))
 
 const mockGetLatestNodes = vi.fn()
+const mockSearchNodes = vi.fn()
 vi.mock("@/lib/graph-api", () => ({
-  searchNodes: vi.fn(),
+  searchNodes: (...args: unknown[]) => mockSearchNodes(...args),
   getLatestNodes: (...args: unknown[]) => mockGetLatestNodes(...args),
 }))
 
@@ -82,7 +84,9 @@ describe("SearchBar handleClear", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocksEnabled = false
+    mockActiveSkin = null
     mockGetLatestNodes.mockResolvedValue({ nodes: [{ ref_id: "n1" }], edges: [{ id: "e1" }] })
+    mockSearchNodes.mockResolvedValue({ nodes: [], edges: [] })
   })
 
   function renderWithValue(inputValue: string) {
@@ -139,5 +143,47 @@ describe("SearchBar handleClear", () => {
     fireEvent.click(screen.getByRole("button"))
     await waitFor(() => expect(setLoading).toHaveBeenCalledWith(false))
     expect(setGraphData).toHaveBeenCalledWith([], [])
+  })
+})
+
+describe("SearchBar handleSubmit — ui_skin forwarding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocksEnabled = false
+    mockActiveSkin = null
+    mockGetLatestNodes.mockResolvedValue({ nodes: [], edges: [] })
+    mockSearchNodes.mockResolvedValue({ nodes: [], edges: [] })
+  })
+
+  async function submitSearch(query: string) {
+    render(<SearchBar />)
+    const input = screen.getByPlaceholderText("Search the graph...")
+    fireEvent.change(input, { target: { value: query } })
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect(mockSearchNodes).toHaveBeenCalled())
+  }
+
+  it("forwards ui_skin=legal when activeSkin is 'legal'", async () => {
+    mockActiveSkin = "legal"
+    await submitSearch("contract")
+    expect(mockSearchNodes).toHaveBeenCalledWith(
+      "contract",
+      expect.objectContaining({ ui_skin: "legal" }),
+      expect.anything()
+    )
+  })
+
+  it("omits ui_skin when activeSkin is 'default'", async () => {
+    mockActiveSkin = "default"
+    await submitSearch("contract")
+    const opts = mockSearchNodes.mock.calls[0][1]
+    expect(opts?.ui_skin).toBeUndefined()
+  })
+
+  it("omits ui_skin when activeSkin is null", async () => {
+    mockActiveSkin = null
+    await submitSearch("contract")
+    const opts = mockSearchNodes.mock.calls[0][1]
+    expect(opts?.ui_skin).toBeUndefined()
   })
 })
