@@ -1,12 +1,20 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { CheckCircle2, FileText, Link2, Loader2, Upload } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { AlertTriangle, CheckCircle2, FileText, Link2, Loader2, Upload, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useModalStore } from "@/stores/modal-store"
 import { useAppStore } from "@/stores/app-store"
-import { addLegalDocument, addLegalDocumentFile } from "@/lib/graph-api"
+import { useUserStore } from "@/stores/user-store"
+import {
+  addLegalDocument,
+  addLegalDocumentFile,
+  checkNodeExists,
+  checkNodeExistsByHash,
+  reprocessContent,
+} from "@/lib/graph-api"
+import { getPrice, payL402 } from "@/lib/sphinx"
 
 type Mode = "url" | "file"
 
@@ -21,8 +29,20 @@ function isValidUrl(value: string): boolean {
   }
 }
 
+async function computeHash(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer()
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer)
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+}
+
 export function AddLegalForm() {
   const close = useModalStore((s) => s.close)
+  const openModal = useModalStore((s) => s.open)
+  const { isAdmin } = useUserStore()
+  const ownerReferenceId = useUserStore((s) => s.ownerReferenceId)
+  const refreshBalance = useUserStore((s) => s.refreshBalance)
 
   const [mode, setMode] = useState<Mode>("url")
 
@@ -39,19 +59,55 @@ export function AddLegalForm() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState("")
 
+  // Duplicate detection state
+  const [existingNode, setExistingNode] = useState<{ ref_id: string; owner_reference_id: string | null } | null>(null)
+  const [contentHash, setContentHash] = useState<string | null>(null)
+  const [price, setPrice] = useState<number | null>(null)
+
   const urlValid = isValidUrl(urlValue.trim())
-  const canSubmit = !submitting && !success && (mode === "url" ? urlValid : !!file && !fileError)
+  const canSubmit = !submitting && !success && !existingNode && (mode === "url" ? urlValid : !!file && !fileError)
+
+  // Fetch price for content submission
+  useEffect(() => {
+    getPrice("v2/content").then(setPrice)
+  }, [])
+
+  // URL mode — check for existing node when URL becomes valid
+  useEffect(() => {
+    if (!urlValid) {
+      setExistingNode(null)
+      return
+    }
+    const controller = new AbortController()
+    checkNodeExists("LegalDocument", urlValue.trim(), controller.signal).then((check) => {
+      setExistingNode(
+        check.exists && check.ref_id
+          ? { ref_id: check.ref_id, owner_reference_id: check.owner_reference_id }
+          : null
+      )
+    })
+    return () => controller.abort()
+  }, [urlValue, urlValid])
+
+  const currentUserOwns = useCallback(
+    (nodeRef: string | null) => !!nodeRef && !!ownerReferenceId && nodeRef === ownerReferenceId,
+    [ownerReferenceId]
+  )
 
   function handleModeChange(next: Mode) {
     setMode(next)
     setError("")
     setFileError("")
+    setExistingNode(null)
+    setContentHash(null)
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0] ?? null
     setFileError("")
     setError("")
+    setExistingNode(null)
+    setContentHash(null)
 
     if (!selected) {
       setFile(null)
@@ -71,7 +127,67 @@ export function AddLegalForm() {
     }
 
     setFile(selected)
+
+    // Compute SHA-256 hash and check for existing node
+    try {
+      const hash = await computeHash(selected)
+      setContentHash(hash)
+      const check = await checkNodeExistsByHash("LegalDocument", hash)
+      setExistingNode(
+        check.exists && check.ref_id
+          ? { ref_id: check.ref_id, owner_reference_id: check.owner_reference_id }
+          : null
+      )
+    } catch {
+      // Hash computation failed — allow submission to proceed without dedup
+    }
   }
+
+  const handleReprocess = useCallback(async () => {
+    if (!existingNode) return
+    if (!isAdmin && !currentUserOwns(existingNode.owner_reference_id)) return
+    setSubmitting(true)
+    setError("")
+    try {
+      const body: Record<string, unknown> =
+        mode === "url"
+          ? { source_link: urlValue.trim(), content_type: "legal_document" }
+          : { content_hash: contentHash, content_type: "legal_document" }
+      await reprocessContent(existingNode.ref_id, body)
+      setSuccess(true)
+      refreshBalance()
+      setTimeout(() => {
+        setExistingNode(null)
+        setSuccess(false)
+        close()
+        useAppStore.getState().setMyContentOpen(true)
+      }, 1200)
+    } catch (err) {
+      if (err instanceof Response && err.status === 402) {
+        try {
+          await payL402(useUserStore.getState().setBudget)
+          const body: Record<string, unknown> =
+            mode === "url"
+              ? { source_link: urlValue.trim(), content_type: "legal_document" }
+              : { content_hash: contentHash, content_type: "legal_document" }
+          await reprocessContent(existingNode.ref_id, body)
+          setSuccess(true)
+          refreshBalance()
+          setTimeout(() => {
+            setExistingNode(null)
+            setSuccess(false)
+            close()
+          }, 1200)
+        } catch {
+          openModal("budget")
+        }
+      } else {
+        setError("Re-process failed. Try again.")
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }, [existingNode, mode, urlValue, contentHash, refreshBalance, close, openModal])
 
   async function handleSubmit() {
     if (!canSubmit) return
@@ -192,6 +308,34 @@ export function AddLegalForm() {
         </div>
       )}
 
+      {/* Already-in-graph yellow callout */}
+      {existingNode && !submitting && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 animate-fade-in-up">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+          <div className="space-y-1.5">
+            <p className="text-xs text-amber-500 font-medium">⚠️ This content is already in the graph</p>
+            {(isAdmin || currentUserOwns(existingNode.owner_reference_id)) ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleReprocess}
+                disabled={submitting}
+                className="h-7 text-[11px] border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+              >
+                {submitting ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <Zap className="mr-1 h-3 w-3" />
+                )}
+                {price && price > 0 ? "Pay & Re-process" : "Re-process"}
+              </Button>
+            ) : (
+              <p className="text-[10px] text-muted-foreground">Contact an admin to re-process this content</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* API error */}
       {error && (
         <p className="text-xs text-destructive">{error}</p>
@@ -202,10 +346,14 @@ export function AddLegalForm() {
         <span className="text-xs text-muted-foreground">
           {mode === "url"
             ? urlValid
-              ? "URL looks good — ready to submit"
+              ? existingNode
+                ? "Already in graph — use Re-process above"
+                : "URL looks good — ready to submit"
               : "Enter a valid PDF URL to continue"
             : file
-              ? "File ready — click Add Document"
+              ? existingNode
+                ? "Already in graph — use Re-process above"
+                : "File ready — click Add Document"
               : "Select a PDF file to continue"}
         </span>
         <span className="flex-1" />

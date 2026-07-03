@@ -12,6 +12,7 @@ interface UserState {
   routeHint: string
   budget: number | null
   nodeCount: number
+  ownerReferenceId: string
 }
 
 interface UserActions {
@@ -34,6 +35,7 @@ export const useUserStore = create<UserStore>((set) => ({
   routeHint: "",
   budget: 0,
   nodeCount: 0,
+  ownerReferenceId: "",
   setIsAdmin: (isAdmin) => set({ isAdmin }),
   setIsAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
   setPubKey: (pubKey) => set({ pubKey }),
@@ -46,8 +48,8 @@ export const useUserStore = create<UserStore>((set) => ({
     const l402 = await getL402()
     if (!l402) { set({ budget: 0 }); return }
     try {
-      const bal = await api.get<{ balance: number }>("/balance", { Authorization: l402 })
-      set({ budget: bal.balance })
+      const bal = await api.get<{ balance: number; owner_reference_id?: string }>("/balance", { Authorization: l402 })
+      set({ budget: bal.balance, ownerReferenceId: bal.owner_reference_id ?? "" })
     } catch {
       cookieStorage.removeItem("l402")
       set({ budget: 0 })

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, CheckCircle2, LinkIcon, Zap, X, RefreshCw } from "lucide-react"
+import { Loader2, CheckCircle2, LinkIcon, Zap, X, RefreshCw, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { MAX_LENGTHS } from "@/lib/input-limits"
@@ -18,7 +18,7 @@ import {
   isSubscriptionSource,
   type SourceType,
 } from "@/lib/source-detection"
-import { checkNodeExists, type GraphNode } from "@/lib/graph-api"
+import { checkNodeExists, reprocessContent, CONTENT_TYPE_TO_NODE_TYPE, type GraphNode } from "@/lib/graph-api"
 import { unlockNode } from "@/lib/unlock-node"
 
 const CONTENT_TYPE_BY_SOURCE: Partial<Record<SourceType, string>> = {
@@ -41,6 +41,7 @@ export function AddSourceForm() {
   const { close, open: openModal } = useModalStore()
   const { budget, setBudget, pubKey, routeHint, isAdmin } = useUserStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
+  const ownerReferenceId = useUserStore((s) => s.ownerReferenceId)
   const activeSkin = useAppStore((s) => s.activeSkin)
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
@@ -57,6 +58,7 @@ export function AddSourceForm() {
   const [cachedRefId, setCachedRefId] = useState<string | null>(null)
   const [previewState, setPreviewState] = useState<PreviewState>(null)
   const [, setPreviewedNode] = useState<GraphNode | null>(null)
+  const [existingNode, setExistingNode] = useState<{ ref_id: string; owner_reference_id: string | null } | null>(null)
 
   // Fetch price based on detected type
   useEffect(() => {
@@ -65,6 +67,11 @@ export function AddSourceForm() {
       getPrice(endpoint).then(setPrice)
     }
   }, [detectedType])
+
+  const currentUserOwns = useCallback(
+    (nodeRef: string | null) => !!nodeRef && !!ownerReferenceId && nodeRef === ownerReferenceId,
+    [ownerReferenceId]
+  )
 
   const handleDetect = useCallback(async (value: string) => {
     setSourceUrl(value)
@@ -75,6 +82,7 @@ export function AddSourceForm() {
     setCachedRefId(null)
     setPreviewState(null)
     setPreviewedNode(null)
+    setExistingNode(null)
 
     const trimmed = value.trim()
     if (!trimmed || trimmed.length < 5) return
@@ -157,6 +165,15 @@ export function AddSourceForm() {
           setCacheStatus("miss")
           setCachedRefId(null)
         }
+      } else if (type && !isSubscriptionSource(type)) {
+        const contentType = CONTENT_TYPE_BY_SOURCE[type]
+        const nodeType = contentType ? CONTENT_TYPE_TO_NODE_TYPE[contentType] : null
+        if (nodeType && nodeType !== "Episode") {
+          const check = await checkNodeExists(nodeType, trimmed)
+          if (check.exists && check.ref_id) {
+            setExistingNode({ ref_id: check.ref_id, owner_reference_id: check.owner_reference_id })
+          }
+        }
       }
     } catch {
       setDetectedType(null)
@@ -164,6 +181,46 @@ export function AddSourceForm() {
       setDetecting(false)
     }
   }, [close])
+
+  const handleReprocess = useCallback(async () => {
+    if (!existingNode || !detectedType) return
+    if (!isAdmin && !currentUserOwns(existingNode.owner_reference_id)) return
+    const contentType = CONTENT_TYPE_BY_SOURCE[detectedType]
+    if (!contentType) return
+    setSubmitting(true)
+    setError("")
+    try {
+      await reprocessContent(existingNode.ref_id, { source_link: sourceUrl.trim(), content_type: contentType })
+      setSuccess(true)
+      refreshBalance()
+      setTimeout(() => {
+        setExistingNode(null)
+        setSuccess(false)
+        close()
+        useAppStore.getState().bumpMyContentRefresh()
+      }, 1200)
+    } catch (err) {
+      if (err instanceof Response && err.status === 402) {
+        try {
+          await payL402(setBudget)
+          await reprocessContent(existingNode.ref_id, { source_link: sourceUrl.trim(), content_type: contentType })
+          setSuccess(true)
+          refreshBalance()
+          setTimeout(() => {
+            setExistingNode(null)
+            setSuccess(false)
+            close()
+          }, 1200)
+        } catch {
+          openModal("budget")
+        }
+      } else {
+        setError("Re-process failed. Try again.")
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }, [existingNode, detectedType, sourceUrl, setBudget, refreshBalance, close, openModal])
 
   const submitWithAuth = useCallback(
     async (source: string, sourceType: SourceType) => {
@@ -482,7 +539,35 @@ export function AddSourceForm() {
         </>
       )}
 
-      {error && (
+      {/* Already-in-graph yellow callout — shown for non-Episode duplicate URLs */}
+      {existingNode && !cacheStatus && !detecting && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 animate-fade-in-up">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+          <div className="space-y-1.5">
+            <p className="text-xs text-amber-500 font-medium">⚠️ This content is already in the graph</p>
+            {(isAdmin || currentUserOwns(existingNode.owner_reference_id)) ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleReprocess}
+                disabled={submitting}
+                className="h-7 text-[11px] border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+              >
+                {submitting ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <Zap className="mr-1 h-3 w-3" />
+                )}
+                {price && price > 0 ? "Pay & Re-process" : "Re-process"}
+              </Button>
+            ) : (
+              <p className="text-[10px] text-muted-foreground">Contact an admin to re-process this content</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {error && !existingNode && (
         <p className="text-xs text-destructive">{error}</p>
       )}
 
@@ -534,7 +619,8 @@ export function AddSourceForm() {
             !detectedType ||
             !sourceUrl.trim() ||
             isSubscriptionBlocked ||
-            isInProgress
+            isInProgress ||
+            !!existingNode
           }
           className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
         >
