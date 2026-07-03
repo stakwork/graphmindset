@@ -14,6 +14,7 @@ import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 export function SearchBar() {
   const setSearchTerm = useAppStore((s) => s.setSearchTerm)
   const closeAllPanels = useAppStore((s) => s.closeAllPanels)
+  const activeSkin = useAppStore((s) => s.activeSkin)
   const { setGraphData, setLoading, clearSelection } = useGraphStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
   const openModal = useModalStore((s) => s.open)
@@ -60,7 +61,7 @@ export function SearchBar() {
           })
           setGraphData(filtered, MOCK_EDGES)
         } else {
-          const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
+          const result = await searchNodes(trimmed, { limit: 100, ui_skin: activeSkin === "legal" ? "legal" : undefined }, controller.signal)
           setGraphData(result.nodes ?? [], result.edges ?? [])
           refreshBalance()
         }
@@ -72,7 +73,7 @@ export function SearchBar() {
           try {
             await payL402(() => {})
             // Retry search after payment
-            const result = await searchNodes(trimmed, { limit: 100 }, controller.signal)
+            const result = await searchNodes(trimmed, { limit: 100, ui_skin: activeSkin === "legal" ? "legal" : undefined }, controller.signal)
             setGraphData(result.nodes ?? [], result.edges ?? [])
             refreshBalance()
           } catch {
@@ -87,7 +88,7 @@ export function SearchBar() {
         setLoading(false)
       }
     },
-    [value, setSearchTerm, closeAllPanels, clearSelection, setGraphData, setLoading, refreshBalance, openModal]
+    [value, setSearchTerm, closeAllPanels, clearSelection, setGraphData, setLoading, refreshBalance, openModal, activeSkin]
   )
 
   const handleClear = useCallback(async () => {

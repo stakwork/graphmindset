@@ -52,7 +52,7 @@ export const DEFAULT_SEARCH_DOMAINS: readonly string[] = []
 // Search nodes via v2 endpoint
 export async function searchNodes(
   query: string,
-  opts?: { limit?: number; skip?: number; node_type?: string; domains?: string[] },
+  opts?: { limit?: number; skip?: number; node_type?: string; domains?: string[]; ui_skin?: string },
   signal?: AbortSignal
 ): Promise<NodesListResponse> {
   const params = new URLSearchParams({
@@ -61,6 +61,7 @@ export async function searchNodes(
     skip: String(opts?.skip ?? 0),
   })
   if (opts?.node_type) params.set("node_type", opts.node_type)
+  if (opts?.ui_skin) params.set("ui_skin", opts.ui_skin)
 
   const domains = opts?.domains ?? DEFAULT_SEARCH_DOMAINS
   if (domains.length > 0) {
