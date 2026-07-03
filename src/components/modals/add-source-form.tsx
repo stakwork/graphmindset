@@ -41,6 +41,7 @@ export function AddSourceForm() {
   const { close, open: openModal } = useModalStore()
   const { budget, setBudget, pubKey, routeHint, isAdmin } = useUserStore()
   const refreshBalance = useUserStore((s) => s.refreshBalance)
+  const activeSkin = useAppStore((s) => s.activeSkin)
   const [sourceUrl, setSourceUrl] = useState("")
   const [detectedType, setDetectedType] = useState<SourceType | null>(null)
   const [detecting, setDetecting] = useState(false)
@@ -195,15 +196,20 @@ export function AddSourceForm() {
       if (!contentType) {
         throw new Error(`Unsupported source type: ${sourceType}`)
       }
+      // Legal skin: submit PDFs as LegalDocument instead of generic Document
+      const effectiveContentType =
+        activeSkin === "legal" && contentType === "document"
+          ? "legal_document"
+          : contentType
       const body: Record<string, unknown> = {
-        content_type: contentType,
+        content_type: effectiveContentType,
         source_link: source,
       }
       if (fullPubkey) body.pubkey = fullPubkey
 
       await api.post("/v2/content", body, headers)
     },
-    [pubKey, routeHint, topics, category, weight, cacheStatus, cachedRefId]
+    [pubKey, routeHint, topics, category, weight, cacheStatus, cachedRefId, activeSkin]
   )
 
   const handleSubmit = useCallback(async () => {

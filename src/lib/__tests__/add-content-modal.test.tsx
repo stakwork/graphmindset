@@ -38,15 +38,26 @@ vi.mock("@/stores/user-store", () => ({
 const mockSetMyContentOpen = vi.fn()
 const mockBumpMyContentRefresh = vi.fn()
 
+let mockActiveSkinInContent = "default"
+
 vi.mock("@/stores/app-store", () => {
   const getState = () => ({
     setMyContentOpen: mockSetMyContentOpen,
     bumpMyContentRefresh: mockBumpMyContentRefresh,
+    activeSkin: mockActiveSkinInContent,
   })
   return {
-    useAppStore: {
-      getState,
-    },
+    useAppStore: Object.assign(
+      (sel?: (s: unknown) => unknown) => {
+        const state = {
+          setMyContentOpen: mockSetMyContentOpen,
+          bumpMyContentRefresh: mockBumpMyContentRefresh,
+          activeSkin: mockActiveSkinInContent,
+        }
+        return sel ? sel(state) : state
+      },
+      { getState }
+    ),
   }
 })
 
@@ -456,5 +467,107 @@ describe("AddContentModal — admin category/weight fields", () => {
 
     expect(screen.queryByPlaceholderText(/e\.g\. AI, crypto, finance/i)).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/0\.0 – 1\.0/i)).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AddSourceForm — content_type skin-awareness
+// ---------------------------------------------------------------------------
+
+describe("AddSourceForm — content_type overridden by active skin", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockActiveSkinInContent = "default"
+    mockGetL402.mockResolvedValue(null)
+    mockGetPrice.mockResolvedValue(0)
+    mockApiPost.mockResolvedValue({})
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSubscriptionSource.mockReturnValue(false)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+  })
+
+  it("sends content_type 'legal_document' when legal skin is active and source is a PDF URL", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
+
+    mockActiveSkinInContent = "legal"
+    mockDetectSourceType.mockResolvedValue("document")
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await user.type(input, "https://example.com/contract.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /add source/i })).not.toBeDisabled()
+    })
+
+    await user.click(screen.getByRole("button", { name: /add source/i }))
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith(
+        "/v2/content",
+        expect.objectContaining({ content_type: "legal_document" }),
+        expect.anything()
+      )
+    })
+
+    vi.useRealTimers()
+  })
+
+  it("sends content_type 'document' when default skin is active and source is a PDF URL", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
+
+    mockActiveSkinInContent = "default"
+    mockDetectSourceType.mockResolvedValue("document")
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await user.type(input, "https://example.com/contract.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /add source/i })).not.toBeDisabled()
+    })
+
+    await user.click(screen.getByRole("button", { name: /add source/i }))
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith(
+        "/v2/content",
+        expect.objectContaining({ content_type: "document" }),
+        expect.anything()
+      )
+    })
+
+    vi.useRealTimers()
+  })
+
+  it("sends content_type 'audio_video' for YouTube URL regardless of legal skin", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
+
+    mockActiveSkinInContent = "legal"
+    mockDetectSourceType.mockResolvedValue("youtube_video")
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null })
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await user.type(input, "https://youtube.com/watch?v=abc123")
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /add source/i })).not.toBeDisabled()
+    })
+
+    await user.click(screen.getByRole("button", { name: /add source/i }))
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith(
+        "/v2/content",
+        expect.objectContaining({ content_type: "audio_video" }),
+        expect.anything()
+      )
+    })
+
+    vi.useRealTimers()
   })
 })
