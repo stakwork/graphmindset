@@ -590,17 +590,57 @@ export async function checkNodeExists(
   nodeType: string,
   key: string,
   signal?: AbortSignal
-): Promise<{ exists: boolean; ref_id: string | null; status: string | null }> {
+): Promise<{ exists: boolean; ref_id: string | null; status: string | null; owner_reference_id: string | null }> {
   const params = new URLSearchParams({ node_type: nodeType, key })
   try {
-    return await api.get<{ exists: boolean; ref_id: string | null; status: string | null }>(
+    return await api.get<{ exists: boolean; ref_id: string | null; status: string | null; owner_reference_id: string | null }>(
       `/v2/nodes/check?${params}`,
       undefined,
       signal
     )
   } catch {
-    return { exists: false, ref_id: null, status: null }
+    return { exists: false, ref_id: null, status: null, owner_reference_id: null }
   }
+}
+
+// Hash-based duplicate check for file-upload dedup via content_hash
+export async function checkNodeExistsByHash(
+  nodeType: string,
+  hash: string,
+  signal?: AbortSignal
+): Promise<{ exists: boolean; ref_id: string | null; status: string | null; owner_reference_id: string | null }> {
+  const params = new URLSearchParams({ node_type: nodeType, hash })
+  try {
+    return await api.get<{ exists: boolean; ref_id: string | null; status: string | null; owner_reference_id: string | null }>(
+      `/v2/nodes/check?${params}`,
+      undefined,
+      signal
+    )
+  } catch {
+    return { exists: false, ref_id: null, status: null, owner_reference_id: null }
+  }
+}
+
+// Maps content_type values to their corresponding node type names
+export const CONTENT_TYPE_TO_NODE_TYPE: Record<string, string> = {
+  audio_video: "Episode",
+  document: "Document",
+  webpage: "Document",
+  arxiv_paper: "ArxivPaper",
+  tweet: "Tweet",
+  legal_document: "LegalDocument",
+}
+
+// Re-process an existing node via force_update — follows L402 payment flow
+export async function reprocessContent(
+  refId: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<unknown> {
+  const l402 = await getL402()
+  const headers: Record<string, string> = {}
+  if (l402) headers["Authorization"] = l402
+  return api.post("/v2/content", { ...body, ref_id: refId, force_update: true }, headers, signal)
 }
 
 

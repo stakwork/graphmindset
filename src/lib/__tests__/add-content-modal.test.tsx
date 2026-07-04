@@ -19,6 +19,7 @@ vi.mock("@/stores/modal-store", () => ({
 const mockSetBudget = vi.fn()
 const mockRefreshBalance = vi.fn().mockResolvedValue(undefined)
 let mockIsAdmin = false
+let mockOwnerReferenceId = ""
 
 vi.mock("@/stores/user-store", () => ({
   useUserStore: (sel?: (s: unknown) => unknown) => {
@@ -29,6 +30,7 @@ vi.mock("@/stores/user-store", () => ({
       routeHint: "",
       isAdmin: mockIsAdmin,
       refreshBalance: mockRefreshBalance,
+      ownerReferenceId: mockOwnerReferenceId,
     }
     return sel ? sel(state) : state
   },
@@ -131,8 +133,19 @@ vi.mock("@/lib/source-detection", () => ({
 // --- Graph API mock ---
 const mockCheckNodeExists = vi.fn()
 
+const mockReprocessContent = vi.fn()
+
 vi.mock("@/lib/graph-api", () => ({
   checkNodeExists: (...args: unknown[]) => mockCheckNodeExists(...args),
+  reprocessContent: (...args: unknown[]) => mockReprocessContent(...args),
+  CONTENT_TYPE_TO_NODE_TYPE: {
+    audio_video: "Episode",
+    document: "Document",
+    webpage: "Document",
+    arxiv_paper: "ArxivPaper",
+    tweet: "Tweet",
+    legal_document: "LegalDocument",
+  },
 }))
 
 // --- Input limits mock ---
@@ -287,7 +300,8 @@ describe("AddContentModal — preview probe", () => {
 
   it("scope guard: probe NOT fired for non-cacheable source type (web_page)", async () => {
     mockDetectSourceType.mockResolvedValue("web_page")
-    // checkNodeExists would not be called either, so apiGet definitely won't
+    // web_page now triggers checkNodeExists for Document dedup, but NOT the preview probe (api.get)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null, owner_reference_id: null })
 
     render(<AddSourceForm />)
 
@@ -298,7 +312,7 @@ describe("AddContentModal — preview probe", () => {
       expect(mockDetectSourceType).toHaveBeenCalled()
     })
 
-    expect(mockCheckNodeExists).not.toHaveBeenCalled()
+    // Preview probe (api.get) must NOT be called — only checkNodeExists is called for dedup
     expect(mockApiGet).not.toHaveBeenCalled()
   })
 })
@@ -569,5 +583,199 @@ describe("AddSourceForm — content_type overridden by active skin", () => {
     })
 
     vi.useRealTimers()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AddSourceForm — "Already in graph" yellow callout + Re-process flow
+// ---------------------------------------------------------------------------
+
+describe("AddSourceForm — already-in-graph callout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockActiveModal = "addContent"
+    mockIsAdmin = false
+    mockOwnerReferenceId = ""
+    mockGetL402.mockResolvedValue(null)
+    mockPayL402.mockResolvedValue(undefined)
+    mockGetPrice.mockResolvedValue(10)
+    mockApiPost.mockResolvedValue({})
+    mockRefreshBalance.mockResolvedValue(undefined)
+    mockIsSubscriptionSource.mockReturnValue(false)
+    mockCheckNodeExists.mockResolvedValue({ exists: false, ref_id: null, status: null, owner_reference_id: null })
+    mockReprocessContent.mockResolvedValue({})
+  })
+
+  it("shows yellow callout for a Document-type duplicate", async () => {
+    mockDetectSourceType.mockResolvedValue("document")
+    mockCheckNodeExists.mockResolvedValue({
+      exists: true,
+      ref_id: "doc-ref-1",
+      status: "completed",
+      owner_reference_id: "lsat:other-user",
+    })
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://example.com/doc.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByText(/This content is already in the graph/i)).toBeInTheDocument()
+    })
+  })
+
+  it("shows no Re-process button for non-admin, non-owner", async () => {
+    mockDetectSourceType.mockResolvedValue("document")
+    mockIsAdmin = false
+    mockOwnerReferenceId = "lsat:me"
+    mockCheckNodeExists.mockResolvedValue({
+      exists: true,
+      ref_id: "doc-ref-1",
+      status: "completed",
+      owner_reference_id: "lsat:other-user",
+    })
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://example.com/doc.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByText(/Contact an admin to re-process/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByRole("button", { name: /re-process/i })).not.toBeInTheDocument()
+  })
+
+  it("shows Re-process button when isAdmin is true", async () => {
+    mockDetectSourceType.mockResolvedValue("document")
+    mockIsAdmin = true
+    mockCheckNodeExists.mockResolvedValue({
+      exists: true,
+      ref_id: "doc-ref-1",
+      status: "completed",
+      owner_reference_id: "lsat:other-user",
+    })
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://example.com/doc.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /re-process/i })).toBeInTheDocument()
+    })
+  })
+
+  it("shows Re-process button when ownerReferenceId matches node's owner_reference_id", async () => {
+    mockDetectSourceType.mockResolvedValue("document")
+    mockIsAdmin = false
+    mockOwnerReferenceId = "lsat:owner-uuid"
+    mockCheckNodeExists.mockResolvedValue({
+      exists: true,
+      ref_id: "doc-ref-1",
+      status: "completed",
+      owner_reference_id: "lsat:owner-uuid",
+    })
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://example.com/doc.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /re-process/i })).toBeInTheDocument()
+    })
+  })
+
+  it("checkNodeExists is NOT called for subscription source types", async () => {
+    mockDetectSourceType.mockResolvedValue("youtube_channel")
+    mockIsSubscriptionSource.mockReturnValue(true)
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/c/testchannel")
+
+    await waitFor(() => {
+      expect(mockDetectSourceType).toHaveBeenCalled()
+    })
+
+    expect(mockCheckNodeExists).not.toHaveBeenCalled()
+  })
+
+  it("calls reprocessContent (not api.post) on Re-process click", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
+
+    mockDetectSourceType.mockResolvedValue("document")
+    mockIsAdmin = true
+    mockCheckNodeExists.mockResolvedValue({
+      exists: true,
+      ref_id: "doc-ref-1",
+      status: "completed",
+      owner_reference_id: "lsat:other-user",
+    })
+    mockReprocessContent.mockResolvedValue({})
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await user.type(input, "https://example.com/doc.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /re-process/i })).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole("button", { name: /re-process/i }))
+
+    await waitFor(() => {
+      expect(mockReprocessContent).toHaveBeenCalledWith(
+        "doc-ref-1",
+        expect.objectContaining({ source_link: "https://example.com/doc.pdf", content_type: "document" })
+      )
+    })
+    expect(mockApiPost).not.toHaveBeenCalledWith("/v2/content", expect.anything(), expect.anything())
+
+    vi.useRealTimers()
+  })
+
+  it("primary submit button is disabled when existingNode is set", async () => {
+    mockDetectSourceType.mockResolvedValue("document")
+    mockCheckNodeExists.mockResolvedValue({
+      exists: true,
+      ref_id: "doc-ref-1",
+      status: "completed",
+      owner_reference_id: "lsat:other-user",
+    })
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://example.com/doc.pdf")
+
+    await waitFor(() => {
+      expect(screen.getByText(/This content is already in the graph/i)).toBeInTheDocument()
+    })
+
+    // The primary "Add Source" / "Pay & Add" button should be disabled
+    const submitBtn = screen.getByRole("button", { name: /add source|pay & add/i })
+    expect(submitBtn).toBeDisabled()
+  })
+
+  it("existing Episode cacheStatus (green Cached badge) flow is unchanged", async () => {
+    mockDetectSourceType.mockResolvedValue("youtube_video")
+    mockCheckNodeExists.mockResolvedValue({
+      exists: true,
+      ref_id: "ep-ref-1",
+      status: "completed",
+      owner_reference_id: null,
+    })
+    // Preview probe returns 402 (pay-required)
+    mockApiGet.mockRejectedValue(Object.assign(new Response(null, { status: 402 })))
+
+    render(<AddSourceForm />)
+    const input = screen.getByPlaceholderText(/Paste URL/)
+    await userEvent.type(input, "https://youtube.com/watch?v=abc123")
+
+    await waitFor(() => {
+      // Multiple elements may say "Cached — instant unlock" (badge + footer); check at least one exists
+      expect(screen.getAllByText(/Cached — instant unlock/i).length).toBeGreaterThan(0)
+    })
+    // Yellow callout should NOT appear for Episode types
+    expect(screen.queryByText(/This content is already in the graph/i)).not.toBeInTheDocument()
   })
 })
