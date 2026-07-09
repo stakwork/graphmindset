@@ -342,6 +342,27 @@ export async function deleteNode(refId: string, signal?: AbortSignal) {
   return api.delete(`/v2/nodes/${refId}`, undefined, signal)
 }
 
+// Merge one or more nodes into a canonical target. `to` survives (edges are
+// re-pointed onto it); every node in `from` is absorbed (muted + aliased to
+// `to`). Admin-only — boltwall gates POST /v2/nodes/merge. Same core operation
+// the review-approve path runs for a `merge_nodes` suggestion (override_payload
+// `{ from, to }`), just invoked directly for a manual merge.
+export async function mergeNodes(
+  from: string[],
+  to: string,
+  signal?: AbortSignal
+): Promise<{ status: string; errorCode?: string }> {
+  if (isMocksEnabled()) {
+    return { status: "success" }
+  }
+  return api.post<{ status: string; errorCode?: string }>(
+    "/v2/nodes/merge",
+    { from, to },
+    undefined,
+    signal
+  )
+}
+
 // List edges
 export async function listEdges(
   opts?: { limit?: number; skip?: number },

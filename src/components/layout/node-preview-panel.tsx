@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal, Search } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, Combine, MoreHorizontal, Search } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -970,6 +970,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const openModal = useModalStore((s) => s.open)
   const openEdit = useModalStore((s) => s.openEdit)
   const openAddEdge = useModalStore((s) => s.openAddEdge)
+  const openMerge = useModalStore((s) => s.openMerge)
 
   const edges = useGraphStore((s) => s.edges)
   const graphNodes = useGraphStore((s) => s.nodes)
@@ -1375,6 +1376,14 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 <DropdownMenuItem onClick={() => openEdit(currentNode)}>
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Edit node
+                </DropdownMenuItem>
+              )}
+
+              {/* Merge into another node */}
+              {isAdmin && (
+                <DropdownMenuItem onClick={() => openMerge(currentNode)}>
+                  <Combine className="h-3.5 w-3.5 mr-1.5" />
+                  Merge into…
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

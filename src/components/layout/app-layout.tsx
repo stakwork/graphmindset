@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { AddModal } from "@/components/modals/add-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
 import { EditNodeModal } from "@/components/modals/edit-node-modal"
+import { MergeNodeModal } from "@/components/modals/merge-node-modal"
 import { MediaPlayer } from "@/components/player/media-player"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
@@ -58,6 +59,7 @@ export function AppLayout() {
 
       <AddModal />
       <EditNodeModal />
+      <MergeNodeModal />
       <BudgetModal />
       <MediaPlayer />
     </>

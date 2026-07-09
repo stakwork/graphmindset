@@ -3,7 +3,7 @@
 import { create } from "zustand"
 import type { GraphNode } from "@/lib/graph-api"
 
-type ModalId = "add" | "budget" | "editNode" | null
+type ModalId = "add" | "budget" | "editNode" | "mergeNode" | null
 export type AddTab = "source" | "node" | "edge" | "legal"
 
 interface ModalState {
@@ -18,6 +18,9 @@ interface ModalState {
   addTab: AddTab
   editingNode: GraphNode | null
   sourceNode: GraphNode | null
+  // The node a manual merge starts from (the one clicked in the preview panel).
+  // Defaults to the node being absorbed; the modal lets the user swap direction.
+  mergeSourceNode: GraphNode | null
   // Pre-selected node type for the Add Node form — allows callers to skip the
   // type-selection step (e.g. "Add Lingo Node" toolbar shortcut).
   preselectedNodeType: string | null
@@ -26,6 +29,7 @@ interface ModalState {
   setAddTab: (tab: AddTab) => void
   openEdit: (node: GraphNode) => void
   openAddEdge: (sourceNode?: GraphNode) => void
+  openMerge: (node: GraphNode) => void
   openBudget: () => void
   closeBudget: () => void
   close: () => void
@@ -37,6 +41,7 @@ export const useModalStore = create<ModalState>((set) => ({
   addTab: "source",
   editingNode: null,
   sourceNode: null,
+  mergeSourceNode: null,
   preselectedNodeType: null,
   // Route "budget" to the overlay so existing open("budget") callers show it on
   // top of whatever is open instead of replacing it.
@@ -52,6 +57,7 @@ export const useModalStore = create<ModalState>((set) => ({
   openEdit: (node) => set({ activeModal: "editNode", editingNode: node }),
   openAddEdge: (sourceNode?: GraphNode) =>
     set({ activeModal: "add", addTab: "edge", sourceNode: sourceNode ?? null }),
+  openMerge: (node) => set({ activeModal: "mergeNode", mergeSourceNode: node }),
   openBudget: () => set({ budgetOpen: true }),
   // Dismiss only the budget overlay, leaving any underlying modal (and its
   // in-progress form state) intact.
@@ -62,6 +68,7 @@ export const useModalStore = create<ModalState>((set) => ({
       addTab: "source",
       editingNode: null,
       sourceNode: null,
+      mergeSourceNode: null,
       preselectedNodeType: null,
       budgetOpen: false,
     }),
