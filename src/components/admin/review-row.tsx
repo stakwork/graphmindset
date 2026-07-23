@@ -66,6 +66,47 @@ function StatusBadge({ status }: { status: ReviewStatus }) {
   )
 }
 
+// ── Confidence indicator (dot + label, color-banded) ─────────────────────────
+// Accepts a 0–1 score. Bands: High ≥0.85, Medium ≥0.6, Low below.
+
+function ConfidenceIndicator({ value }: { value: number }) {
+  const clamped = Math.max(0, Math.min(1, value))
+  const pct = Math.round(clamped * 100)
+  const band =
+    clamped >= 0.85
+      ? { dot: "bg-emerald-400", text: "text-emerald-300", label: "High confidence" }
+      : clamped >= 0.6
+        ? { dot: "bg-amber-400", text: "text-amber-300", label: "Medium confidence" }
+        : { dot: "bg-rose-400", text: "text-rose-300", label: "Low confidence" }
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", band.text)}
+      title={`Model confidence: ${pct}%`}
+    >
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", band.dot)} />
+      {band.label}
+      <span className="text-muted-foreground">·</span>
+      <span className="tabular-nums">{pct}%</span>
+    </span>
+  )
+}
+
+// Pulls an inline "(confidence: 0.77)" out of a rationale string. Returns the
+// score normalized to 0–1 and the rationale with that fragment removed, so the
+// number can be shown as a badge instead of being buried in the sentence.
+function extractConfidence(
+  rationale: string | null | undefined
+): { value: number; cleaned: string } | null {
+  if (!rationale) return null
+  const m = rationale.match(/\(\s*confidence:\s*([0-9]*\.?[0-9]+)\s*\)/i)
+  if (!m) return null
+  const raw = parseFloat(m[1])
+  if (Number.isNaN(raw)) return null
+  const value = raw > 1 ? raw / 100 : raw
+  const cleaned = rationale.replace(m[0], "").replace(/\s{2,}/g, " ").trim()
+  return { value, cleaned }
+}
+
 // ── Node colour by type (cheap heuristic, schema-agnostic) ────────────────────
 
 const TYPE_DOT: Record<string, string> = {
@@ -1159,23 +1200,32 @@ export function ReviewRow({
             </div>
           )}
 
-          <div className="mt-3 border-t border-border/30 pt-2">
-            <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Rationale
-            </div>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <p className="text-[11px] leading-relaxed text-foreground/80 cursor-default">
-                    {review.rationale}
-                  </p>
-                }
-              />
-              <TooltipContent side="bottom" className="max-w-md text-xs">
-                {review.rationale}
-              </TooltipContent>
-            </Tooltip>
-          </div>
+          {(() => {
+            const conf = extractConfidence(review.rationale)
+            const text = conf?.cleaned ?? review.rationale
+            return (
+              <div className="mt-3 border-t border-border/30 pt-2">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Rationale
+                  </span>
+                  {conf && <ConfidenceIndicator value={conf.value} />}
+                </div>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <p className="text-[11px] leading-relaxed text-foreground/80 cursor-default">
+                        {text}
+                      </p>
+                    }
+                  />
+                  <TooltipContent side="bottom" className="max-w-md text-xs">
+                    {text}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>
