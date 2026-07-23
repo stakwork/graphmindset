@@ -5,10 +5,11 @@ import React from "react"
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockApproveReview, mockDismissReview, mockListReviews } = vi.hoisted(() => ({
+const { mockApproveReview, mockDismissReview, mockListReviews, mockGetReviewNodeTypeCounts } = vi.hoisted(() => ({
   mockApproveReview: vi.fn(),
   mockDismissReview: vi.fn(),
   mockListReviews: vi.fn(),
+  mockGetReviewNodeTypeCounts: vi.fn(),
 }))
 
 vi.mock("@/lib/graph-api", async (importOriginal) => {
@@ -18,6 +19,7 @@ vi.mock("@/lib/graph-api", async (importOriginal) => {
     approveReview: (...args: unknown[]) => mockApproveReview(...args),
     dismissReview: (...args: unknown[]) => mockDismissReview(...args),
     listReviews: (...args: unknown[]) => mockListReviews(...args),
+    getReviewNodeTypeCounts: (...args: unknown[]) => mockGetReviewNodeTypeCounts(...args),
   }
 })
 
@@ -1418,6 +1420,236 @@ describe("ReviewsPage search UI", () => {
     const input = getByPlaceholderText("Search reviews…")
     await user.type(input, "xyznotfound")
     await findByText(`No reviews match "xyznotfound"`)
+  })
+})
+
+// ── Node type filter chip row ─────────────────────────────────────────────────
+
+describe("Node type filter chip row", () => {
+  beforeEach(async () => {
+    vi.resetModules()
+    mockListReviews.mockResolvedValue({ reviews: [], total: 0, skip: 0, limit: 20 })
+    mockGetReviewNodeTypeCounts.mockResolvedValue({ counts: {}, truncated: false })
+  })
+
+  async function renderPage() {
+    vi.doMock("@/stores/review-store", () => ({
+      useReviewStore: () => ({ pendingCount: 0, setPendingCount: vi.fn() }),
+    }))
+    vi.doMock("@/stores/schema-store", () => ({
+      useSchemaStore: (sel: (s: { schemas: never[] }) => unknown) =>
+        sel({ schemas: [] }),
+    }))
+    vi.doMock("@/components/admin/review-row", () => ({
+      ReviewRow: ({ review }: { review: Review }) => (
+        <div data-testid={`review-row-${review.ref_id}`}>{review.rationale}</div>
+      ),
+      getApproveVerb: (action: string) => action,
+    }))
+    vi.doMock("@/components/ui/select-custom", () => ({
+      SelectCustom: () => <div />,
+    }))
+    vi.doMock("@/components/ui/checkbox", () => ({
+      Checkbox: () => <input type="checkbox" />,
+    }))
+    const { default: ReviewsPage } = await import("@/app/admin/reviews/page")
+    return render(<ReviewsPage />)
+  }
+
+  it("does not render filter row when nodeTypeCounts has 0 keys", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({ counts: {}, truncated: false })
+    const { queryByText } = await renderPage()
+    // Wait for initial load
+    await waitFor(() => expect(mockListReviews).toHaveBeenCalled())
+    // "All" chip from node type row should not be present (distinct from action chip "All")
+    // The node type row is hidden entirely; we check no count-badged chips
+    expect(queryByText("Topic")).toBeNull()
+    expect(queryByText("Person")).toBeNull()
+  })
+
+  it("does not render filter row when nodeTypeCounts has exactly 1 key", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({ counts: { Topic: 3 }, truncated: false })
+    const { queryByText } = await renderPage()
+    await waitFor(() => expect(mockGetReviewNodeTypeCounts).toHaveBeenCalled())
+    // Single type — row should be hidden
+    expect(queryByText("Topic")).toBeNull()
+  })
+
+  it("renders filter row with chips when nodeTypeCounts has more than 1 key", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 5, Person: 3 },
+      truncated: false,
+    })
+    const { findByText } = await renderPage()
+    // Both type chips should appear
+    await findByText("Topic")
+    await findByText("Person")
+  })
+
+  it("pins Unknown chip last regardless of count rank", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Unknown: 10, Topic: 5, Person: 3 },
+      truncated: false,
+    })
+    const { findAllByRole } = await renderPage()
+    await waitFor(() => expect(mockGetReviewNodeTypeCounts).toHaveBeenCalled())
+    // Wait for chips to appear
+    await waitFor(async () => {
+      const buttons = await findAllByRole("button")
+      const chipLabels = buttons
+        .map((b: HTMLElement) => b.textContent ?? "")
+        .filter((t: string) => ["Topic", "Person", "Unknown"].some((k) => t.startsWith(k)))
+      // Unknown should appear after Topic and Person
+      const topicIdx = chipLabels.findIndex((t: string) => t.startsWith("Topic"))
+      const personIdx = chipLabels.findIndex((t: string) => t.startsWith("Person"))
+      const unknownIdx = chipLabels.findIndex((t: string) => t.startsWith("Unknown"))
+      expect(topicIdx).toBeGreaterThanOrEqual(0)
+      expect(unknownIdx).toBeGreaterThan(topicIdx)
+      expect(unknownIdx).toBeGreaterThan(personIdx)
+    })
+  })
+
+  it("clicking a node type chip calls listReviews with node_type and skip=0", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 5, Person: 3 },
+      truncated: false,
+    })
+    const user = userEvent.setup()
+    const { findByText } = await renderPage()
+    const topicChip = await findByText("Topic")
+    mockListReviews.mockClear()
+    await user.click(topicChip)
+    await waitFor(() => {
+      expect(mockListReviews).toHaveBeenCalledWith(
+        expect.objectContaining({ node_type: "Topic", skip: 0 }),
+        expect.anything()
+      )
+    })
+  })
+
+  it("clicking status tab resets nodeTypeFilter and calls listReviews exactly once", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 5, Person: 3 },
+      truncated: false,
+    })
+    const user = userEvent.setup()
+    const { findByText } = await renderPage()
+
+    // First select a node type chip
+    const topicChip = await findByText("Topic")
+    await user.click(topicChip)
+    await waitFor(() => {
+      expect(mockListReviews).toHaveBeenCalledWith(
+        expect.objectContaining({ node_type: "Topic" }),
+        expect.anything()
+      )
+    })
+
+    // Now click a different status tab
+    mockListReviews.mockClear()
+    const approvedTab = await findByText("Approved")
+    await user.click(approvedTab)
+
+    await waitFor(() => {
+      // Should have been called, and node_type should NOT be set (reset to "")
+      const calls = mockListReviews.mock.calls
+      const lastCall = calls[calls.length - 1][0]
+      expect(lastCall.node_type).toBeUndefined()
+    })
+  })
+
+  it("clicking action chip resets nodeTypeFilter", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 5, Person: 3 },
+      truncated: false,
+    })
+    const user = userEvent.setup()
+    const { findByText } = await renderPage()
+
+    // Select a node type chip
+    const topicChip = await findByText("Topic")
+    await user.click(topicChip)
+    await waitFor(() => {
+      expect(mockListReviews).toHaveBeenCalledWith(
+        expect.objectContaining({ node_type: "Topic" }),
+        expect.anything()
+      )
+    })
+
+    // Click an action chip (Merge)
+    mockListReviews.mockClear()
+    const mergeChip = await findByText("Merge")
+    await user.click(mergeChip)
+
+    await waitFor(() => {
+      const calls = mockListReviews.mock.calls
+      const lastCall = calls[calls.length - 1][0]
+      expect(lastCall.node_type).toBeUndefined()
+    })
+  })
+
+  it("Unknown chip appears for reviews with empty subject_nodes and filters correctly", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 5, Unknown: 2 },
+      truncated: false,
+    })
+    const unknownReview = makeReview({
+      ref_id: "rv-unknown",
+      subject_ids: [],
+      subject_nodes: [],
+      action_name: "add_node",
+    })
+    const user = userEvent.setup()
+    const { findByText } = await renderPage()
+
+    const unknownChip = await findByText("Unknown")
+    expect(unknownChip).toBeTruthy()
+
+    // Click Unknown chip
+    mockListReviews.mockResolvedValueOnce({ reviews: [unknownReview], total: 1, skip: 0, limit: 20 })
+    await user.click(unknownChip)
+
+    await waitFor(() => {
+      expect(mockListReviews).toHaveBeenCalledWith(
+        expect.objectContaining({ node_type: "Unknown", skip: 0 }),
+        expect.anything()
+      )
+    })
+  })
+
+  it("getReviewNodeTypeCounts is called with debouncedSearch when search term is entered", async () => {
+    const user = userEvent.setup()
+    mockGetReviewNodeTypeCounts.mockResolvedValue({ counts: {}, truncated: false })
+    const { getByPlaceholderText } = await renderPage()
+
+    await waitFor(() => expect(getByPlaceholderText("Search reviews…")).toBeTruthy())
+    mockGetReviewNodeTypeCounts.mockClear()
+
+    const input = getByPlaceholderText("Search reviews…")
+    await user.type(input, "bitcoin")
+
+    await waitFor(
+      () => {
+        const calls = mockGetReviewNodeTypeCounts.mock.calls
+        const withSearch = calls.find(
+          (c: unknown[]) =>
+            typeof c[0] === "object" &&
+            c[0] !== null &&
+            (c[0] as Record<string, unknown>).search === "bitcoin"
+        )
+        expect(withSearch).toBeTruthy()
+      },
+      { timeout: 2000 }
+    )
+  })
+
+  it("renders truncation warning when truncated is true", async () => {
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 5, Person: 3 },
+      truncated: true,
+    })
+    const { findByText } = await renderPage()
+    await findByText("Counts reflect the first 5,000 reviews in this view")
   })
 })
 

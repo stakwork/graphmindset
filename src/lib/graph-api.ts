@@ -778,7 +778,7 @@ function getMockReviewsStore(): Review[] {
 }
 
 export async function listReviews(
-  params?: { status?: ReviewStatus; type?: string; action_name?: string; sort?: string; skip?: number; limit?: number; search?: string },
+  params?: { status?: ReviewStatus; type?: string; action_name?: string; sort?: string; skip?: number; limit?: number; search?: string; node_type?: string },
   signal?: AbortSignal
 ): Promise<ReviewsListResponse> {
   if (isMocksEnabled()) {
@@ -793,6 +793,13 @@ export async function listReviews(
         (r) =>
           r.rationale?.toLowerCase().includes(q) ||
           r.display_label?.toLowerCase().includes(q)
+      )
+    }
+    if (params?.node_type) {
+      filtered = filtered.filter((r) =>
+        params.node_type === "Unknown"
+          ? !r.subject_nodes || r.subject_nodes.length === 0
+          : r.subject_nodes?.some((sn) => sn.node_type === params.node_type)
       )
     }
     const sort = params?.sort ?? "created_at"
@@ -819,7 +826,54 @@ export async function listReviews(
   if (params?.skip !== undefined) qs.set("skip", String(params.skip))
   if (params?.limit !== undefined) qs.set("limit", String(params.limit))
   if (params?.search) qs.set("search", params.search)
+  if (params?.node_type) qs.set("node_type", params.node_type)
   return api.get<ReviewsListResponse>(`/v2/reviews?${qs}`, undefined, signal)
+}
+
+export async function getReviewNodeTypeCounts(
+  params?: { status?: ReviewStatus; action_name?: string; search?: string },
+  signal?: AbortSignal
+): Promise<{ counts: Record<string, number>; truncated: boolean }> {
+  if (isMocksEnabled()) {
+    const store = getMockReviewsStore()
+    let filtered = [...store]
+    if (params?.status) filtered = filtered.filter((r) => r.status === params.status)
+    if (params?.action_name) filtered = filtered.filter((r) => r.action_name === params.action_name)
+    if (params?.search) {
+      const q = params.search.toLowerCase()
+      filtered = filtered.filter(
+        (r) =>
+          r.rationale?.toLowerCase().includes(q) ||
+          r.display_label?.toLowerCase().includes(q)
+      )
+    }
+    const counts: Record<string, number> = {}
+    for (const review of filtered) {
+      if (!review.subject_nodes || review.subject_nodes.length === 0) {
+        counts["Unknown"] = (counts["Unknown"] ?? 0) + 1
+      } else {
+        const seen = new Set<string>()
+        for (const sn of review.subject_nodes) {
+          const nt = sn.node_type ?? "Unknown"
+          if (!seen.has(nt)) {
+            seen.add(nt)
+            counts[nt] = (counts[nt] ?? 0) + 1
+          }
+        }
+      }
+    }
+    return { counts, truncated: false }
+  }
+
+  const qs = new URLSearchParams()
+  if (params?.status) qs.set("status", params.status)
+  if (params?.action_name) qs.set("action_name", params.action_name)
+  if (params?.search) qs.set("search", params.search)
+  return api.get<{ counts: Record<string, number>; truncated: boolean }>(
+    `/v2/reviews/node_type_counts?${qs}`,
+    undefined,
+    signal
+  )
 }
 
 export async function approveReview(

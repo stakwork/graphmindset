@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import type { LucideIcon } from "lucide-react"
 import { useReviewStore } from "@/stores/review-store"
 import { useSchemaStore } from "@/stores/schema-store"
-import { approveReview, dismissReview, listReviews } from "@/lib/graph-api"
+import { approveReview, dismissReview, listReviews, getReviewNodeTypeCounts } from "@/lib/graph-api"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { ReviewRow, getApproveVerb } from "@/components/admin/review-row"
 import { Button } from "@/components/ui/button"
@@ -86,7 +86,12 @@ export default function ReviewsPage() {
   const [bulkRunning, setBulkRunning] = useState<null | "approve" | "dismiss">(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
 
+  const [nodeTypeFilter, setNodeTypeFilter] = useState("")
+  const [nodeTypeCounts, setNodeTypeCounts] = useState<Record<string, number>>({})
+  const [truncatedCounts, setTruncatedCounts] = useState(false)
+
   const abortRef = useRef<AbortController | null>(null)
+  const nodeTypeCountsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchReviews = useCallback(
     async (currentSkip = 0, options?: { silent?: boolean }) => {
@@ -105,6 +110,7 @@ export default function ReviewsPage() {
             skip: currentSkip,
             limit: PAGE_SIZE,
             search: debouncedSearch || undefined,
+            node_type: nodeTypeFilter || undefined,
           },
           ctrl.signal
         )
@@ -129,12 +135,32 @@ export default function ReviewsPage() {
         if (!options?.silent) setLoading(false)
       }
     },
-    [statusFilter, actionFilter, sort, debouncedSearch]
+    [statusFilter, actionFilter, sort, debouncedSearch, nodeTypeFilter]
   )
 
   useEffect(() => {
     fetchReviews(0)
   }, [fetchReviews])
+
+  // Node type counts for filter chip row
+  const fetchNodeTypeCounts = useCallback(() => {
+    if (nodeTypeCountsTimerRef.current) clearTimeout(nodeTypeCountsTimerRef.current)
+    nodeTypeCountsTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await getReviewNodeTypeCounts({
+          status: statusFilter || undefined,
+          action_name: actionFilter || undefined,
+          search: debouncedSearch || undefined,
+        })
+        setNodeTypeCounts(res.counts)
+        setTruncatedCounts(res.truncated)
+      } catch {}
+    }, 300)
+  }, [statusFilter, actionFilter, debouncedSearch])
+
+  useEffect(() => {
+    fetchNodeTypeCounts()
+  }, [fetchNodeTypeCounts])
 
   // Pending count for the tab badge — refreshed independently of the active query
   const refreshPendingCount = useCallback(async () => {
@@ -250,7 +276,7 @@ export default function ReviewsPage() {
             <button
               key={tab.value || "all"}
               type="button"
-              onClick={() => setStatusFilter(tab.value)}
+              onClick={() => { setStatusFilter(tab.value); setNodeTypeFilter("") }}
               className={cn(
                 "relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors",
                 active
@@ -290,7 +316,7 @@ export default function ReviewsPage() {
               <button
                 key={chip.value || "all"}
                 type="button"
-                onClick={() => setActionFilter(chip.value)}
+                onClick={() => { setActionFilter(chip.value); setNodeTypeFilter("") }}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all",
                   active
@@ -341,6 +367,65 @@ export default function ReviewsPage() {
           />
         </div>
       </div>
+
+      {/* Node type filter chips — hidden when ≤ 1 distinct type */}
+      {Object.keys(nodeTypeCounts).length > 1 && (
+        <div className="shrink-0 border-b border-border px-4 py-2">
+          <div className="flex flex-wrap items-center gap-1">
+            {/* "All" chip */}
+            <button
+              key="all"
+              type="button"
+              onClick={() => { setNodeTypeFilter(""); fetchReviews(0) }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all",
+                nodeTypeFilter === ""
+                  ? "border-primary/40 bg-primary/15 text-primary"
+                  : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
+              )}
+            >
+              All
+            </button>
+            {/* Typed chips sorted by count desc, Unknown pinned last */}
+            {Object.entries(nodeTypeCounts)
+              .filter(([key]) => key !== "Unknown")
+              .sort((a, b) => b[1] - a[1])
+              .concat(
+                "Unknown" in nodeTypeCounts ? [["Unknown", nodeTypeCounts["Unknown"]]] : []
+              )
+              .map(([type, count]) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => { setNodeTypeFilter(type); fetchReviews(0) }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all",
+                    nodeTypeFilter === type
+                      ? "border-primary/40 bg-primary/15 text-primary"
+                      : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
+                  )}
+                >
+                  {type}
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 py-px text-[10px] font-semibold",
+                      nodeTypeFilter === type
+                        ? "bg-primary/20 text-primary"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              ))}
+          </div>
+          {truncatedCounts && (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Counts reflect the first 5,000 reviews in this view
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Selection bar (only on Pending tab when there's something to select) */}
       {!loading && !error && statusFilter === "pending" && selectableReviews.length > 0 && (
