@@ -244,6 +244,9 @@ export default function ReviewsPage() {
       )
     }
     await fetchReviews(skip, { silent: true })
+    // The silent refetch intentionally skips the selection reset, so clear the
+    // now-stale selection here — decided rows have left the pending list.
+    setSelectedIds(new Set())
     refreshPendingCount()
   }
 
