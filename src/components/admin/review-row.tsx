@@ -621,7 +621,13 @@ export function ReviewRow({
           : undefined
       const res = await approveReview(review.ref_id, override)
       if (res.error_message || res.status === "failed") {
+        // Keep the row and its error visible instead of silently refetching it
+        // out of the pending list (it is now 'failed', not pending) — otherwise
+        // a failed merge just vanishes and looks like it succeeded. Still refresh
+        // the pending badge so the count reflects that it left the queue.
         setInlineError(res.error_message ?? "Approval failed")
+        onCountRefresh?.()
+        return
       }
       onRefresh()
       onCountRefresh?.()
