@@ -7,7 +7,8 @@ import { OntologyGraph } from "./ontology-graph"
 import { TypeEditor } from "./type-editor"
 import { EdgeTypePanel } from "./edge-type-panel"
 import { EdgeCreatePanel, type NewEdgeParams } from "./edge-create-panel"
-import { Plus, ArrowLeft, Box, Grid2x2, Search, ArrowRight, HelpCircle } from "lucide-react"
+import { OntologyAgentPanel } from "./ontology-agent-panel"
+import { Plus, ArrowLeft, Box, Grid2x2, Search, ArrowRight, HelpCircle, Sparkles } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 
 const OntologyGraph3D = dynamic(
@@ -39,6 +40,8 @@ export default function OntologyPage() {
   // Non-null while a draft (unsaved) new node type is being authored.
   const [draftType, setDraftType] = useState<SchemaNode | null>(null)
   const [showHelp, setShowHelp] = useState(false)
+  // When true, the AI ontology-editor panel takes over the right-panel slot.
+  const [showAgent, setShowAgent] = useState(false)
 
   useEffect(() => {
     if (isMocksEnabled()) {
@@ -276,6 +279,18 @@ export default function OntologyPage() {
             </button>
           </div>
 
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowAgent((v) => !v)}
+              className={`h-7 w-7 p-0 hover:text-foreground ${showAgent ? "text-primary" : "text-muted-foreground"}`}
+              title="Edit ontology with AI"
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="ghost"
@@ -462,8 +477,10 @@ export default function OntologyPage() {
         )}
       </div>
 
-      {/* Right panel — create flow takes precedence over the inspectors */}
-      {edgeCreate ? (
+      {/* Right panel — AI editor takes precedence, then create flow, then inspectors */}
+      {showAgent ? (
+        <OntologyAgentPanel onClose={() => setShowAgent(false)} />
+      ) : edgeCreate ? (
         <EdgeCreatePanel
           allSchemas={store.schemas}
           initialSource={edgeCreate.source}

@@ -729,6 +729,104 @@ export async function getLatestStakworkRun(
 }
 
 // -------------------------------------------------------------------------
+// Ontology Agent (plain-language schema editing)
+// -------------------------------------------------------------------------
+
+export interface OntologyAgentMessage {
+  role: "user" | "agent"
+  content: string
+}
+
+// Per-run mock poll counters (mirrors the deep-research mock pattern)
+const _mockOntologyPollCounts: Record<string, number> = {}
+let _mockOntologyRunCounter = 0
+
+// Admin-only, graph-scoped. Triggers the ontology_agent workflow; proposals
+// come back as reviews (polled via getStakworkRun → listReviews(run_ref_id)).
+export async function triggerOntologyAgent(
+  instruction: string,
+  history?: OntologyAgentMessage[],
+  signal?: AbortSignal
+): Promise<{ stakwork_run_ref_id: string }> {
+  if (isMocksEnabled()) {
+    const runRef = `mock-ontology-run-${++_mockOntologyRunCounter}`
+    _mockOntologyPollCounts[runRef] = 0
+    // Seed a couple of pending schema-change reviews tied to this run so the
+    // conversational panel can render + approve them once the run "completes".
+    getMockReviewsStore().unshift(...buildMockOntologyReviews(runRef, instruction))
+    return { stakwork_run_ref_id: runRef }
+  }
+  return api.post<{ stakwork_run_ref_id: string }>(
+    "/v2/schema/ontology-agent",
+    { instruction, history: history ?? [] },
+    undefined,
+    signal
+  )
+}
+
+// Poll a single run by its run ref_id (graph-scoped runs have no node ref_id).
+export async function getStakworkRun(
+  refId: string,
+  signal?: AbortSignal
+): Promise<StakworkRun | null> {
+  if (isMocksEnabled()) {
+    const count = (_mockOntologyPollCounts[refId] ?? 0) + 1
+    _mockOntologyPollCounts[refId] = count
+    const running = count <= 2
+    return {
+      ref_id: refId,
+      job_type: "ontology_agent",
+      status: running ? "RUNNING" : "COMPLETED",
+      created_at: Math.floor(Date.now() / 1000),
+      ...(running ? {} : { finished_at: Math.floor(Date.now() / 1000) }),
+    }
+  }
+  try {
+    return await api.get<StakworkRun>(`/v2/stakwork-runs/${refId}`, undefined, signal)
+  } catch (err) {
+    if (typeof err === "object" && err !== null && (err as { status?: number }).status === 404) return null
+    throw err
+  }
+}
+
+// Mock-only: fabricate schema-change reviews so the panel is demoable end-to-end.
+function buildMockOntologyReviews(runRef: string, instruction: string): Review[] {
+  const now = new Date().toISOString()
+  const base = { status: "pending" as ReviewStatus, priority: 5, subject_ids: [], subject_nodes: [], created_at: now, run_ref_id: runRef }
+  return [
+    {
+      ...base,
+      ref_id: `${runRef}-r1`,
+      type: "schema_change",
+      rationale: `Proposed from: "${instruction}"`,
+      action_name: "add_schema_node_type",
+      action_payload: {
+        type: "Podcast",
+        parent: "Media",
+        color: "#8b5cf6",
+        node_key: "name",
+        attributes: [
+          { key: "name", type: "string", required: true },
+          { key: "episode_count", type: "number", required: false },
+        ],
+      },
+      fingerprint: `${runRef}-r1`,
+      icon: "layers",
+    },
+    {
+      ...base,
+      ref_id: `${runRef}-r2`,
+      type: "schema_change",
+      rationale: `Proposed from: "${instruction}"`,
+      action_name: "add_schema_edge_type",
+      action_payload: { edge_type: "HOSTED_BY", source: "Podcast", target: "Person" },
+      fingerprint: `${runRef}-r2`,
+      icon: "network",
+    },
+  ]
+}
+
+// -------------------------------------------------------------------------
 // Reviews
 // -------------------------------------------------------------------------
 
@@ -778,7 +876,7 @@ function getMockReviewsStore(): Review[] {
 }
 
 export async function listReviews(
-  params?: { status?: ReviewStatus; type?: string; action_name?: string; sort?: string; skip?: number; limit?: number; search?: string; node_type?: string },
+  params?: { status?: ReviewStatus; type?: string; action_name?: string; run_ref_id?: string; sort?: string; skip?: number; limit?: number; search?: string; node_type?: string },
   signal?: AbortSignal
 ): Promise<ReviewsListResponse> {
   if (isMocksEnabled()) {
@@ -787,6 +885,7 @@ export async function listReviews(
     if (params?.status) filtered = filtered.filter((r) => r.status === params.status)
     if (params?.type) filtered = filtered.filter((r) => r.type === params.type)
     if (params?.action_name) filtered = filtered.filter((r) => r.action_name === params.action_name)
+    if (params?.run_ref_id) filtered = filtered.filter((r) => r.run_ref_id === params.run_ref_id)
     if (params?.search) {
       const q = params.search.toLowerCase()
       filtered = filtered.filter(
@@ -822,6 +921,7 @@ export async function listReviews(
   if (params?.status) qs.set("status", params.status)
   if (params?.type) qs.set("type", params.type)
   if (params?.action_name) qs.set("action_name", params.action_name)
+  if (params?.run_ref_id) qs.set("run_ref_id", params.run_ref_id)
   if (params?.sort) qs.set("sort", params.sort)
   if (params?.skip !== undefined) qs.set("skip", String(params.skip))
   if (params?.limit !== undefined) qs.set("limit", String(params.limit))
