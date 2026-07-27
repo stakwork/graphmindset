@@ -5,11 +5,20 @@ import React from "react"
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockApproveReview, mockDismissReview, mockListReviews, mockGetReviewNodeTypeCounts } = vi.hoisted(() => ({
+const {
+  mockApproveReview,
+  mockDismissReview,
+  mockListReviews,
+  mockGetReviewNodeTypeCounts,
+  mockTriggerMergeWorkflow,
+  mockGetLatestStakworkRun,
+} = vi.hoisted(() => ({
   mockApproveReview: vi.fn(),
   mockDismissReview: vi.fn(),
   mockListReviews: vi.fn(),
   mockGetReviewNodeTypeCounts: vi.fn(),
+  mockTriggerMergeWorkflow: vi.fn(),
+  mockGetLatestStakworkRun: vi.fn(),
 }))
 
 vi.mock("@/lib/graph-api", async (importOriginal) => {
@@ -20,6 +29,8 @@ vi.mock("@/lib/graph-api", async (importOriginal) => {
     dismissReview: (...args: unknown[]) => mockDismissReview(...args),
     listReviews: (...args: unknown[]) => mockListReviews(...args),
     getReviewNodeTypeCounts: (...args: unknown[]) => mockGetReviewNodeTypeCounts(...args),
+    triggerMergeWorkflow: (...args: unknown[]) => mockTriggerMergeWorkflow(...args),
+    getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
   }
 })
 
@@ -88,6 +99,9 @@ describe("ReviewRow", () => {
   beforeEach(() => {
     mockApproveReview.mockReset()
     mockDismissReview.mockReset()
+    // ReviewRow now calls getLatestStakworkRun on mount for merge_nodes+pending rows.
+    // Default to null (no prior run) so existing tests aren't broken.
+    mockGetLatestStakworkRun.mockResolvedValue(null)
   })
 
   // ── Status badge colours ────────────────────────────────────────────────────
@@ -1180,6 +1194,255 @@ describe("ReviewRow merge_nodes interactive controls", () => {
       expect(override.to).toBe("n2")
       expect(override.from).toContain("n1")
     })
+  })
+})
+
+// ── Send for Human Review button ──────────────────────────────────────────────
+
+describe("ReviewRow — Send for Human Review button", () => {
+  const noop = () => {}
+
+  beforeEach(() => {
+    mockApproveReview.mockReset()
+    mockDismissReview.mockReset()
+    mockTriggerMergeWorkflow.mockReset()
+    mockGetLatestStakworkRun.mockReset()
+    // Default: no prior run exists (returns null = fresh)
+    mockGetLatestStakworkRun.mockResolvedValue(null)
+  })
+
+  function makeMergeReview(overrides: Partial<import("@/lib/graph-api").Review> = {}): import("@/lib/graph-api").Review {
+    return makeReview({
+      action_name: "merge_nodes",
+      status: "pending",
+      action_payload: { from: ["n2"], to: "n1" },
+      ...overrides,
+    })
+  }
+
+  // ── Visibility gating ──────────────────────────────────────────────────────
+
+  it("renders Human Review button for merge_nodes + pending rows", async () => {
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+    expect(btn).toBeTruthy()
+  })
+
+  it("does NOT render Human Review button for non-merge_nodes pending rows", async () => {
+    const { queryByTestId } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeMergeReview({ action_name: "soft_delete" })}
+        onRefresh={noop}
+      />
+    )
+    // Wait for hydration effect to settle
+    await waitFor(() => {
+      expect(queryByTestId("send-for-human-review-btn")).toBeNull()
+    })
+  })
+
+  it("does NOT render Human Review button for merge_nodes rows that are not pending", async () => {
+    const { queryByTestId } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeMergeReview({ status: "approved" })}
+        onRefresh={noop}
+      />
+    )
+    await waitFor(() => {
+      expect(queryByTestId("send-for-human-review-btn")).toBeNull()
+    })
+  })
+
+  // ── Click + pending/running state ─────────────────────────────────────────
+
+  it("clicking triggers triggerMergeWorkflow and shows Sending… spinner", async () => {
+    const user = userEvent.setup()
+    // Never resolves during this test → stays in pending state
+    mockTriggerMergeWorkflow.mockReturnValue(new Promise(() => {}))
+
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+    await user.click(btn)
+
+    await waitFor(() => {
+      expect(mockTriggerMergeWorkflow).toHaveBeenCalledWith("rv-test-001")
+    })
+    // Button text should show Sending… state
+    await waitFor(() => {
+      const updatedBtn = document.querySelector("[data-testid='send-for-human-review-btn']")
+      expect(updatedBtn?.textContent).toMatch(/Sending/i)
+      expect(updatedBtn).toHaveProperty("disabled", true)
+    })
+  })
+
+  it("shows Human Review button text in fresh state (no prior run)", async () => {
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+    expect(btn.textContent).toMatch(/Human Review/i)
+    expect(btn).toHaveProperty("disabled", false)
+  })
+
+  // ── Mount-time hydration ───────────────────────────────────────────────────
+
+  it("hydrates to COMPLETED state from prior session (getLatestStakworkRun returns COMPLETED run)", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue({
+      ref_id: "mock-run-123",
+      job_type: "node_merge_review",
+      status: "COMPLETED",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+
+    await waitFor(() => {
+      expect(btn.textContent).toMatch(/Sent/i)
+      // COMPLETED: not disabled by the HTML attribute, but click is a no-op
+      // (disabled only when humanReviewInFlight || humanReviewTriggering)
+      expect(btn).not.toHaveProperty("disabled", true)
+    })
+  })
+
+  it("hydrates to FAILED state from prior session and button shows Retry Review", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue({
+      ref_id: "mock-run-456",
+      job_type: "node_merge_review",
+      status: "FAILED",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+
+    await waitFor(() => {
+      expect(btn.textContent).toMatch(/Retry Review/i)
+      expect(btn).toHaveProperty("disabled", false)
+    })
+  })
+
+  it("hydration fetch error leaves button in fresh (un-triggered) state — neutral, not a failure", async () => {
+    mockGetLatestStakworkRun.mockRejectedValue(new Error("network error"))
+
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+
+    await waitFor(() => {
+      // Should NOT show Retry Review or Sent — just the fresh un-triggered text
+      expect(btn.textContent).toMatch(/Human Review/i)
+      expect(btn).toHaveProperty("disabled", false)
+    })
+  })
+
+  it("hydrates to RUNNING and shows Sending… (button disabled while in-flight)", async () => {
+    mockGetLatestStakworkRun.mockResolvedValueOnce({
+      ref_id: "mock-run-789",
+      job_type: "node_merge_review",
+      status: "RUNNING",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    // Subsequent polls never resolve (keeps running)
+    mockGetLatestStakworkRun.mockReturnValue(new Promise(() => {}))
+
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+
+    await waitFor(() => {
+      expect(btn.textContent).toMatch(/Sending/i)
+      expect(btn).toHaveProperty("disabled", true)
+    })
+  })
+
+  // ── Re-triggering after FAILED ─────────────────────────────────────────────
+
+  it("re-triggers after a FAILED run (button not permanently locked)", async () => {
+    const user = userEvent.setup()
+    mockGetLatestStakworkRun.mockResolvedValue({
+      ref_id: "mock-run-fail",
+      job_type: "node_merge_review",
+      status: "FAILED",
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    mockTriggerMergeWorkflow.mockReturnValue(new Promise(() => {}))
+
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+
+    // Wait for hydration to show FAILED state
+    await waitFor(() => {
+      expect(btn.textContent).toMatch(/Retry Review/i)
+    })
+
+    // Click to re-trigger
+    await user.click(btn)
+    await waitFor(() => {
+      expect(mockTriggerMergeWorkflow).toHaveBeenCalledWith("rv-test-001")
+    })
+  })
+
+  // ── Multiple simultaneous rows poll independently ─────────────────────────
+
+  it("two pending merge rows each show the Human Review button independently", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue(null)
+
+    const review1 = makeMergeReview({ ref_id: "rv-a" })
+    const review2 = makeMergeReview({ ref_id: "rv-b" })
+
+    const { container } = render(
+      <div>
+        <ReviewRow schemas={[]} review={review1} onRefresh={noop} />
+        <ReviewRow schemas={[]} review={review2} onRefresh={noop} />
+      </div>
+    )
+
+    await waitFor(() => {
+      const btns = container.querySelectorAll("[data-testid='send-for-human-review-btn']")
+      expect(btns).toHaveLength(2)
+    })
+  })
+
+  it("hydration calls getLatestStakworkRun with the correct ref_id and job_type", async () => {
+    const { findByTestId } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview({ ref_id: "rv-specific-id" })} onRefresh={noop} />
+    )
+    await findByTestId("send-for-human-review-btn")
+
+    await waitFor(() => {
+      // Check the first two args (ref_id + job_type); third arg is AbortSignal
+      const calls = mockGetLatestStakworkRun.mock.calls
+      const matched = calls.some(
+        (c: unknown[]) => c[0] === "rv-specific-id" && c[1] === "node_merge_review"
+      )
+      expect(matched).toBe(true)
+    })
+  })
+
+  // ── Approve/Dismiss unaffected ─────────────────────────────────────────────
+
+  it("Approve and Dismiss buttons remain visible alongside the Human Review button", async () => {
+    const { findByTestId, getByText } = render(
+      <ReviewRow schemas={[]} review={makeMergeReview()} onRefresh={noop} />
+    )
+    await findByTestId("send-for-human-review-btn")
+    expect(getByText("Merge")).toBeTruthy()
+    expect(getByText("Dismiss")).toBeTruthy()
   })
 })
 

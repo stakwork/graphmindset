@@ -3,10 +3,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ArrowRightLeft, ChevronRight, GitMerge, Layers, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, type LucideIcon } from "lucide-react"
+import { ArrowRight, ArrowRightLeft, CheckCircle2, ChevronRight, GitMerge, Layers, Loader2, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, Users, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
-import { approveReview, dismissReview } from "@/lib/graph-api"
+import { approveReview, dismissReview, triggerMergeWorkflow } from "@/lib/graph-api"
+import { useStakworkRunStatus } from "@/lib/hooks/use-stakwork-run-status"
 import { cn, displayNodeType } from "@/lib/utils"
 import {
   Tooltip,
@@ -558,6 +559,18 @@ export function ReviewRow({
   const [dismissing, setDismissing] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
 
+  // ── Human Review dispatch (merge_nodes + pending only) ───────────────────────
+  const isMergeReviewEligible = review.action_name === "merge_nodes" && review.status === "pending"
+  const {
+    status: humanReviewStatus,
+    isInFlight: humanReviewInFlight,
+    trigger: triggerHumanReview,
+    triggering: humanReviewTriggering,
+  } = useStakworkRunStatus(
+    isMergeReviewEligible ? review.ref_id : "__noop__",
+    "node_merge_review"
+  )
+
   // ── Merge-specific interactive state ────────────────────────────────────────
   const [checkedSources, setCheckedSources] = useState<Set<string>>(new Set())
   const [canonicalId, setCanonicalId] = useState<string>("")
@@ -748,6 +761,60 @@ export function ReviewRow({
                 onConfirm={(reason) => handleDismiss(reason)}
                 minWidthClass="min-w-[68px]"
               />
+              {/* Send for Human Review — merge_nodes + pending only */}
+              {isMergeReviewEligible && (
+                <button
+                  type="button"
+                  data-testid="send-for-human-review-btn"
+                  disabled={humanReviewInFlight || humanReviewTriggering}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (humanReviewStatus === "COMPLETED") return
+                    triggerHumanReview(() => triggerMergeWorkflow(review.ref_id))
+                  }}
+                  title={
+                    humanReviewInFlight
+                      ? "Human review in progress…"
+                      : humanReviewStatus === "COMPLETED"
+                        ? "Human review completed"
+                        : humanReviewStatus === "FAILED"
+                          ? "Review failed — click to retry"
+                          : "Send for human review"
+                  }
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium transition-all",
+                    humanReviewInFlight || humanReviewTriggering
+                      ? "cursor-not-allowed border-sky-500/40 bg-sky-500/10 text-sky-300"
+                      : humanReviewStatus === "COMPLETED"
+                        ? "cursor-default border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                        : humanReviewStatus === "FAILED"
+                          ? "border-red-500/40 bg-red-500/5 text-red-400 hover:border-red-500/70 hover:bg-red-500/15"
+                          : "border-sky-500/30 bg-sky-500/5 text-sky-400 hover:border-sky-500/60 hover:bg-sky-500/10"
+                  )}
+                >
+                  {humanReviewInFlight || humanReviewTriggering ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Sending…
+                    </>
+                  ) : humanReviewStatus === "COMPLETED" ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3" />
+                      Sent
+                    </>
+                  ) : humanReviewStatus === "FAILED" ? (
+                    <>
+                      <Users className="h-3 w-3" />
+                      Retry Review
+                    </>
+                  ) : (
+                    <>
+                      <Users className="h-3 w-3" />
+                      Human Review
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           ) : (
             <StatusBadge status={review.status} />

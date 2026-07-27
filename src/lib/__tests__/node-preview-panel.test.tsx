@@ -2267,14 +2267,19 @@ describe("NodePreviewPanel – Enrich button", () => {
   it("shows 'View Enrich run' link once enrichRunProjectId is set via polling", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
-      mockGetLatestStakworkRun
-        .mockResolvedValueOnce({
-          ref_id: "enrich-run-1",
-          job_type: "web_search_enrich",
-          status: "RUNNING",
-          created_at: 0,
-          project_id: 42000,
-        })
+      const runPayload = {
+        ref_id: "enrich-run-1",
+        job_type: "web_search_enrich",
+        status: "RUNNING",
+        created_at: 0,
+        project_id: 42000,
+      }
+      // beforeEach already sets mockResolvedValue(null); override for polling tick.
+      // mockImplementation lets us return runPayload only for web_search_enrich polls.
+      mockGetLatestStakworkRun.mockImplementation((_refId: string, jobType: string) => {
+        if (jobType === "web_search_enrich") return Promise.resolve(runPayload)
+        return Promise.resolve(null)
+      })
 
       const node = makeEnrichNode("Location")
       mockApiGet.mockResolvedValue(makeGraphData(node))

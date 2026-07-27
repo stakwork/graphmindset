@@ -23,7 +23,8 @@ import { cn, displayNodeType, formatCompactNumber } from "@/lib/utils"
 import { pickString, unescapeText, DISPLAY_KEY_FALLBACKS } from "@/lib/node-display"
 import { getStatusBadge, isBlockedStatus, isInProgress } from "@/lib/node-status"
 import type { GraphNode, GraphData, StakworkRun } from "@/lib/graph-api"
-import { triggerDeepResearch, triggerEnrich, getLatestStakworkRun, getNode, isGraphData } from "@/lib/graph-api"
+import { triggerDeepResearch, triggerEnrich, getNode, isGraphData } from "@/lib/graph-api"
+import { useStakworkRunStatus, isInFlightStatus } from "@/lib/hooks/use-stakwork-run-status"
 import { getWatches, watchNode, unwatchNode } from "@/lib/watch-api"
 import { cookieStorage } from "@/lib/cookie-storage"
 import type { SchemaNode } from "@/lib/schema-types"
@@ -788,127 +789,40 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
   const [watched, setWatched] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
 
-  // Deep Research state
-  type DeepResearchStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "ERROR" | "HALTED" | null
-  const [deepResearchStatus, setDeepResearchStatus] = useState<DeepResearchStatus>(null)
-  const [deepResearchLoading, setDeepResearchLoading] = useState(false)
-  const deepResearchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Deep Research — shared hook
+  const {
+    status: deepResearchStatus,
+    isInFlight: deepResearchInFlight,
+    trigger: triggerDeepResearchRun,
+    triggering: deepResearchLoading,
+  } = useStakworkRunStatus(
+    DEEP_RESEARCH_NODE_TYPES.includes(currentNode.node_type) ? currentNode.ref_id : "__noop__",
+    "deep_research",
+    { onCompleted: () => setProbeNonce((n) => n + 1) }
+  )
 
-  // Enrich state
-  const [enrichLoading, setEnrichLoading] = useState(false)
-  const [enrichStatus, setEnrichStatus] = useState<DeepResearchStatus>(null)
+  // Enrich — shared hook
   const [enrichRunProjectId, setEnrichRunProjectId] = useState<number | null>(null)
-  const enrichPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  function isDeepResearchInFlight(status: DeepResearchStatus): boolean {
-    return status === "PENDING" || status === "RUNNING"
-  }
-
-  function mapRunStatus(status: string): DeepResearchStatus {
-    const s = status.toUpperCase()
-    if (s === "PENDING" || s === "IN_PROGRESS" || s === "RUNNING") return "RUNNING"
-    if (s === "COMPLETED") return "COMPLETED"
-    if (s === "FAILED" || s === "ERROR" || s === "HALTED") return "FAILED"
-    return null
-  }
-
-  function startDeepResearchPoll(refId: string) {
-    if (deepResearchPollRef.current) clearInterval(deepResearchPollRef.current)
-    deepResearchPollRef.current = setInterval(async () => {
-      try {
-        const run = await getLatestStakworkRun(refId, "deep_research")
-        if (!run) return
-        const mapped = mapRunStatus(run.status)
-        setDeepResearchStatus(mapped)
-        if (mapped !== "PENDING" && mapped !== "RUNNING") {
-          if (deepResearchPollRef.current) clearInterval(deepResearchPollRef.current)
-          deepResearchPollRef.current = null
-          if (mapped === "COMPLETED") {
-            // Trigger node refetch by bumping probeNonce
-            setProbeNonce((n) => n + 1)
-          }
-        }
-      } catch {
-        // silent — keep polling
-      }
-    }, 5000)
-  }
-
-  // Hydrate deep research status on mount / node change
-  useEffect(() => {
-    setDeepResearchStatus(null)
-    if (!DEEP_RESEARCH_NODE_TYPES.includes(currentNode.node_type)) return
-    let cancelled = false
-    getLatestStakworkRun(currentNode.ref_id, "deep_research")
-      .then((run) => {
-        if (cancelled || !run) return
-        const mapped = mapRunStatus(run.status)
-        setDeepResearchStatus(mapped)
-        if (mapped === "PENDING" || mapped === "RUNNING") {
-          startDeepResearchPoll(currentNode.ref_id)
-        }
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-      if (deepResearchPollRef.current) {
-        clearInterval(deepResearchPollRef.current)
-        deepResearchPollRef.current = null
-      }
-      if (enrichPollRef.current) {
-        clearInterval(enrichPollRef.current)
-        enrichPollRef.current = null
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentNode.ref_id])
+  const {
+    status: enrichStatus,
+    isInFlight: enrichInFlight,
+    trigger: triggerEnrichRun,
+    triggering: enrichLoading,
+  } = useStakworkRunStatus(currentNode.ref_id, "web_search_enrich", {
+    onCompleted: () => setProbeNonce((n) => n + 1),
+    onPoll: (run) => { if (run.project_id) setEnrichRunProjectId(run.project_id) },
+  })
 
   async function handleDeepResearch() {
-    if (deepResearchLoading || isDeepResearchInFlight(deepResearchStatus)) return
-    setDeepResearchLoading(true)
-    setDeepResearchStatus("PENDING")
-    try {
-      await triggerDeepResearch(currentNode.ref_id)
-      startDeepResearchPoll(currentNode.ref_id)
-    } catch {
-      setDeepResearchStatus("FAILED")
-    } finally {
-      setDeepResearchLoading(false)
-    }
-  }
-
-  function startEnrichPoll(refId: string) {
-    if (enrichPollRef.current) clearInterval(enrichPollRef.current)
-    enrichPollRef.current = setInterval(async () => {
-      try {
-        const run = await getLatestStakworkRun(refId, "web_search_enrich")
-        if (!run) return
-        const mapped = mapRunStatus(run.status)
-        setEnrichStatus(mapped)
-        if (run.project_id) setEnrichRunProjectId(run.project_id)
-        if (mapped !== "PENDING" && mapped !== "RUNNING") {
-          if (enrichPollRef.current) clearInterval(enrichPollRef.current)
-          enrichPollRef.current = null
-          if (mapped === "COMPLETED") setProbeNonce((n) => n + 1)
-        }
-      } catch {
-        // silent — keep polling
-      }
-    }, 5000)
+    await triggerDeepResearchRun(() => triggerDeepResearch(currentNode.ref_id))
   }
 
   async function handleEnrich() {
-    if (enrichLoading || isDeepResearchInFlight(enrichStatus)) return
-    setEnrichLoading(true)
-    setEnrichStatus("PENDING")
-    try {
-      await triggerEnrich(currentNode.ref_id)
-      startEnrichPoll(currentNode.ref_id)
-    } catch {
-      setEnrichStatus("FAILED")
-    } finally {
-      setEnrichLoading(false)
-    }
+    await triggerEnrichRun(async () => {
+      const result = await triggerEnrich(currentNode.ref_id)
+      // Capture project_id for the "View Enrich run" link if available
+      return result
+    })
   }
 
   // Full reset (currentNode + history + scroll) only when a genuinely different
@@ -1478,12 +1392,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 size="sm"
                 variant="outline"
                 className="w-full"
-                disabled={deepResearchLoading || isDeepResearchInFlight(deepResearchStatus)}
+                disabled={deepResearchLoading || deepResearchInFlight}
                 onClick={handleDeepResearch}
                 data-testid="deep-research-button"
                 title="Deep Research this topic"
               >
-                {isDeepResearchInFlight(deepResearchStatus) ? (
+                {deepResearchInFlight ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                     Researching…
@@ -1493,7 +1407,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                     <FlaskConical className="h-3.5 w-3.5 mr-1.5" />
                     Re-run Research
                   </>
-                ) : (deepResearchStatus === "FAILED" || deepResearchStatus === "ERROR" || deepResearchStatus === "HALTED") ? (
+                ) : (deepResearchStatus === "FAILED") ? (
                   <>
                     <FlaskConical className="h-3.5 w-3.5 mr-1.5" />
                     Retry Research
@@ -1515,12 +1429,12 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                 size="sm"
                 variant="outline"
                 className="w-full"
-                disabled={enrichLoading || isDeepResearchInFlight(enrichStatus)}
+                disabled={enrichLoading || enrichInFlight}
                 onClick={handleEnrich}
                 data-testid="enrich-button"
                 title="Enrich this node via web search"
               >
-                {isDeepResearchInFlight(enrichStatus) ? (
+                {enrichInFlight ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                     Enriching…
@@ -1530,7 +1444,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
                     <Search className="h-3.5 w-3.5 mr-1.5" />
                     Enriched
                   </>
-                ) : (enrichStatus === "FAILED" || enrichStatus === "ERROR" || enrichStatus === "HALTED") ? (
+                ) : (enrichStatus === "FAILED") ? (
                   <>
                     <Search className="h-3.5 w-3.5 mr-1.5" />
                     Enrich failed
