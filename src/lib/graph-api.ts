@@ -672,6 +672,24 @@ export async function triggerDeepResearch(
   )
 }
 
+// Admin-only — triggers NodeMergeReview workflow in Stakwork; no payment gate
+export async function triggerMergeWorkflow(
+  refId: string,
+  signal?: AbortSignal
+): Promise<{ stakwork_run_ref_id: string }> {
+  if (isMocksEnabled()) {
+    // Reset poll counter keyed to "node_merge_review" job type (no L402 simulation)
+    _mockDeepResearchPollCounts[refId + "_merge_review"] = 0
+    return { stakwork_run_ref_id: "mock-merge-review-run-" + refId }
+  }
+  return api.post<{ stakwork_run_ref_id: string }>(
+    `/v2/reviews/${refId}/trigger-merge-workflow`,
+    {},
+    undefined,
+    signal
+  )
+}
+
 // Admin-only enrich (web search) — no payment gate
 export async function triggerEnrich(
   refId: string,
@@ -696,10 +714,20 @@ export async function getLatestStakworkRun(
   signal?: AbortSignal
 ): Promise<StakworkRun | null> {
   if (isMocksEnabled()) {
-    const mockKey = jobType === "web_search_enrich" ? refId + "_enrich" : refId
+    const mockKey =
+      jobType === "web_search_enrich"
+        ? refId + "_enrich"
+        : jobType === "node_merge_review"
+          ? refId + "_merge_review"
+          : refId
     const count = (_mockDeepResearchPollCounts[mockKey] ?? 0) + 1
     _mockDeepResearchPollCounts[mockKey] = count
-    const runPrefix = jobType === "web_search_enrich" ? "mock-enrich-run-" : "mock-deep-run-"
+    const runPrefix =
+      jobType === "web_search_enrich"
+        ? "mock-enrich-run-"
+        : jobType === "node_merge_review"
+          ? "mock-merge-review-run-"
+          : "mock-deep-run-"
     if (count <= 2) {
       return {
         ref_id: runPrefix + refId,
