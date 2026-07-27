@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "dagre"
 import { zoom as d3Zoom, zoomIdentity, ZoomBehavior, ZoomTransform } from "d3-zoom"
 import { select as d3Select } from "d3-selection"
@@ -139,7 +139,11 @@ function edgeHierarchyPath(
   return `M ${s.x} ${s.y + NODE_HEIGHT / 2} L ${t.x} ${t.y - NODE_HEIGHT / 2}`
 }
 
-export function OntologyGraph({ schemas, edges, selectedId, onSelect, onClear, selectedEdgeType }: Props) {
+// Memoized: this renders a large SVG tree (grid + every edge, label and node),
+// so it must not re-reconcile when the parent page re-renders for unrelated
+// reasons (chat busy-state, panel toggles). It only re-renders when its own
+// props change. Keep parent-supplied handlers stable (useCallback) to preserve this.
+export const OntologyGraph = memo(function OntologyGraph({ schemas, edges, selectedId, onSelect, onClear, selectedEdgeType }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown>>(null)
   const containerRef = useRef<SVGGElement>(null)
@@ -659,4 +663,4 @@ export function OntologyGraph({ schemas, edges, selectedId, onSelect, onClear, s
       </div>
     </div>
   )
-}
+})
