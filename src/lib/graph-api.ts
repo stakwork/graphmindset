@@ -430,6 +430,7 @@ export interface StakworkRun {
   status: "pending" | "in_progress" | "completed" | "halted" | "error" | "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "ERROR" | "HALTED"
   error?: string
   error_message?: string
+  response?: string
   created_at?: number
   started_at?: number
   finished_at?: number
@@ -778,7 +779,13 @@ export async function getStakworkRun(
       job_type: "ontology_agent",
       status: running ? "RUNNING" : "COMPLETED",
       created_at: Math.floor(Date.now() / 1000),
-      ...(running ? {} : { finished_at: Math.floor(Date.now() / 1000) }),
+      ...(running
+        ? {}
+        : {
+            finished_at: Math.floor(Date.now() / 1000),
+            response:
+              "I've drafted the schema changes below — review and approve them to apply. Let me know if you'd like to adjust anything.",
+          }),
     }
   }
   try {
