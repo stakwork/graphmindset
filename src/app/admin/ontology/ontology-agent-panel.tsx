@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { Sparkles, X, ArrowUp, Loader2 } from "lucide-react"
 import {
   triggerOntologyAgent,
@@ -21,6 +21,7 @@ interface AgentTurn {
   runRef?: string
   status: TurnStatus
   reviews: Review[]
+  response?: string
   error?: string
 }
 
@@ -44,7 +45,6 @@ function mapRunStatus(status: StakworkRun["status"]): TurnStatus {
 export function OntologyAgentPanel({ onClose }: { onClose: () => void }) {
   const schemas = useSchemaStore((s) => s.schemas)
   const [turns, setTurns] = useState<Turn[]>([])
-  const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -94,7 +94,11 @@ export function OntologyAgentPanel({ onClose }: { onClose: () => void }) {
             return
           }
           const res = await listReviews({ run_ref_id: runRef, status: "pending" })
-          patchAgentTurn(turnId, { status: "completed", reviews: res.reviews })
+          patchAgentTurn(turnId, {
+            status: "completed",
+            reviews: res.reviews,
+            response: run?.response,
+          })
         } catch {
           /* swallow — keep polling until a terminal state or unmount */
         }
@@ -103,11 +107,10 @@ export function OntologyAgentPanel({ onClose }: { onClose: () => void }) {
     [patchAgentTurn]
   )
 
-  const handleSubmit = useCallback(async () => {
-    const instruction = input.trim()
+  const handleSubmit = useCallback(async (raw: string) => {
+    const instruction = raw.trim()
     if (!instruction || busy) return
     setBusy(true)
-    setInput("")
 
     const history: OntologyAgentMessage[] = turns.map((t) =>
       t.role === "user"
@@ -131,7 +134,7 @@ export function OntologyAgentPanel({ onClose }: { onClose: () => void }) {
       setBusy(false)
       patchAgentTurn(agentId, { status: "failed", error: "Could not start the ontology agent." })
     }
-  }, [input, busy, turns, patchAgentTurn, startPoll])
+  }, [busy, turns, patchAgentTurn, startPoll])
 
   return (
     <div className="w-[440px] shrink-0 border-l border-border flex flex-col bg-card">
@@ -183,43 +186,68 @@ export function OntologyAgentPanel({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      {/* Composer */}
-      <div className="border-t border-border p-3">
-        <div className="flex items-end gap-2 rounded-lg border border-border bg-background p-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                handleSubmit()
-              }
-            }}
-            placeholder="Describe an ontology change…"
-            rows={2}
-            className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-          />
-          <button
-            onClick={handleSubmit}
-            disabled={busy || !input.trim()}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
-            title="Send"
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-          </button>
-        </div>
-        <p className="mt-1.5 px-1 text-[10px] text-muted-foreground/70">
-          Proposed changes appear as reviews here — approve to apply them to the schema.
-        </p>
-      </div>
+      {/* Composer — owns its own text state so keystrokes don't re-render the transcript */}
+      <Composer busy={busy} onSubmit={handleSubmit} />
     </div>
   )
 }
+
+// Isolating the input's state here is the fix for typing lag: the transcript
+// (which renders heavy ReviewRow cards) no longer re-renders on every keystroke.
+const Composer = memo(function Composer({
+  busy,
+  onSubmit,
+}: {
+  busy: boolean
+  onSubmit: (text: string) => void
+}) {
+  const [text, setText] = useState("")
+
+  const submit = () => {
+    const value = text.trim()
+    if (!value || busy) return
+    setText("")
+    onSubmit(value)
+  }
+
+  return (
+    <div className="border-t border-border p-3">
+      <div className="flex items-end gap-2 rounded-lg border border-border bg-background p-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+          placeholder="Describe an ontology change…"
+          rows={2}
+          className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+        />
+        <button
+          onClick={submit}
+          disabled={busy || !text.trim()}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+          title="Send"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+        </button>
+      </div>
+      <p className="mt-1.5 px-1 text-[10px] text-muted-foreground/70">
+        Proposed changes appear as reviews here — approve to apply them to the schema.
+      </p>
+    </div>
+  )
+})
 
 function agentSummary(t: AgentTurn): string {
   if (t.status === "running") return "Working on the proposal…"
   if (t.status === "failed") return t.error ?? "The run failed."
   const n = t.reviews.length
+  const suffix = n === 0 ? "" : ` (proposed ${n} change${n === 1 ? "" : "s"})`
+  if (t.response) return `${t.response}${suffix}`
   return n === 0 ? "No changes proposed." : `Proposed ${n} change${n === 1 ? "" : "s"}.`
 }
 
@@ -232,6 +260,10 @@ function AgentTurnView({
   schemas: SchemaNode[]
   onRefresh: () => void
 }) {
+  const completed = turn.status === "completed"
+  // Show a fallback line only when the agent returned neither text nor cards.
+  const showEmptyNote = completed && !turn.response && turn.reviews.length === 0
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -243,11 +275,21 @@ function AgentTurnView({
         ) : turn.status === "failed" ? (
           <span className="text-red-400">{turn.error ?? "The run failed."}</span>
         ) : (
-          <span>{agentSummary(turn)}</span>
+          <span>Ontology agent</span>
         )}
       </div>
 
-      {turn.status === "completed" && turn.reviews.length > 0 && (
+      {completed && turn.response && (
+        <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-muted/50 px-3 py-2 text-sm text-foreground">
+          {turn.response}
+        </div>
+      )}
+
+      {showEmptyNote && (
+        <p className="text-xs text-muted-foreground">No changes proposed.</p>
+      )}
+
+      {completed && turn.reviews.length > 0 && (
         <div className="overflow-hidden rounded-lg border border-border/60">
           {turn.reviews.map((review) => (
             <ReviewRow
