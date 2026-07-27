@@ -77,6 +77,9 @@ export default function OntologyPage() {
       .map(([edgeType, count]) => ({ edgeType, count }))
   }, [store.edges, edgeSearch])
 
+  // Stable so the memoized OntologyGraph doesn't re-render on unrelated page updates.
+  const handleClearSelection = useCallback(() => setSelectedId(null), [])
+
   const handleSwitchToEdges = useCallback(() => {
     setSidebarTab("edges")
     setSelectedId(null)
@@ -471,7 +474,7 @@ export default function OntologyPage() {
             edges={store.edges}
             selectedId={selectedId}
             onSelect={setSelectedId}
-            onClear={() => setSelectedId(null)}
+            onClear={handleClearSelection}
             selectedEdgeType={selectedEdgeType}
           />
         )}
