@@ -225,7 +225,9 @@ function SourceChips({
 }
 
 // ── Action labels (per action_name) ───────────────────────────────────────────
-// soft_delete uses "Hide" (not "delete") because the node stays in the system.
+// rowLabel carries no verb — the row icon and the approve button already state
+// the action. Approve verbs still differ per action ("Hide", not "Delete", for
+// soft_delete, because the node stays in the system).
 
 interface SubjectSummary {
   count: number
@@ -279,7 +281,7 @@ const DEFAULT_ACTION_LABELS: ActionLabels = {
 const ACTION_LABELS: Record<string, ActionLabels> = {
   soft_delete: {
     approve: "Hide",
-    rowLabel: (s) => `Hide ${s.displayName ?? s.typeLabel}`,
+    rowLabel: (s) => s.displayName ?? s.typeLabel,
     approvePrompt: (s) =>
       s.count === 1
         ? `Hide ${s.displayName ?? `this ${s.typeLabel}`} from the graph?`
@@ -287,47 +289,47 @@ const ACTION_LABELS: Record<string, ActionLabels> = {
   },
   merge_nodes: {
     approve: "Merge",
-    rowLabel: (s) => `Merge ${s.displayName ?? s.typeLabel}`,
+    rowLabel: (s) => s.displayName ?? s.typeLabel,
     approvePrompt: () => "Merge these nodes?",
   },
   supersede: {
     approve: "Replace",
-    rowLabel: (s) => `Replace ${s.displayName ?? s.typeLabel}`,
+    rowLabel: (s) => s.displayName ?? s.typeLabel,
     approvePrompt: () => "Replace the old node with the new one?",
   },
   add_source: {
     approve: "Add",
-    rowLabel: () => "Add new source",
+    rowLabel: () => "New source",
     approvePrompt: () => "Add this source to the radar?",
   },
   add_social_handle: {
     approve: "Add Handle",
-    rowLabel: () => "Add social handle",
+    rowLabel: () => "Social handle",
     approvePrompt: () => "Write this social handle to the Person node?",
   },
   add_node: {
     approve: "Add",
-    rowLabel: (s) => `Add ${s.displayName ?? s.typeLabel}`,
+    rowLabel: (s) => s.displayName ?? s.typeLabel,
     approvePrompt: (s) => `Add this ${s.typeLabel} to the graph?`,
   },
   add_edge: {
     approve: "Connect",
-    rowLabel: () => "Add new edge",
+    rowLabel: () => "New edge",
     approvePrompt: () => "Create this edge between the two nodes?",
   },
   edit_node: {
     approve: "Apply",
-    rowLabel: (s) => `Edit ${s.displayName ?? s.typeLabel}`,
+    rowLabel: (s) => s.displayName ?? s.typeLabel,
     approvePrompt: (s) => `Apply proposed changes to ${s.displayName ?? `this ${s.typeLabel}`}?`,
   },
   add_schema_node_type: {
     approve: "Create",
-    rowLabel: () => "Add new schema type",
+    rowLabel: () => "New schema type",
     approvePrompt: () => "Create this node type in the ontology?",
   },
   add_schema_edge_type: {
     approve: "Register",
-    rowLabel: () => "Add schema edge type",
+    rowLabel: () => "Schema edge type",
     approvePrompt: () => "Register this edge type in the schema?",
   },
 }
