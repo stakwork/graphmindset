@@ -25,8 +25,25 @@ export interface UseStakworkRunStatusOptions {
    * useful for capturing metadata like `project_id` from the run.
    */
   onPoll?: (run: import("@/lib/graph-api").StakworkRun) => void
+  /**
+   * Called when the trigger request itself fails, with the server's message.
+   * Without this the reason is swallowed and the user only sees a red retry
+   * button — the backend returns real causes (INVALID_PAYLOAD when a node in
+   * the merge no longer exists, DISPATCH_FAILED when Stakwork rejects it).
+   */
+  onTriggerError?: (message: string) => void
   /** Poll interval in milliseconds (default 5 000). */
   pollIntervalMs?: number
+}
+
+/** Pull a human-readable message out of a thrown fetch Response. */
+async function errorMessage(err: unknown, fallback: string): Promise<string> {
+  if (!(err instanceof Response)) return fallback
+  const body = (await err.json().catch(() => ({}))) as {
+    error?: string
+    errorCode?: string
+  }
+  return body.error || body.errorCode || fallback
 }
 
 export interface UseStakworkRunStatusResult {
@@ -74,7 +91,7 @@ export function useStakworkRunStatus(
   jobType: string,
   options: UseStakworkRunStatusOptions = {}
 ): UseStakworkRunStatusResult {
-  const { onCompleted, onPoll, pollIntervalMs = 5000 } = options
+  const { onCompleted, onPoll, onTriggerError, pollIntervalMs = 5000 } = options
 
   const [status, setStatus] = useState<StakworkRunStatus>(null)
   const [loading, setLoading] = useState(false)
@@ -85,6 +102,8 @@ export function useStakworkRunStatus(
   onCompletedRef.current = onCompleted
   const onPollRef = useRef(onPoll)
   onPollRef.current = onPoll
+  const onTriggerErrorRef = useRef(onTriggerError)
+  onTriggerErrorRef.current = onTriggerError
 
   function stopPoll() {
     if (pollRef.current) {
@@ -152,8 +171,11 @@ export function useStakworkRunStatus(
       try {
         await triggerFn()
         startPoll(refId)
-      } catch {
+      } catch (err) {
         setStatus("FAILED")
+        if (onTriggerErrorRef.current) {
+          onTriggerErrorRef.current(await errorMessage(err, "Request failed"))
+        }
       } finally {
         setTriggering(false)
       }
