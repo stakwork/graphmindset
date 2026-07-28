@@ -187,7 +187,7 @@ function InlineChip({
   return (
     <span
       className={cn(
-        "inline-flex max-w-[220px] shrink-0 items-center gap-1.5 truncate rounded px-1.5 py-0.5 text-[12px]",
+        "inline-flex min-w-0 max-w-[220px] items-center gap-1.5 truncate rounded px-1.5 py-0.5 text-[12px]",
         emphasis ? "font-semibold text-foreground" : "text-muted-foreground/90"
       )}
     >
@@ -407,7 +407,7 @@ function ConfirmActionPopover({
           if (!disabled) setOpen((v) => !v)
         }}
         className={cn(
-          "rounded border px-2 py-0.5 text-[11px] font-medium transition-all text-center",
+          "shrink-0 whitespace-nowrap rounded border px-2 py-0.5 text-[11px] font-medium transition-all text-center",
           minWidthClass,
           disabled
             ? "cursor-not-allowed border-border/40 bg-transparent text-muted-foreground/40"
@@ -568,7 +568,17 @@ export function ReviewRow({
     triggering: humanReviewTriggering,
   } = useStakworkRunStatus(
     isMergeReviewEligible ? review.ref_id : "__noop__",
-    "node_merge_review"
+    "node_merge_review",
+    {
+      // The workflow reports back through the ingest webhook, which turns its
+      // recommendations into new Reviews. Without this refresh they sit unseen
+      // until the operator reloads the page.
+      onCompleted: () => {
+        onRefresh()
+        onCountRefresh?.()
+      },
+      onTriggerError: setInlineError,
+    }
   )
 
   // ── Merge-specific interactive state ────────────────────────────────────────
@@ -688,7 +698,7 @@ export function ReviewRow({
             setExpanded((v) => !v)
           }
         }}
-        className="grid w-full cursor-pointer grid-cols-[22px_20px_16px_1fr_auto_170px] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/20"
+        className="grid w-full cursor-pointer grid-cols-[22px_20px_16px_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/20"
       >
         {selectable && onSelectChange ? (
           <span title={selectionLocked && !selected ? selectionLockedReason : undefined}>
@@ -730,15 +740,15 @@ export function ReviewRow({
           </span>
         )}
 
-        <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
           {review.run_ref_id && <span>Run #{review.run_ref_id.slice(-5)}</span>}
           {review.run_ref_id && <span>·</span>}
           <span>{relativeTime}</span>
         </div>
 
-        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="flex shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
           {isPending && isAdmin ? (
-            <div className="flex gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <ConfirmActionPopover
                 tone="approve"
                 triggerLabel={labels.approve}
@@ -782,7 +792,7 @@ export function ReviewRow({
                           : "Send for human review"
                   }
                   className={cn(
-                    "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium transition-all",
+                    "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-2 py-0.5 text-[11px] font-medium transition-all",
                     humanReviewInFlight || humanReviewTriggering
                       ? "cursor-not-allowed border-sky-500/40 bg-sky-500/10 text-sky-300"
                       : humanReviewStatus === "COMPLETED"
