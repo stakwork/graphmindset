@@ -583,6 +583,14 @@ export function ReviewRow({
     }
   )
 
+  // A human review takes as long as it takes — showing its run as "Sending…"
+  // for that whole time reads as though the dispatch is still going. Once the
+  // run exists, the only fact the operator needs is that it was sent, so an
+  // in-flight run and a completed one look the same here. Polling continues
+  // regardless: onCompleted is what surfaces the workflow's results.
+  const humanReviewSent =
+    humanReviewStatus === "COMPLETED" || humanReviewInFlight
+
   // ── Merge-specific interactive state ────────────────────────────────────────
   const [checkedSources, setCheckedSources] = useState<Set<string>>(new Set())
   const [canonicalId, setCanonicalId] = useState<string>("")
@@ -778,38 +786,36 @@ export function ReviewRow({
                 <button
                   type="button"
                   data-testid="send-for-human-review-btn"
-                  disabled={humanReviewInFlight || humanReviewTriggering}
+                  disabled={humanReviewSent || humanReviewTriggering}
                   onClick={(e) => {
                     e.stopPropagation()
-                    if (humanReviewStatus === "COMPLETED") return
+                    if (humanReviewSent) return
                     triggerHumanReview(() => triggerMergeWorkflow(review.ref_id))
                   }}
                   title={
-                    humanReviewInFlight
-                      ? "Human review in progress…"
-                      : humanReviewStatus === "COMPLETED"
-                        ? "Human review completed"
-                        : humanReviewStatus === "FAILED"
-                          ? "Review failed — click to retry"
-                          : "Send for human review"
+                    humanReviewSent
+                      ? "Sent for human review"
+                      : humanReviewStatus === "FAILED"
+                        ? "Review failed — click to retry"
+                        : "Send for human review"
                   }
                   className={cn(
                     "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-2 py-0.5 text-[11px] font-medium transition-all",
-                    humanReviewInFlight || humanReviewTriggering
+                    humanReviewTriggering
                       ? "cursor-not-allowed border-sky-500/40 bg-sky-500/10 text-sky-300"
-                      : humanReviewStatus === "COMPLETED"
+                      : humanReviewSent
                         ? "cursor-default border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                         : humanReviewStatus === "FAILED"
                           ? "border-red-500/40 bg-red-500/5 text-red-400 hover:border-red-500/70 hover:bg-red-500/15"
                           : "border-sky-500/30 bg-sky-500/5 text-sky-400 hover:border-sky-500/60 hover:bg-sky-500/10"
                   )}
                 >
-                  {humanReviewInFlight || humanReviewTriggering ? (
+                  {humanReviewTriggering ? (
                     <>
                       <Loader2 className="h-3 w-3 animate-spin" />
                       Sending…
                     </>
-                  ) : humanReviewStatus === "COMPLETED" ? (
+                  ) : humanReviewSent ? (
                     <>
                       <CheckCircle2 className="h-3 w-3" />
                       Sent

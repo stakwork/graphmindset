@@ -1307,9 +1307,9 @@ describe("ReviewRow — Send for Human Review button", () => {
 
     await waitFor(() => {
       expect(btn.textContent).toMatch(/Sent/i)
-      // COMPLETED: not disabled by the HTML attribute, but click is a no-op
-      // (disabled only when humanReviewInFlight || humanReviewTriggering)
-      expect(btn).not.toHaveProperty("disabled", true)
+      // Once sent, the button is genuinely disabled rather than merely
+      // click-guarded — nothing is left to send.
+      expect(btn).toHaveProperty("disabled", true)
     })
   })
 
@@ -1347,7 +1347,7 @@ describe("ReviewRow — Send for Human Review button", () => {
     })
   })
 
-  it("hydrates to RUNNING and shows Sending… (button disabled while in-flight)", async () => {
+  it("hydrates to RUNNING and shows Sent (not Sending — the dispatch is done)", async () => {
     mockGetLatestStakworkRun.mockResolvedValueOnce({
       ref_id: "mock-run-789",
       job_type: "node_merge_review",
@@ -1362,8 +1362,11 @@ describe("ReviewRow — Send for Human Review button", () => {
     )
     const btn = await findByTestId("send-for-human-review-btn")
 
+    // A human review runs for as long as a human takes; "Sending…" would imply
+    // the dispatch is still in progress. Once a run exists it is simply sent.
     await waitFor(() => {
-      expect(btn.textContent).toMatch(/Sending/i)
+      expect(btn.textContent).toMatch(/Sent/i)
+      expect(btn.textContent).not.toMatch(/Sending/i)
       expect(btn).toHaveProperty("disabled", true)
     })
   })
