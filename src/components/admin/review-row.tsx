@@ -535,11 +535,19 @@ export interface ReviewRowProps {
   onRefresh: () => void
   onCountRefresh?: () => void
   selected?: boolean
-  onSelectChange?: (selected: boolean) => void
+  onSelectChange?: (selected: boolean, shiftKey: boolean) => void
   selectable?: boolean
   /** When true, the checkbox is rendered but disabled (e.g., locked by same-action rule). */
   selectionLocked?: boolean
   selectionLockedReason?: string
+  /**
+   * Bumped by the list page after a bulk "Human Review" dispatch that included
+   * this row, so the row adopts the run it never fired itself. Any increase is
+   * treated as one dispatch; 0 means this row was not part of one.
+   */
+  humanReviewDispatchToken?: number
+  /** Reports whether this row's human review has been sent, so the page can exclude it from a bulk dispatch. */
+  onHumanReviewStateChange?: (refId: string, sent: boolean) => void
 }
 
 export function ReviewRow({
@@ -552,6 +560,8 @@ export function ReviewRow({
   selectable = false,
   selectionLocked = false,
   selectionLockedReason,
+  humanReviewDispatchToken = 0,
+  onHumanReviewStateChange,
 }: ReviewRowProps) {
   const router = useRouter()
   const setReturnTo = useGraphStore((s) => s.setReturnTo)
@@ -568,6 +578,7 @@ export function ReviewRow({
     isInFlight: humanReviewInFlight,
     trigger: triggerHumanReview,
     triggering: humanReviewTriggering,
+    markTriggered: markHumanReviewTriggered,
   } = useStakworkRunStatus(
     isMergeReviewEligible ? review.ref_id : "__noop__",
     "node_merge_review",
@@ -590,6 +601,22 @@ export function ReviewRow({
   // regardless: onCompleted is what surfaces the workflow's results.
   const humanReviewSent =
     humanReviewStatus === "COMPLETED" || humanReviewInFlight
+
+  // Adopt a run the list page dispatched on this row's behalf. Guarded by a ref
+  // so a re-render (or StrictMode's double effect) never re-adopts the same one.
+  const adoptedDispatchRef = useRef(0)
+  useEffect(() => {
+    if (!isMergeReviewEligible) return
+    if (humanReviewDispatchToken <= adoptedDispatchRef.current) return
+    adoptedDispatchRef.current = humanReviewDispatchToken
+    markHumanReviewTriggered()
+  }, [humanReviewDispatchToken, isMergeReviewEligible, markHumanReviewTriggered])
+
+  // Let the page know this row is already sent so a bulk dispatch skips it.
+  useEffect(() => {
+    if (!isMergeReviewEligible) return
+    onHumanReviewStateChange?.(review.ref_id, humanReviewSent)
+  }, [isMergeReviewEligible, humanReviewSent, review.ref_id, onHumanReviewStateChange])
 
   // ── Merge-specific interactive state ────────────────────────────────────────
   const [checkedSources, setCheckedSources] = useState<Set<string>>(new Set())
@@ -714,7 +741,13 @@ export function ReviewRow({
           <span title={selectionLocked && !selected ? selectionLockedReason : undefined}>
             <Checkbox
               checked={selected}
-              onChange={onSelectChange}
+              onChange={(next, e) =>
+                onSelectChange(
+                  next,
+                  "shiftKey" in e.nativeEvent &&
+                    (e.nativeEvent as MouseEvent).shiftKey === true
+                )
+              }
               onClick={(e) => e.stopPropagation()}
               disabled={selectionLocked && !selected}
               ariaLabel={`Select review ${review.ref_id}`}
