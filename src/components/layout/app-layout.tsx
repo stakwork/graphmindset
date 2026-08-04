@@ -5,6 +5,7 @@ import { AddModal } from "@/components/modals/add-modal"
 import { BudgetModal } from "@/components/modals/budget-modal"
 import { EditNodeModal } from "@/components/modals/edit-node-modal"
 import { MediaPlayer } from "@/components/player/media-player"
+import { EpisodeBoardOverlay } from "@/components/playable/episode-board-overlay"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { useSchemaStore } from "@/stores/schema-store"
@@ -60,6 +61,7 @@ export function AppLayout() {
       <EditNodeModal />
       <BudgetModal />
       <MediaPlayer />
+      <EpisodeBoardOverlay />
     </>
   )
 }
