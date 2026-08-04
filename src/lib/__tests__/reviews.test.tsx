@@ -92,6 +92,7 @@ function makeReview(overrides: Partial<Review> = {}): Review {
 // ── ReviewRow import (after mocks) ────────────────────────────────────────────
 
 import { ReviewRow } from "@/components/admin/review-row"
+import { computeRangeSelection } from "@/lib/review-selection"
 
 describe("ReviewRow", () => {
   const noop = () => {}
@@ -1562,6 +1563,205 @@ describe("eligibleForSelectAll logic", () => {
   })
 })
 
+// ── Shift-click range selection ──────────────────────────────────────────────
+
+describe("computeRangeSelection", () => {
+  const rows = [
+    { ref_id: "r1", action_name: "merge_nodes", status: "pending" as const },
+    { ref_id: "r2", action_name: "merge_nodes", status: "pending" as const },
+    { ref_id: "r3", action_name: "soft_delete", status: "pending" as const },
+    { ref_id: "r4", action_name: "merge_nodes", status: "approved" as const },
+    { ref_id: "r5", action_name: "merge_nodes", status: "pending" as const },
+  ]
+
+  it("selects every compatible row between the anchor and the clicked row", () => {
+    const next = computeRangeSelection(rows, "r1", "r5", true, new Set(["r1"]), null)
+    expect([...next].sort()).toEqual(["r1", "r2", "r5"])
+  })
+
+  it("skips rows of a different action and rows that are not pending", () => {
+    const next = computeRangeSelection(rows, "r1", "r5", true, new Set(), null)
+    expect(next.has("r3")).toBe(false) // different action
+    expect(next.has("r4")).toBe(false) // approved
+  })
+
+  it("works upward when the clicked row is above the anchor", () => {
+    const next = computeRangeSelection(rows, "r5", "r1", true, new Set(["r5"]), null)
+    expect([...next].sort()).toEqual(["r1", "r2", "r5"])
+  })
+
+  it("deselects the range when the clicked checkbox was turned off", () => {
+    const next = computeRangeSelection(
+      rows,
+      "r1",
+      "r5",
+      false,
+      new Set(["r1", "r2", "r5"]),
+      "merge_nodes"
+    )
+    expect(next.size).toBe(0)
+  })
+
+  it("honours the locked action rather than the clicked row's action", () => {
+    // Selection is locked to soft_delete; only r3 in the range qualifies.
+    const next = computeRangeSelection(rows, "r1", "r5", true, new Set(), "soft_delete")
+    expect([...next]).toEqual(["r3"])
+  })
+
+  it("falls back to a single toggle when the anchor is no longer in the list", () => {
+    const next = computeRangeSelection(rows, "gone", "r5", true, new Set(), null)
+    expect([...next]).toEqual(["r5"])
+  })
+
+  it("falls back to a single toggle when there is no anchor yet", () => {
+    const next = computeRangeSelection(rows, null, "r2", true, new Set(), null)
+    expect([...next]).toEqual(["r2"])
+  })
+
+  it("leaves selected rows outside the range untouched", () => {
+    const next = computeRangeSelection(rows, "r1", "r2", true, new Set(["r5"]), null)
+    expect([...next].sort()).toEqual(["r1", "r2", "r5"])
+  })
+
+  it("does not mutate the set it was given", () => {
+    const current = new Set(["r1"])
+    computeRangeSelection(rows, "r1", "r5", true, current, null)
+    expect([...current]).toEqual(["r1"])
+  })
+})
+
+// ── ReviewRow selection checkbox ─────────────────────────────────────────────
+
+describe("ReviewRow selection checkbox", () => {
+  const noop = () => {}
+
+  beforeEach(() => {
+    mockGetLatestStakworkRun.mockReset()
+    mockGetLatestStakworkRun.mockResolvedValue(null)
+  })
+
+  it("reports shiftKey=true when the checkbox is clicked with shift held", async () => {
+    const onSelectChange = vi.fn()
+    const { getByLabelText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview()}
+        onRefresh={noop}
+        selectable
+        onSelectChange={onSelectChange}
+      />
+    )
+    const box = getByLabelText("Select review rv-test-001")
+    fireEvent.click(box, { shiftKey: true })
+    expect(onSelectChange).toHaveBeenCalledWith(true, true)
+  })
+
+  it("reports shiftKey=false for a plain click", async () => {
+    const onSelectChange = vi.fn()
+    const { getByLabelText } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview()}
+        onRefresh={noop}
+        selectable
+        onSelectChange={onSelectChange}
+      />
+    )
+    fireEvent.click(getByLabelText("Select review rv-test-001"))
+    expect(onSelectChange).toHaveBeenCalledWith(true, false)
+  })
+})
+
+// ── Bulk human review dispatch (page → row handshake) ────────────────────────
+
+describe("ReviewRow — bulk human review dispatch", () => {
+  const noop = () => {}
+
+  beforeEach(() => {
+    mockTriggerMergeWorkflow.mockReset()
+    mockGetLatestStakworkRun.mockReset()
+    mockGetLatestStakworkRun.mockResolvedValue(null)
+  })
+
+  function mergeReview(overrides: Partial<Review> = {}): Review {
+    return makeReview({ action_name: "merge_nodes", status: "pending", ...overrides })
+  }
+
+  it("adopts a dispatch token and shows Sent without firing its own request", async () => {
+    const { findByTestId, rerender } = render(
+      <ReviewRow schemas={[]} review={mergeReview()} onRefresh={noop} />
+    )
+    const btn = await findByTestId("send-for-human-review-btn")
+    expect(btn.textContent).toContain("Human Review")
+
+    rerender(
+      <ReviewRow
+        schemas={[]}
+        review={mergeReview()}
+        onRefresh={noop}
+        humanReviewDispatchToken={1}
+      />
+    )
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-testid='send-for-human-review-btn']")?.textContent
+      ).toContain("Sent")
+    })
+    // The page already fired the API for this row — the row must not repeat it.
+    expect(mockTriggerMergeWorkflow).not.toHaveBeenCalled()
+  })
+
+  it("reports its sent state up so the page can skip already-sent rows", async () => {
+    mockGetLatestStakworkRun.mockResolvedValue({ status: "COMPLETED" })
+    const onHumanReviewStateChange = vi.fn()
+    render(
+      <ReviewRow
+        schemas={[]}
+        review={mergeReview()}
+        onRefresh={noop}
+        onHumanReviewStateChange={onHumanReviewStateChange}
+      />
+    )
+    await waitFor(() => {
+      expect(onHumanReviewStateChange).toHaveBeenCalledWith("rv-test-001", true)
+    })
+  })
+
+  it("reports not-sent for a fresh merge row", async () => {
+    const onHumanReviewStateChange = vi.fn()
+    render(
+      <ReviewRow
+        schemas={[]}
+        review={mergeReview()}
+        onRefresh={noop}
+        onHumanReviewStateChange={onHumanReviewStateChange}
+      />
+    )
+    await waitFor(() => {
+      expect(onHumanReviewStateChange).toHaveBeenCalledWith("rv-test-001", false)
+    })
+    expect(
+      onHumanReviewStateChange.mock.calls.some(([, sent]) => sent === true)
+    ).toBe(false)
+  })
+
+  it("does not report state for rows that cannot go to human review", async () => {
+    const onHumanReviewStateChange = vi.fn()
+    render(
+      <ReviewRow
+        schemas={[]}
+        review={mergeReview({ action_name: "soft_delete" })}
+        onRefresh={noop}
+        onHumanReviewStateChange={onHumanReviewStateChange}
+      />
+    )
+    await waitFor(() => {
+      expect(document.querySelector("[data-testid='send-for-human-review-btn']")).toBeNull()
+    })
+    expect(onHumanReviewStateChange).not.toHaveBeenCalled()
+  })
+})
+
 // ── Mock-mode listReviews ────────────────────────────────────────────────────
 
 describe("listReviews mock mode", () => {
@@ -1707,8 +1907,22 @@ describe("Node type filter chip row", () => {
         sel({ schemas: [] }),
     }))
     vi.doMock("@/components/admin/review-row", () => ({
-      ReviewRow: ({ review }: { review: Review }) => (
-        <div data-testid={`review-row-${review.ref_id}`}>{review.rationale}</div>
+      ReviewRow: ({
+        review,
+        onCountRefresh,
+      }: {
+        review: Review
+        onCountRefresh?: () => void
+      }) => (
+        <div data-testid={`review-row-${review.ref_id}`}>
+          {review.rationale}
+          {/* Stands in for the row deciding a review (approve / dismiss). */}
+          <button
+            type="button"
+            data-testid={`row-decide-${review.ref_id}`}
+            onClick={() => onCountRefresh?.()}
+          />
+        </div>
       ),
       getApproveVerb: (action: string) => action,
     }))
@@ -1721,6 +1935,30 @@ describe("Node type filter chip row", () => {
     const { default: ReviewsPage } = await import("@/app/admin/reviews/page")
     return render(<ReviewsPage />)
   }
+
+  it("refetches node type counts after a review is decided", async () => {
+    mockListReviews.mockResolvedValue({
+      reviews: [makeReview()],
+      total: 1,
+      skip: 0,
+      limit: 20,
+    })
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 7, Person: 4 },
+      truncated: false,
+    })
+    const { findByTestId, findByText } = await renderPage()
+    await findByText("7")
+
+    // Deciding a review changes what the chips should say — the row's count
+    // refresh has to pull the new numbers, not just the pending tab badge.
+    mockGetReviewNodeTypeCounts.mockResolvedValue({
+      counts: { Topic: 6, Person: 4 },
+      truncated: false,
+    })
+    fireEvent.click(await findByTestId("row-decide-rv-test-001"))
+    await findByText("6")
+  })
 
   it("does not render filter row when nodeTypeCounts has 0 keys", async () => {
     mockGetReviewNodeTypeCounts.mockResolvedValue({ counts: {}, truncated: false })

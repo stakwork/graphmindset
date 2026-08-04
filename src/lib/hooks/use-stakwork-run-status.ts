@@ -61,6 +61,13 @@ export interface UseStakworkRunStatusResult {
   trigger: (triggerFn: () => Promise<{ stakwork_run_ref_id: string }>) => Promise<void>
   /** Whether a trigger call is currently in flight (loading spinner). */
   triggering: boolean
+  /**
+   * Adopt a run that was dispatched outside this hook (e.g. a bulk action on the
+   * list page fired the API for many rows at once). Moves the status to PENDING
+   * and starts polling, so an externally-triggered run behaves exactly like one
+   * started through `trigger`.
+   */
+  markTriggered: () => void
 }
 
 // ── Status normalizer ────────────────────────────────────────────────────────
@@ -184,11 +191,22 @@ export function useStakworkRunStatus(
     [refId, jobType, status]
   )
 
+  const markTriggered = useCallback(
+    () => {
+      if (isInFlightStatus(status)) return
+      setStatus("PENDING")
+      startPoll(refId)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [refId, jobType, status]
+  )
+
   return {
     status,
     loading,
     isInFlight: isInFlightStatus(status),
     trigger,
     triggering,
+    markTriggered,
   }
 }

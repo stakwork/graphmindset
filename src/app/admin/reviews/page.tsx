@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRightLeft, GitMerge, Layers, Network, Pencil, PlusSquare, Search, Share2, Trash2, X } from "lucide-react"
+import { ArrowLeft, ArrowRightLeft, GitMerge, Layers, Network, Pencil, PlusSquare, Search, Share2, Trash2, Users, X } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { Input } from "@/components/ui/input"
 import type { LucideIcon } from "lucide-react"
 import { useReviewStore } from "@/stores/review-store"
 import { useSchemaStore } from "@/stores/schema-store"
-import { approveReview, dismissReview, listReviews, getReviewNodeTypeCounts } from "@/lib/graph-api"
+import { approveReview, dismissReview, listReviews, getReviewNodeTypeCounts, triggerMergeWorkflow } from "@/lib/graph-api"
 import type { Review, ReviewStatus } from "@/lib/graph-api"
 import { ReviewRow, getApproveVerb } from "@/components/admin/review-row"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { SelectCustom } from "@/components/ui/select-custom"
+import { computeRangeSelection } from "@/lib/review-selection"
 import { cn } from "@/lib/utils"
 
 const STATUS_TABS: { label: string; value: ReviewStatus | "" }[] = [
@@ -83,8 +84,16 @@ export default function ReviewsPage() {
   const debouncedSearch = useDebounce(searchQuery, 300)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [bulkRunning, setBulkRunning] = useState<null | "approve" | "dismiss">(null)
+  const [bulkRunning, setBulkRunning] = useState<null | "approve" | "dismiss" | "human_review">(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
+
+  // Rows whose human review is already sent (reported up by each row), plus the
+  // ids a bulk dispatch just fired and a token the rows use to adopt that run.
+  const [humanReviewSentIds, setHumanReviewSentIds] = useState<Set<string>>(new Set())
+  const [humanReviewDispatch, setHumanReviewDispatch] = useState<{
+    token: number
+    ids: Set<string>
+  }>({ token: 0, ids: new Set() })
 
   const [nodeTypeFilter, setNodeTypeFilter] = useState("")
   const [nodeTypeCounts, setNodeTypeCounts] = useState<Record<string, number>>({})
@@ -92,6 +101,10 @@ export default function ReviewsPage() {
 
   const abortRef = useRef<AbortController | null>(null)
   const nodeTypeCountsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Last row whose checkbox was clicked without shift — the anchor a shift-click
+  // extends from. Held as a ref_id so it survives a refetch and is simply ignored
+  // when the row is no longer in the list.
+  const selectionAnchorRef = useRef<string | null>(null)
 
   const fetchReviews = useCallback(
     async (currentSkip = 0, options?: { silent?: boolean }) => {
@@ -126,7 +139,10 @@ export default function ReviewsPage() {
         setReviews(res.reviews)
         setTotal(res.total)
         setSkip(currentSkip)
-        if (!options?.silent) setSelectedIds(new Set())
+        if (!options?.silent) {
+          setSelectedIds(new Set())
+          selectionAnchorRef.current = null
+        }
       } catch (err: unknown) {
         if ((err as { name?: string })?.name !== "AbortError") {
           setError("Failed to load reviews")
@@ -179,6 +195,13 @@ export default function ReviewsPage() {
     refreshPendingCount()
   }, [refreshPendingCount])
 
+  // Every count on the page — the pending tab badge and the node-type chips —
+  // goes stale the moment a review is decided, so they refresh together.
+  const refreshCounts = useCallback(() => {
+    refreshPendingCount()
+    fetchNodeTypeCounts()
+  }, [refreshPendingCount, fetchNodeTypeCounts])
+
   // ── Selection helpers ──────────────────────────────────────────────────────
 
   const selectableReviews = useMemo(
@@ -209,7 +232,24 @@ export default function ReviewsPage() {
     eligibleForSelectAll.length > 0 &&
     eligibleForSelectAll.every((r) => selectedIds.has(r.ref_id))
 
-  function toggleRow(refId: string, selected: boolean) {
+  function toggleRow(refId: string, selected: boolean, shiftKey: boolean) {
+    if (shiftKey && selectionAnchorRef.current !== null) {
+      // Shift-clicking drags a text selection across the rows it spans; clear it
+      // so the range highlight is the only thing the operator sees.
+      window.getSelection()?.removeAllRanges()
+      setSelectedIds((prev) =>
+        computeRangeSelection(
+          reviews,
+          selectionAnchorRef.current,
+          refId,
+          selected,
+          prev,
+          lockedActionName
+        )
+      )
+      return
+    }
+    selectionAnchorRef.current = refId
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (selected) next.add(refId)
@@ -219,12 +259,43 @@ export default function ReviewsPage() {
   }
 
   function toggleSelectAll() {
+    selectionAnchorRef.current = null
     if (allEligibleSelected) {
       setSelectedIds(new Set())
     } else {
       setSelectedIds(new Set(eligibleForSelectAll.map((r) => r.ref_id)))
     }
   }
+
+  function clearSelection() {
+    selectionAnchorRef.current = null
+    setSelectedIds(new Set())
+  }
+
+  // ── Human review state, reported up by each eligible row ───────────────────
+
+  const handleHumanReviewStateChange = useCallback((refId: string, sent: boolean) => {
+    setHumanReviewSentIds((prev) => {
+      if (prev.has(refId) === sent) return prev
+      const next = new Set(prev)
+      if (sent) next.add(refId)
+      else next.delete(refId)
+      return next
+    })
+  }, [])
+
+  // Only merge_nodes rows can go to human review, and a row that already has a
+  // run must not be dispatched twice.
+  const humanReviewCandidates = useMemo(
+    () =>
+      selectedReviews.filter(
+        (r) =>
+          r.action_name === "merge_nodes" &&
+          r.status === "pending" &&
+          !humanReviewSentIds.has(r.ref_id)
+      ),
+    [selectedReviews, humanReviewSentIds]
+  )
 
   // ── Bulk handlers ──────────────────────────────────────────────────────────
 
@@ -246,8 +317,38 @@ export default function ReviewsPage() {
     await fetchReviews(skip, { silent: true })
     // The silent refetch intentionally skips the selection reset, so clear the
     // now-stale selection here — decided rows have left the pending list.
-    setSelectedIds(new Set())
-    refreshPendingCount()
+    clearSelection()
+    refreshCounts()
+  }
+
+  // Human review dispatches a workflow but leaves the reviews pending, so unlike
+  // approve/dismiss there is nothing to refetch — the rows adopt their new run
+  // through the dispatch token and take over the polling from there.
+  async function runBulkHumanReview() {
+    if (humanReviewCandidates.length === 0) return
+    setBulkRunning("human_review")
+    setBulkError(null)
+    const results = await Promise.allSettled(
+      humanReviewCandidates.map((r) => triggerMergeWorkflow(r.ref_id))
+    )
+    const dispatchedIds = humanReviewCandidates
+      .filter((_, i) => results[i].status === "fulfilled")
+      .map((r) => r.ref_id)
+    const failures = results.length - dispatchedIds.length
+    setBulkRunning(null)
+    if (failures > 0) {
+      setBulkError(`${failures} of ${results.length} human review dispatches failed`)
+    }
+    if (dispatchedIds.length > 0) {
+      setHumanReviewDispatch((prev) => ({
+        token: prev.token + 1,
+        ids: new Set(dispatchedIds),
+      }))
+    }
+    // On a partial failure the selection stays so the error stays on screen and
+    // the button re-offers exactly the rows that did not get through — the ones
+    // that did are already excluded as sent.
+    if (failures === 0) clearSelection()
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
@@ -474,9 +575,29 @@ export default function ReviewsPage() {
                   >
                     {bulkRunning === "dismiss" ? "Dismissing…" : `Dismiss ${selectedIds.size}`}
                   </Button>
+                  {lockedActionName === "merge_nodes" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid="bulk-human-review-btn"
+                      disabled={bulkRunning !== null || humanReviewCandidates.length === 0}
+                      onClick={runBulkHumanReview}
+                      title={
+                        humanReviewCandidates.length === 0
+                          ? "All selected merges have already been sent for human review"
+                          : "Send the selected merges for human review"
+                      }
+                      className="h-7 gap-1 border-sky-500/30 bg-sky-500/5 px-3 text-xs text-sky-400 hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-300"
+                    >
+                      <Users className="h-3 w-3" />
+                      {bulkRunning === "human_review"
+                        ? "Sending…"
+                        : `Human Review ${humanReviewCandidates.length}`}
+                    </Button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setSelectedIds(new Set())}
+                    onClick={clearSelection}
                     className="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                     aria-label="Clear selection"
                   >
@@ -522,10 +643,16 @@ export default function ReviewsPage() {
                     review={review}
                     schemas={schemas}
                     onRefresh={() => fetchReviews(skip, { silent: true })}
-                    onCountRefresh={refreshPendingCount}
+                    onCountRefresh={refreshCounts}
                     selectable={review.status === "pending"}
                     selected={selectedIds.has(review.ref_id)}
-                    onSelectChange={(s) => toggleRow(review.ref_id, s)}
+                    onSelectChange={(s, shiftKey) => toggleRow(review.ref_id, s, shiftKey)}
+                    humanReviewDispatchToken={
+                      humanReviewDispatch.ids.has(review.ref_id)
+                        ? humanReviewDispatch.token
+                        : 0
+                    }
+                    onHumanReviewStateChange={handleHumanReviewStateChange}
                     selectionLocked={locked}
                     selectionLockedReason={
                       locked

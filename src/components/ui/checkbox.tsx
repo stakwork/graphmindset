@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils"
 
 interface CheckboxProps {
   checked: boolean
-  onChange: (checked: boolean) => void
+  /** The change event is forwarded so callers can read modifier keys (shift-range select). */
+  onChange: (checked: boolean, event: React.ChangeEvent<HTMLInputElement>) => void
   indeterminate?: boolean
   disabled?: boolean
   ariaLabel?: string
@@ -45,7 +46,7 @@ export function Checkbox({
         checked={checked}
         disabled={disabled}
         onClick={onClick}
-        onChange={(e) => onChange(e.target.checked)}
+        onChange={(e) => onChange(e.target.checked, e)}
         aria-label={ariaLabel}
         className="absolute inset-0 z-10 m-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
       />
