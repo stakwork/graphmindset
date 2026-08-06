@@ -1,6 +1,6 @@
 import type { RadarSourceType, JanitorSourceType } from "@/lib/graph-api"
 import type { LucideIcon } from "lucide-react"
-import { AtSign, Video, Rss, Hash, Sparkles, Layers, ShieldCheck } from "lucide-react"
+import { AtSign, Video, Rss, Hash, Sparkles, Layers, ShieldCheck, FileQuestion } from "lucide-react"
 
 export interface WorkflowTypeMeta {
   icon: LucideIcon
@@ -16,7 +16,8 @@ export const WORKFLOW_TYPE_META: Record<RadarSourceType | JanitorSourceType, Wor
   deduplication:   { icon: Layers,      label: "Deduplication",   tone: "violet"  },
   content_review:  { icon: ShieldCheck, label: "Content Review",  tone: "emerald" },
   topic_review:    { icon: Sparkles,    label: "Topic Review",    tone: "fuchsia" },
-  orphan_node:     { icon: Layers,      label: "Orphan Node",     tone: "slate"   },
+  orphan_node:       { icon: Layers,       label: "Orphan Node",       tone: "slate" },
+  scratchpad_review: { icon: FileQuestion, label: "Scratchpad Review", tone: "teal"  },
 }
 
 // Static tone → Tailwind class mapping to avoid Tailwind purge issues
@@ -29,6 +30,7 @@ export const TONE_CLASSES: Record<string, string> = {
   emerald: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   fuchsia: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20",
   slate:   "bg-slate-500/10 text-slate-400 border-slate-500/20",
+  teal:    "bg-teal-500/10 text-teal-400 border-teal-500/20",
 }
 
 // Returns item.label if set, otherwise the human-friendly label from meta

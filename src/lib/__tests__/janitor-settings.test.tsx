@@ -358,4 +358,40 @@ describe("JanitorSettings", () => {
 
     expect(await screen.findByText("Orphan node cleanup")).toBeInTheDocument()
   })
+
+  it("renders scratchpad_review label from config.label", async () => {
+    const { getCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [
+        { ...mockJanitorConfig, ref_id: "rc-scratchpad-review", source_type: "scratchpad_review" as const, label: "Scratchpad review" },
+      ],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+
+    render(<JanitorSettings open={true} />)
+
+    expect(await screen.findByText("Scratchpad review")).toBeInTheDocument()
+  })
+
+  it("renders all five janitor types including scratchpad_review", async () => {
+    const { getCronConfig, getCronRuns } = await import("@/lib/graph-api")
+    vi.mocked(getCronConfig).mockResolvedValue({
+      configs: [
+        { ...mockJanitorConfig, source_type: "deduplication", label: "Deduplication" },
+        { ...mockJanitorConfig, ref_id: "rc-content-review", source_type: "content_review" as const, label: "Content review" },
+        { ...mockJanitorConfig, ref_id: "rc-topic-review", source_type: "topic_review" as const, label: "Topic review" },
+        { ...mockJanitorConfig, ref_id: "rc-orphan-node", source_type: "orphan_node" as const, label: "Orphan node cleanup" },
+        { ...mockJanitorConfig, ref_id: "rc-scratchpad-review", source_type: "scratchpad_review" as const, label: "Scratchpad review" },
+      ],
+    })
+    vi.mocked(getCronRuns).mockResolvedValue({ runs: [] })
+
+    render(<JanitorSettings open={true} />)
+
+    expect(await screen.findByText("Deduplication")).toBeInTheDocument()
+    expect(await screen.findByText("Content review")).toBeInTheDocument()
+    expect(await screen.findByText("Topic review")).toBeInTheDocument()
+    expect(await screen.findByText("Orphan node cleanup")).toBeInTheDocument()
+    expect(await screen.findByText("Scratchpad review")).toBeInTheDocument()
+  })
 })

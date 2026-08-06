@@ -778,6 +778,7 @@ export const MOCK_CRON_CONFIGS = [
   { ...baseCronConfig, ref_id: "rc-content-review", source_type: "content_review" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Content review" },
   { ...baseCronConfig, ref_id: "rc-topic-review", source_type: "topic_review" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Topic review" },
   { ...baseCronConfig, ref_id: "rc-orphan-node", source_type: "orphan_node" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Orphan node cleanup" },
+  { ...baseCronConfig, ref_id: "rc-scratchpad-review", source_type: "scratchpad_review" as const, kind: "janitor" as const, enabled: false, cadence: "0 * * * *", label: "Scratchpad review" },
 ]
 
 /** @deprecated Use MOCK_CRON_CONFIGS */
@@ -1357,5 +1358,51 @@ export const MOCK_REVIEWS: Review[] = [
     action_verb: "Register",
     icon: "network",
     created_at: new Date(Date.now()).toISOString(),
+  },
+  {
+    ref_id: "mock-scratchpad-entry-1",
+    type: "scratchpad_entry",
+    status: "pending",
+    priority: 1,
+    rationale: "Ingested node with intended_type 'LegalContract' was rejected: no matching schema type exists. rejection_reason: unknown_type. rejection_detail: Type 'LegalContract' is not registered in the current ontology. Confidence: High.",
+    subject_ids: ["scratchpad-node-ref-001"],
+    subject_nodes: [
+      {
+        ref_id: "scratchpad-node-ref-001",
+        node_type: "ScratchpadEntry",
+        properties: { name: "LegalContract (scratchpad)", intended_type: "LegalContract" },
+      },
+    ],
+    action_name: "add_schema_node_type",
+    action_payload: { type: "LegalContract", parent: "Thing" },
+    fingerprint: "fp-mock-scratchpad-entry-1",
+    display_label: "Scratchpad Entry",
+    accent: "yellow",
+    action_verb: "Create",
+    icon: "file-question",
+    created_at: new Date(Date.now() - 3_600_000).toISOString(),
+  },
+  {
+    ref_id: "mock-scratchpad-entry-2",
+    type: "scratchpad_entry",
+    status: "pending",
+    priority: 0,
+    rationale: "Ingested node with intended_type 'ResearchInstitution' was rejected: no matching schema type exists. rejection_reason: unknown_type. rejection_detail: Type 'ResearchInstitution' is not registered in the current ontology. Confidence: Medium.",
+    subject_ids: ["scratchpad-node-ref-002"],
+    subject_nodes: [
+      {
+        ref_id: "scratchpad-node-ref-002",
+        node_type: "ScratchpadEntry",
+        properties: { name: "ResearchInstitution (scratchpad)", intended_type: "ResearchInstitution" },
+      },
+    ],
+    action_name: "add_schema_node_type",
+    action_payload: { type: "ResearchInstitution", parent: "Thing" },
+    fingerprint: "fp-mock-scratchpad-entry-2",
+    display_label: "Scratchpad Entry",
+    accent: "yellow",
+    action_verb: "Create",
+    icon: "file-question",
+    created_at: new Date(Date.now() - 7_200_000).toISOString(),
   },
 ]
