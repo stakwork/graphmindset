@@ -399,10 +399,10 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // soft_delete action uses rowLabel: "Hide [displayName]" — the subject node
-    // has name "Mock Episode", so the row label becomes "Hide Mock Episode".
+    // soft_delete rowLabel renders just the subject displayName (no verb prefix).
+    // The "Hide" verb appears only on the approve button, not in the row label.
     expect(container.querySelector("svg")).toBeTruthy()
-    expect(getByText(/Hide Mock Episode/)).toBeTruthy()
+    expect(getByText("Mock Episode")).toBeTruthy()
   })
 
   // ── add_source / new_source_candidate ─────────────────────────────────────
@@ -560,10 +560,10 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // soft_delete action uses rowLabel: "Hide [displayName]" — the subject node
-    // has name "Orphaned Topic", so the row label becomes "Hide Orphaned Topic".
+    // soft_delete rowLabel renders just the subject displayName (no verb prefix).
+    // The "Hide" verb appears only on the approve button, not in the row label.
     expect(container.querySelector("svg")).toBeTruthy()
-    expect(getByText(/Hide Orphaned Topic/)).toBeTruthy()
+    expect(getByText("Orphaned Topic")).toBeTruthy()
   })
 
   // ── add_node ─────────────────────────────────────────────────────────────
@@ -681,8 +681,8 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // Compact row shows rowLabel "Add new edge" (not display_label) when subject_nodes is non-empty
-    await user.click(getByText("Add new edge"))
+    // Compact row shows rowLabel "New edge" (not display_label) when subject_nodes is non-empty
+    await user.click(getByText("New edge"))
     expect(getByText("Proposed Edge")).toBeTruthy()
     expect(getByText("AUTHORED_BY")).toBeTruthy()
   })
@@ -752,8 +752,8 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    // Compact row uses rowLabel: "Edit Bitcoin Explained (Clip)" from subject node name
-    await user.click(getByText(/Edit Bitcoin Explained/))
+    // Compact row uses rowLabel from subject node name (no verb prefix)
+    await user.click(getByText("Bitcoin Explained (Clip)"))
     expect(getByText("Type Change")).toBeTruthy()
     expect(getByText("Clip")).toBeTruthy()
     expect(getByText("Episode")).toBeTruthy()
@@ -774,7 +774,8 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    await user.click(getByText("Edit Some Clip"))
+    // edit_node rowLabel renders just the subject displayName (no verb prefix)
+    await user.click(getByText("Some Clip"))
     expect(getByText("Node Being Edited")).toBeTruthy()
   })
 
@@ -800,7 +801,8 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    await user.click(getByText("Edit Alice"))
+    // edit_node rowLabel renders just the subject displayName (no verb prefix)
+    await user.click(getByText("Alice"))
     const img = container.querySelector("img[alt='image preview']") as HTMLImageElement
     expect(img).toBeTruthy()
     expect(img.src).toBe(imgUrl)
@@ -825,7 +827,8 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    await user.click(getByText("Edit Bob"))
+    // edit_node rowLabel renders just the subject displayName (no verb prefix)
+    await user.click(getByText("Bob"))
     expect(getByText("Bob Updated")).toBeTruthy()
   })
 
@@ -849,7 +852,8 @@ describe("ReviewRow", () => {
         onRefresh={noop}
       />
     )
-    await user.click(getByText("Edit Charlie"))
+    // edit_node rowLabel renders just the subject displayName (no verb prefix)
+    await user.click(getByText("Charlie"))
     // Trigger the error handler
     const img = container.querySelector("img[alt='image preview']") as HTMLImageElement
     expect(img).toBeTruthy()
