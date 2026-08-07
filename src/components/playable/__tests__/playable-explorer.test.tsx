@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, beforeEach } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import { PlayableExplorer } from "../playable-explorer"
 import {
@@ -7,10 +7,14 @@ import {
   getClaimRelations,
   getChapterMentions,
   getTypeCounts,
-  setPlayableData,
-  resetPlayableData,
-} from "@/lib/playable-mock"
+  setBoardData,
+} from "@/lib/board-dataset"
 import { computeBoardLayout } from "../board-layout"
+import { loadFixture } from "./fixture"
+
+beforeEach(() => {
+  loadFixture()
+})
 
 describe("PlayableExplorer (board view)", () => {
   it("lays out the full board: episode, chapters, clips and proximity entities", () => {
@@ -68,11 +72,10 @@ describe("PlayableExplorer (board view)", () => {
     expect(screen.queryByText("Source")).not.toBeInTheDocument()
   })
 
-  // Runs last: mutates the module dataset, then restores the fixture.
-  it("swaps the active dataset and restores the fixture", () => {
+  it("swaps the active dataset and can restore the fixture", () => {
     const fixtureChapterCount = getChapters().length
     try {
-      setPlayableData(
+      setBoardData(
         [{ ref_id: "ep-x", node_type: "Episode", properties: { episode_title: "X" } }],
         [],
         "ep-x"
@@ -80,7 +83,7 @@ describe("PlayableExplorer (board view)", () => {
       expect(getChapters()).toHaveLength(0)
       expect(getTypeCounts()).toEqual([["Episode", 1]])
     } finally {
-      resetPlayableData()
+      loadFixture()
     }
     expect(getChapters()).toHaveLength(fixtureChapterCount)
   })

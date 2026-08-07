@@ -9,8 +9,8 @@ import {
   getChapterMentions,
   parseTimestampMs,
   type ChapterInfo,
-  type PlayableNode,
-} from "@/lib/playable-mock"
+  type BoardNode,
+} from "@/lib/board-dataset"
 
 /**
  * Proximity-based "Miro board" layout for the playable explorer.
@@ -34,12 +34,12 @@ export interface CardPlacement {
 export interface BoardLayout {
   episode: CardPlacement | null
   show: CardPlacement | null
-  clips: { node: PlayableNode; card: CardPlacement; ms: number | null }[]
+  clips: { node: BoardNode; card: CardPlacement; ms: number | null }[]
   chapters: { info: ChapterInfo; card: CardPlacement }[]
-  /** Claim chips stacked under their parent chapter card. */
-  claims: { node: PlayableNode; card: CardPlacement; chapterId: string }[]
+  /** Claim cards stacked under their parent chapter card. */
+  claims: { node: BoardNode; card: CardPlacement; chapterId: string }[]
   /** Entity chips anchored above the chapters that mention them. */
-  entities: { node: PlayableNode; card: CardPlacement }[]
+  entities: { node: BoardNode; card: CardPlacement }[]
   hostId: string | null
   /** World bounds for fit-to-view. */
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
@@ -49,37 +49,68 @@ export interface BoardLayout {
 
 const EPISODE_W = 340
 const EPISODE_H = 190
+/** Extra height the episode card gets at detail zoom (media summary fits). */
+const EPISODE_DETAIL_GROW = 70
 const SHOW_W = 190
 const SHOW_H = 64
 const CLIP_W = 236
 const CLIP_H = 82
+/** Extra height clips with media get at detail zoom (video preview fits). */
+const CLIP_DETAIL_GROW = 60
 const CLIP_GAP = 32
 const CLIP_Y = -430
 const CHAPTER_W = 196
 const CHAPTER_H = 96
 const CHAPTER_GAP = 22
-const CLAIM_W = CHAPTER_W - 16
-const CLAIM_X_INSET = 8
-const CLAIM_H = 30
+const CLAIM_W = CHAPTER_W - 12
+const CLAIM_X_INSET = 6
+/** Claims are two-line cards (claim text + speaker/relation row), not chips. */
+const CLAIM_H = 58
+/** Extra height a claim card gets at detail zoom when it carries a
+ *  triplicate (subject–predicate–object) worth showing on the card. */
+const CLAIM_DETAIL_GROW = 46
+
+function hasTriplicate(node: BoardNode): boolean {
+  const p = node.properties
+  return (
+    typeof p.triplicate_subject === "string" &&
+    p.triplicate_subject.length > 0 &&
+    typeof p.triplicate_predicate === "string" &&
+    p.triplicate_predicate.length > 0 &&
+    typeof p.triplicate_object === "string" &&
+    p.triplicate_object.length > 0
+  )
+}
 const CLAIM_GAP = 8
 const CLAIM_TOP_GAP = 14
 
 const CHIP_W = 150
 const CHIP_H = 32
 const CHIP_GAP = 10
-const ENTITY_BAND_TOP = 96
+const BAND_GAP = 31 // space between the episode card bottom and the entity band
 const ENTITY_ROW_PITCH = 44
 const ENTITY_MAX_ROWS = 6
 const BUS_GAP = 46 // space between the entity band and the chapter bus
 
-export function computeBoardLayout(): BoardLayout {
+function hasMedia(node: BoardNode): boolean {
+  return typeof node.properties.media_url === "string" && node.properties.media_url.length > 0
+}
+
+/**
+ * `detail` mirrors the board's semantic zoom: at detail level the episode and
+ * media-bearing clip cards are taller, and every row below them (entity band,
+ * chapter bus, strip, claims) shifts down accordingly — positions always
+ * derive from actual card heights, so cards can never overlap.
+ */
+export function computeBoardLayout(detail = false): BoardLayout {
+  const episodeH = detail ? EPISODE_H + EPISODE_DETAIL_GROW : EPISODE_H
   const episode: CardPlacement | null = episodeNode
     ? {
         id: episodeNode.ref_id,
         x: -EPISODE_W / 2,
         y: -EPISODE_H / 2 - 30,
         w: EPISODE_W,
-        h: EPISODE_H,
+        h: episodeH,
       }
     : null
 
@@ -96,7 +127,7 @@ export function computeBoardLayout(): BoardLayout {
       x: -clipsTotal / 2 + i * (CLIP_W + CLIP_GAP),
       y: CLIP_Y,
       w: CLIP_W,
-      h: CLIP_H,
+      h: detail && hasMedia(node) ? CLIP_H + CLIP_DETAIL_GROW : CLIP_H,
     },
     ms: parseTimestampMs(node.properties.timestamp),
   }))
@@ -135,6 +166,10 @@ export function computeBoardLayout(): BoardLayout {
     })
     .sort((a, b) => a.anchor - b.anchor)
 
+  // The band hangs below the episode card — its top derives from the card's
+  // actual (possibly detail-grown) bottom, so the two never collide.
+  const entityBandTop = episode ? episode.y + episode.h + BAND_GAP : 96
+
   // ─── Greedy row packing: first row where the chip doesn't overlap ──────
   const rows: { x: number }[][] = []
   const fits = (row: { x: number }[], x: number) =>
@@ -155,18 +190,18 @@ export function computeBoardLayout(): BoardLayout {
       rows[rowIdx].push({ x: fx })
       entities.push({
         node,
-        card: { id: node.ref_id, x: fx, y: ENTITY_BAND_TOP + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
+        card: { id: node.ref_id, x: fx, y: entityBandTop + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
       })
       continue
     }
     rows[rowIdx].push({ x })
     entities.push({
       node,
-      card: { id: node.ref_id, x, y: ENTITY_BAND_TOP + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
+      card: { id: node.ref_id, x, y: entityBandTop + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
     })
   }
 
-  const bandBottom = ENTITY_BAND_TOP + Math.max(rows.length, 1) * ENTITY_ROW_PITCH
+  const bandBottom = entityBandTop + Math.max(rows.length, 1) * ENTITY_ROW_PITCH
   const busY = bandBottom + BUS_GAP
   const chapterY = busY + 40
 
@@ -182,23 +217,22 @@ export function computeBoardLayout(): BoardLayout {
   }))
 
   // Claims stack under their parent chapter card, inset from the card's width.
+  // Heights vary (detail zoom grows triplicate-bearing cards), so stack with a
+  // running Y instead of a fixed pitch.
   const claimsByChapter = getClaimsByChapter()
   const claims: BoardLayout["claims"] = []
   for (const { card } of chapters) {
     const chapterClaims = claimsByChapter.get(card.id) ?? []
-    chapterClaims.forEach((node, i) => {
+    let claimY = card.y + card.h + CLAIM_TOP_GAP
+    for (const node of chapterClaims) {
+      const h = detail && hasTriplicate(node) ? CLAIM_H + CLAIM_DETAIL_GROW : CLAIM_H
       claims.push({
         node,
         chapterId: card.id,
-        card: {
-          id: node.ref_id,
-          x: card.x + CLAIM_X_INSET,
-          y: card.y + card.h + CLAIM_TOP_GAP + i * (CLAIM_H + CLAIM_GAP),
-          w: CLAIM_W,
-          h: CLAIM_H,
-        },
+        card: { id: node.ref_id, x: card.x + CLAIM_X_INSET, y: claimY, w: CLAIM_W, h },
       })
-    })
+      claimY += h + CLAIM_GAP
+    }
   }
 
   const hostId = getHost()?.ref_id ?? null

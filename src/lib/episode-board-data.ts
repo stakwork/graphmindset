@@ -1,5 +1,5 @@
 import { getNode, type GraphEdge, type GraphNode } from "./graph-api"
-import type { PlayableEdge, PlayableNode } from "./playable-mock"
+import type { BoardEdge, BoardNode } from "./board-dataset"
 
 /**
  * Pulls everything the episode board needs from the live backend:
@@ -8,7 +8,7 @@ import type { PlayableEdge, PlayableNode } from "./playable-mock"
  * claim↔claim / authorship edges sit inside that neighbourhood set).
  */
 
-function toPlayableNode(n: GraphNode): PlayableNode {
+function toBoardNode(n: GraphNode): BoardNode {
   return { ref_id: n.ref_id, node_type: n.node_type, properties: n.properties ?? {} }
 }
 
@@ -16,25 +16,25 @@ function edgeKey(e: GraphEdge): string {
   return e.ref_id ?? `${e.source}|${e.edge_type}|${e.target}`
 }
 
-function toPlayableEdge(e: GraphEdge): PlayableEdge {
+function toBoardEdge(e: GraphEdge): BoardEdge {
   return {
     ref_id: edgeKey(e),
     edge_type: e.edge_type,
     source: e.source,
     target: e.target,
-    properties: (e.properties ?? {}) as PlayableEdge["properties"],
+    properties: (e.properties ?? {}) as BoardEdge["properties"],
   }
 }
 
 export async function fetchEpisodeBoardData(
   episodeRefId: string,
   signal?: AbortSignal
-): Promise<{ nodes: PlayableNode[]; edges: PlayableEdge[] }> {
-  const nodes = new Map<string, PlayableNode>()
-  const edges = new Map<string, PlayableEdge>()
+): Promise<{ nodes: BoardNode[]; edges: BoardEdge[] }> {
+  const nodes = new Map<string, BoardNode>()
+  const edges = new Map<string, BoardEdge>()
   const merge = (g: { nodes: GraphNode[]; edges: GraphEdge[] }) => {
-    for (const n of g.nodes) nodes.set(n.ref_id, toPlayableNode(n))
-    for (const e of g.edges) edges.set(edgeKey(e), toPlayableEdge(e))
+    for (const n of g.nodes) nodes.set(n.ref_id, toBoardNode(n))
+    for (const e of g.edges) edges.set(edgeKey(e), toBoardEdge(e))
   }
 
   const firstHop = await getNode(episodeRefId, "edges", signal)

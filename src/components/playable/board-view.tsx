@@ -13,8 +13,8 @@ import {
   getClaimRelations,
   getChapterMentions,
   getChapters,
-  playableEdges,
-} from "@/lib/playable-mock"
+  boardEdges,
+} from "@/lib/board-dataset"
 import {
   computeBoardLayout,
   center,
@@ -102,8 +102,12 @@ export function BoardView({
 
   const layout = useMemo(() => {
     void dataVersion // layout reads the module dataset, swapped by the explorer
-    return computeBoardLayout()
-  }, [dataVersion])
+    return computeBoardLayout(level === 2)
+  }, [dataVersion, level])
+  // The zoom/fit effect must fit on data swap, NOT on level-driven relayout
+  // (zooming past the detail threshold would otherwise bounce the view back).
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
   const claimCountByChapter = useMemo(() => {
     const m = new Map<string, number>()
     for (const c of layout.claims) m.set(c.chapterId, (m.get(c.chapterId) ?? 0) + 1)
@@ -117,6 +121,25 @@ export function BoardView({
     void dataVersion
     return getClaimRelations()
   }, [dataVersion])
+  /** Supports/contradicts involvement per claim — shown as ▲/▼ badges on the
+   *  claim cards so the relation web is visible without hovering. */
+  const claimRelCounts = useMemo(() => {
+    const m = new Map<string, { sup: number; con: number }>()
+    const bump = (id: string, key: "sup" | "con") => {
+      const r = m.get(id) ?? { sup: 0, con: 0 }
+      r[key]++
+      m.set(id, r)
+    }
+    for (const e of claimRelations.supports) {
+      bump(e.source, "sup")
+      bump(e.target, "sup")
+    }
+    for (const e of claimRelations.contradicts) {
+      bump(e.source, "con")
+      bump(e.target, "con")
+    }
+    return m
+  }, [claimRelations])
   const chapterMentions = useMemo(() => {
     void dataVersion
     return getChapterMentions()
@@ -143,12 +166,12 @@ export function BoardView({
   const focusSet = useMemo(() => {
     if (!activeId) return null
     const set = new Set<string>([activeId])
-    for (const e of playableEdges) {
+    for (const e of boardEdges) {
       if (e.source === activeId) set.add(e.target)
       if (e.target === activeId) set.add(e.source)
     }
     return set
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- playableEdges is a swapped module binding
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boardEdges is a swapped module binding
   }, [activeId, dataVersion])
   const dimmed = (id: string) => (focusSet ? !focusSet.has(id) : false)
 
@@ -174,7 +197,7 @@ export function BoardView({
 
     const vw = el.clientWidth
     const vh = el.clientHeight
-    const { bounds } = layout
+    const { bounds } = layoutRef.current
     const bw = bounds.maxX - bounds.minX
     const bh = bounds.maxY - bounds.minY
     const k = Math.min(vw / bw, vh / bh) * 0.94
@@ -189,7 +212,7 @@ export function BoardView({
       reset: () => sel.transition().duration(300).call(zoom.transform, fit),
     })
     return () => registerZoomApi(null)
-  }, [layout, registerZoomApi])
+  }, [dataVersion, registerZoomApi])
 
   const episode = layout.episode
   const episodeCenter = episode ? center(episode) : { x: 0, y: 0 }
@@ -459,10 +482,7 @@ export function BoardView({
         {/* ─── Episode card ─── */}
         {episode && episodeNode && (
           <BoardCard
-            // At detail zoom the card grows downward (free space below) to fit
-            // the summary; layout/edge anchors keep the base height, and since
-            // edges render behind cards they visually emerge from the new edge.
-            card={level === 2 ? { ...episode, h: episode.h + 70 } : episode}
+            card={episode}
             type="Episode"
             {...cardState(episode.id)}
             glow
@@ -470,8 +490,11 @@ export function BoardView({
             onHover={onHover}
           >
             {mediaUrlOf(episodeNode) && (
-              <div className="relative -ml-3.5 -mr-2.5 -mt-2.5 mb-2 h-[74px] overflow-hidden rounded-t-lg">
-                <video
+              <div
+                className={`relative -ml-3.5 -mr-2.5 -mt-2.5 mb-2 overflow-hidden rounded-t-lg ${
+                  level === 2 ? "h-24" : "h-[74px]"
+                }`}
+              >                <video
                   src={mediaUrlOf(episodeNode)!}
                   muted
                   playsInline
@@ -520,14 +543,10 @@ export function BoardView({
         {/* ─── Clip cards ─── */}
         {layout.clips.map(({ node, card, ms }) => {
           const media = mediaUrlOf(node)
-          // At detail zoom the card grows downward (free space under the clip
-          // row) to fit a video preview. Layout/edge anchors keep the base
-          // height — only the visual card extends.
-          const visualCard = level === 2 && media ? { ...card, h: card.h + 60 } : card
           return (
             <BoardCard
               key={card.id}
-              card={visualCard}
+              card={card}
               type="Clip"
               {...cardState(card.id)}
               onSelect={select}
@@ -583,21 +602,37 @@ export function BoardView({
           </BoardCard>
         ))}
 
-        {/* ─── Claim chips (under their chapter) ─── */}
+        {/* ─── Claim cards (under their chapter) ─── */}
         {level >= 1 &&
           layout.claims.map(({ node, card }) => {
             const st = cardState(card.id)
+            const p = node.properties
+            const text =
+              (typeof p.claim_text === "string" && p.claim_text) || nodeLabel(node)
+            const speaker =
+              typeof p.speaker_name === "string" && p.speaker_name ? p.speaker_name : null
+            const tri =
+              level === 2 &&
+              typeof p.triplicate_subject === "string" &&
+              p.triplicate_subject &&
+              typeof p.triplicate_predicate === "string" &&
+              p.triplicate_predicate &&
+              typeof p.triplicate_object === "string" &&
+              p.triplicate_object
+                ? { s: p.triplicate_subject, pr: p.triplicate_predicate, o: p.triplicate_object }
+                : null
+            const rel = claimRelCounts.get(card.id) ?? { sup: 0, con: 0 }
             return (
               <button
                 key={card.id}
-                className={`absolute flex items-center gap-1.5 rounded-md border px-2 text-left font-mono text-[9px] backdrop-blur-md transition-all duration-200 ${
+                className={`absolute flex gap-2 rounded-lg border px-2 py-1.5 text-left backdrop-blur-md transition-all duration-200 ${
                   st.selected
                     ? "border-[#ffd166] bg-[#ffd166]/15 text-card-foreground"
                     : st.active
                       ? "border-[#ffd166]/70 bg-[oklch(0.28_0.03_260)] text-card-foreground"
                       : st.halo
                         ? "border-[#ffd166]/60 bg-[oklch(0.24_0.03_80)] text-card-foreground shadow-[0_0_14px_oklch(0.8_0.15_90/0.3)]"
-                        : "border-[#ffd166]/25 bg-[#ffd166]/[0.07] text-foreground/80 hover:border-[#ffd166]/60 hover:text-card-foreground"
+                        : "border-[#ffd166]/25 bg-gradient-to-b from-[#ffd166]/[0.09] to-[#ffd166]/[0.03] text-foreground/85 hover:border-[#ffd166]/60 hover:text-card-foreground"
                 }`}
                 style={{ left: card.x, top: card.y, width: card.w, height: card.h, opacity: st.dim ? 0.2 : 1 }}
                 onClick={(e) => {
@@ -607,8 +642,34 @@ export function BoardView({
                 onMouseEnter={() => onHover(card.id)}
                 onMouseLeave={() => onHover(null)}
               >
-                <span className="h-3 w-[2px] shrink-0 rounded-full bg-[#ffd166]/80" />
-                <span className="truncate">{truncateLabel(nodeLabel(node), 26)}</span>
+                <span className="w-[2px] shrink-0 self-stretch rounded-full bg-[#ffd166]/80" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="line-clamp-2 text-[10px] leading-snug">{text}</span>
+                  {tri && (
+                    <span className="mt-1 line-clamp-3 rounded border border-[#ffd166]/15 bg-black/30 px-1.5 py-1 font-mono text-[8px] leading-snug text-foreground/60">
+                      <span className="text-foreground/85">{tri.s}</span>
+                      <span className="text-[#ffd166]/80"> {tri.pr} </span>
+                      <span className="text-foreground/85">{tri.o}</span>
+                    </span>
+                  )}
+                  <span className="mt-auto flex items-center gap-2 pt-0.5 font-mono text-[8px]">
+                    {speaker ? (
+                      <span className="min-w-0 flex-1 truncate text-[#ffd166]/70">— {speaker}</span>
+                    ) : (
+                      <span className="flex-1" />
+                    )}
+                    {rel.sup > 0 && (
+                      <span className="shrink-0" style={{ color: SUPPORTS_COLOR }}>
+                        ▲{rel.sup}
+                      </span>
+                    )}
+                    {rel.con > 0 && (
+                      <span className="shrink-0" style={{ color: CONTRADICTS_COLOR }}>
+                        ▼{rel.con}
+                      </span>
+                    )}
+                  </span>
+                </span>
               </button>
             )
           })}

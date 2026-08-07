@@ -2,7 +2,6 @@
 
 import { Network, Loader2 } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
-import { useBoardStore } from "@/stores/board-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { GraphCanvas } from "./graph-canvas"
@@ -41,8 +40,6 @@ export function GraphPane() {
   // not bump dataVersion — the current view is kept, not reset.
   function onSelect(node: GraphNode) {
     setSelectedNode(node)
-    // Episodes open the 2D board overlay with their full chapter/claim graph.
-    if (node.node_type === "Episode") useBoardStore.getState().openBoard(node.ref_id)
   }
 
   function openPanel(toggle: () => void) {

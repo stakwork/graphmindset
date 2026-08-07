@@ -10,19 +10,19 @@ import {
   getChapters,
   formatMs,
   parseTimestampMs,
-  playableNodes,
-  playableEdges,
+  boardNodes,
+  boardEdges,
   getTypeCounts,
-  setPlayableData,
-  resetPlayableData,
-  type PlayableNode,
-} from "@/lib/playable-mock"
+  setBoardData,
+  resetBoardData,
+  type BoardNode,
+} from "@/lib/board-dataset"
 import { fetchEpisodeBoardData } from "@/lib/episode-board-data"
 import { BoardView } from "./board-view"
 import type { ZoomApi } from "./view-types"
 
 interface PlayableExplorerProps {
-  /** Live mode: pull this episode's graph from the backend. Omit for fixture. */
+  /** Pull this episode's graph from the backend. Omit only in tests (dataset preloaded). */
   episodeRefId?: string
   /** Overlay mode: called on Escape-with-nothing-selected and the close button. */
   onClose?: () => void
@@ -45,7 +45,7 @@ export function PlayableExplorer({ episodeRefId, onClose }: PlayableExplorerProp
   }, [])
 
   // Dataset switch, handled during render (React's adjust-state pattern):
-  // changing episodes resets selection/status; fixture mode restores the mock.
+  // changing episodes resets selection/status; no episode clears the dataset.
   const [prevEpisodeRef, setPrevEpisodeRef] = useState(episodeRefId)
   if (prevEpisodeRef !== episodeRefId) {
     setPrevEpisodeRef(episodeRefId)
@@ -54,20 +54,20 @@ export function PlayableExplorer({ episodeRefId, onClose }: PlayableExplorerProp
       setStatus("loading")
       setError(null)
     } else {
-      resetPlayableData()
+      resetBoardData()
       setDataVersion((v) => v + 1)
       setStatus("ready")
     }
   }
 
-  // Live pull for overlay mode (fixture mode needs no fetch).
+  // Live pull for overlay mode (tests preload the dataset, no fetch needed).
   useEffect(() => {
     if (!episodeRefId) return
     let cancelled = false
     fetchEpisodeBoardData(episodeRefId)
       .then(({ nodes, edges }) => {
         if (cancelled) return
-        setPlayableData(nodes, edges, episodeRefId)
+        setBoardData(nodes, edges, episodeRefId)
         setDataVersion((v) => v + 1)
         setStatus("ready")
       })
@@ -149,10 +149,10 @@ export function PlayableExplorer({ episodeRefId, onClose }: PlayableExplorerProp
       {/* HUD header */}
       <div className="absolute top-4 left-5 z-20 pointer-events-none">
         <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-          {episodeRefId ? "Episode board · live" : "Playable graph · mock"}
+          {episodeRefId ? "Episode board · live" : "Episode board"}
         </div>
         <div className="mt-1 font-mono text-[9px] tracking-[0.18em] uppercase text-muted-foreground/60">
-          {playableNodes.length} nodes · {playableEdges.length} edges
+          {boardNodes.length} nodes · {boardEdges.length} edges
         </div>
       </div>
 
@@ -216,12 +216,12 @@ export function PlayableExplorer({ episodeRefId, onClose }: PlayableExplorerProp
   )
 }
 
-function prop(node: PlayableNode, key: string): string | null {
+function prop(node: BoardNode, key: string): string | null {
   const v = node.properties?.[key]
   return typeof v === "string" && v.length > 0 ? v : null
 }
 
-function DetailPanel({ node, onClose }: { node: PlayableNode; onClose: () => void }) {
+function DetailPanel({ node, onClose }: { node: BoardNode; onClose: () => void }) {
   const chapter = useMemo(
     () => getChapters().find((c) => c.node.ref_id === node.ref_id),
     [node.ref_id]
