@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal, Search } from "lucide-react"
+import { ArrowLeft, Link, Zap, Loader2, Play, Film, ExternalLink, Heart, Repeat2, ChevronDown, ChevronUp, MessageCircle, Quote, Eye, BadgeCheck, AtSign, HeartOff, X, Pencil, FlaskConical, GitMerge, MoreHorizontal, Search, LayoutGrid } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { BoostButton } from "@/components/boost/boost-button"
@@ -34,6 +34,7 @@ import type { AgentChatContext } from "../agent/transcript-chat"
 import { AttachableEmbeds } from "./attachable-embeds"
 import { formatDateAbsolute, formatDateRelative } from "@/lib/date-format"
 import { useGraphStore } from "@/stores/graph-store"
+import { useBoardStore } from "@/stores/board-store"
 
 const DEEP_RESEARCH_NODE_TYPES = ["Topic"]
 const ENRICH_NODE_TYPES = ["Person", "Organization", "Product", "Location", "Topic"] as const
@@ -1184,6 +1185,16 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
         >
           {displayNodeType(nodeType)}
         </Badge>
+        {nodeType === "Episode" && (
+          <button
+            onClick={() => useBoardStore.getState().openBoard(currentNode.ref_id)}
+            title="Open the 2D episode board"
+            className="flex items-center gap-1 h-5 rounded border border-primary/40 bg-primary/10 px-1.5 font-mono text-[9px] uppercase tracking-wider text-primary hover:bg-primary/20 transition-colors"
+          >
+            <LayoutGrid className="h-3 w-3" />
+            2D board
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           {/* Hidden BoostButton — clicked programmatically from the dropdown */}
           {ownerReference && !hideBoost && (
