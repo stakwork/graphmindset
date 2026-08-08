@@ -5,8 +5,14 @@ import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
 import { ArrowRight, ArrowRightLeft, CheckCircle2, ChevronRight, GitMerge, Layers, Loader2, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, Users, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
-import type { Review, ReviewStatus } from "@/lib/graph-api"
+import type {
+  PromotionSummary,
+  Review,
+  ReviewStatus,
+  SchemaTypeOverride,
+} from "@/lib/graph-api"
 import { approveReview, dismissReview, triggerMergeWorkflow } from "@/lib/graph-api"
+import { SchemaPromotionDialog } from "@/components/admin/schema-promotion-dialog"
 import { useStakworkRunStatus } from "@/lib/hooks/use-stakwork-run-status"
 import { cn, displayNodeType } from "@/lib/utils"
 import {
@@ -669,9 +675,52 @@ export function ReviewRow({
     return false
   }, [review.action_name, direction, canonicalId, checkedSources])
 
+  // ── Scratchpad promotion (add_schema_node_type on a scratchpad_entry) ───────
+  // The type has to be created WITH the attributes the parked payloads need —
+  // a bare type can't hold their data, so the entries would fail to replay.
+  // Approving therefore goes through a confirmation dialog rather than straight
+  // to the API, and its result comes back as the approve override_payload.
+  const isSchemaPromotion =
+    review.action_name === "add_schema_node_type" &&
+    review.type === "scratchpad_entry"
+  const [promotionOpen, setPromotionOpen] = useState(false)
+  const [promotionSummary, setPromotionSummary] =
+    useState<PromotionSummary | null>(null)
+
+  async function submitApproval(override?: SchemaTypeOverride | { from: string[]; to: string }) {
+    setApproving(true)
+    setInlineError(null)
+    try {
+      const res = await approveReview(review.ref_id, override)
+      if (res.error_message || res.status === "failed") {
+        setInlineError(res.error_message ?? "Approval failed")
+        onCountRefresh?.()
+        return
+      }
+      // Surface partial promotion outcomes before the row is refetched away —
+      // "approved" alone doesn't say whether the entries actually landed.
+      if (res.promotion_summary && res.promotion_summary.failed.length > 0) {
+        setPromotionSummary(res.promotion_summary)
+        onCountRefresh?.()
+        return
+      }
+      setPromotionOpen(false)
+      onRefresh()
+      onCountRefresh?.()
+    } catch {
+      setInlineError("Approval request failed")
+    } finally {
+      setApproving(false)
+    }
+  }
+
   async function handleApprove() {
     if (!isAdmin) return
     if (mergeError) return
+    if (isSchemaPromotion) {
+      setPromotionOpen(true)
+      return
+    }
     setApproving(true)
     setInlineError(null)
     try {
@@ -792,17 +841,35 @@ export function ReviewRow({
         <div className="flex shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
           {isPending && isAdmin ? (
             <div className="flex shrink-0 items-center gap-1">
-              <ConfirmActionPopover
-                tone="approve"
-                triggerLabel={labels.approve}
-                prompt={labels.approvePrompt(subjectSummary)}
-                loadingLabel={`${labels.approve}…`}
-                loading={approving}
-                onConfirm={() => handleApprove()}
-                minWidthClass="min-w-[68px]"
-                disabled={mergeError !== null}
-                disabledReason={mergeError ?? undefined}
-              />
+              {/* A schema promotion needs the property table filled in before
+                  anything is created, so it opens the dialog directly — a
+                  confirm popover in front of it would be a second prompt for
+                  the same decision. */}
+              {isSchemaPromotion ? (
+                <button
+                  type="button"
+                  data-testid="open-schema-promotion-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setPromotionOpen(true)
+                  }}
+                  className="inline-flex min-w-[68px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-0.5 text-[11px] font-medium text-emerald-400 transition-all hover:border-emerald-500/60 hover:bg-emerald-500/10"
+                >
+                  {labels.approve}
+                </button>
+              ) : (
+                <ConfirmActionPopover
+                  tone="approve"
+                  triggerLabel={labels.approve}
+                  prompt={labels.approvePrompt(subjectSummary)}
+                  loadingLabel={`${labels.approve}…`}
+                  loading={approving}
+                  onConfirm={() => handleApprove()}
+                  minWidthClass="min-w-[68px]"
+                  disabled={mergeError !== null}
+                  disabledReason={mergeError ?? undefined}
+                />
+              )}
               <ConfirmActionPopover
                 tone="dismiss"
                 triggerLabel="Dismiss"
@@ -888,6 +955,38 @@ export function ReviewRow({
         <div className="px-3 pb-2 pl-[82px] text-[11px] font-medium text-red-400">
           ✕ {inlineError}
         </div>
+      )}
+
+      {/* Partial promotion: the type was created but some entries did not
+          replay. Reported here because the row's status ("approved") can't
+          express it. */}
+      {promotionSummary && promotionSummary.failed.length > 0 && (
+        <div className="px-3 pb-2 pl-[82px] text-[11px] text-amber-400">
+          Type created. {promotionSummary.promoted.length} of{" "}
+          {promotionSummary.attempted} entries promoted;{" "}
+          {promotionSummary.failed.length} failed:
+          <ul className="mt-0.5 list-disc pl-4 text-muted-foreground">
+            {promotionSummary.failed.map((f) => (
+              <li key={f.entry_ref_id}>
+                <span className="font-mono">{f.entry_ref_id.slice(0, 8)}</span>{" "}
+                — {f.error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {isSchemaPromotion && (
+        <SchemaPromotionDialog
+          open={promotionOpen}
+          onOpenChange={(next) => {
+            setPromotionOpen(next)
+            if (!next) setInlineError(null)
+          }}
+          reviewRefId={review.ref_id}
+          submitting={approving}
+          onConfirm={submitApproval}
+        />
       )}
 
       {/* Expanded detail */}
