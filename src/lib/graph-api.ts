@@ -867,6 +867,76 @@ function buildMockOntologyReviews(runRef: string, instruction: string): Review[]
 
 export type ReviewStatus = "pending" | "approved" | "dismissed" | "failed"
 
+// ── Scratchpad promotion ─────────────────────────────────────────────────────
+// A scratchpad_entry review creates a node type AND replays the parked entries
+// as real nodes of it. Those are separate outcomes: the type can be created
+// while individual entries fail to replay, so the summary reports per entry.
+
+/** Attribute type vocabulary accepted by the schema. "?" prefix = optional. */
+export const SCHEMA_ATTRIBUTE_TYPES = [
+  "string",
+  "int",
+  "float",
+  "boolean",
+  "datetime",
+  "list",
+  "complex",
+] as const
+
+export type SchemaAttributeType = (typeof SCHEMA_ATTRIBUTE_TYPES)[number]
+
+export interface ProposedProperty {
+  name: string
+  inferred_type: SchemaAttributeType
+  /** How many of the parked payloads supplied this property. */
+  present_in: number
+  suggested_required: boolean
+  sample: unknown
+}
+
+export interface SchemaProposal {
+  review_ref_id: string
+  intended_type: string | null
+  status: ReviewStatus
+  entry_count: number
+  entry_ref_ids: string[]
+  unresolved_subject_ids: string[]
+  properties: ProposedProperty[]
+  conflicts: Array<{
+    name: string
+    types_seen: string[]
+    resolved_to: SchemaAttributeType
+  }>
+  node_key_candidates: string[]
+  blocked_names: Array<{ name: string; reason: string }>
+}
+
+export interface PromotionSummary {
+  attempted: number
+  promoted: Array<{
+    entry_ref_id: string
+    node_ref_id: string
+    dropped_properties: string[]
+    retired?: boolean
+    retire_error?: string
+  }>
+  failed: Array<{ entry_ref_id: string; error: string }>
+  skipped: Array<{ entry_ref_id: string; reason: string }>
+}
+
+/** The admin's confirmed property table, sent back as the approve override. */
+export interface SchemaTypeOverride {
+  type: string
+  parent?: string
+  node_key?: string
+  attributes: Record<string, string>
+  entries: string[]
+}
+
+export type ReviewOverridePayload =
+  | { from: string[]; to: string }
+  | SchemaTypeOverride
+
 export interface Review {
   ref_id: string
   type: string
@@ -884,6 +954,7 @@ export interface Review {
   priority: number
   dismissal_reason?: string
   error_message?: string
+  promotion_summary?: PromotionSummary | null
   run_ref_id?: string
   created_at: string
   decided_at?: string
@@ -1011,11 +1082,32 @@ export async function getReviewNodeTypeCounts(
   )
 }
 
+/**
+ * Fetch the property table proposed for a scratchpad_entry review's new type.
+ *
+ * Inference happens server-side: the review's rationale is redacted, so the UI
+ * has no access to the parked payloads and samples arrive already masked.
+ */
+export async function getSchemaProposal(
+  refId: string,
+  signal?: AbortSignal
+): Promise<SchemaProposal> {
+  return api.get<SchemaProposal>(
+    `/v2/reviews/${refId}/schema_proposal`,
+    undefined,
+    signal
+  )
+}
+
 export async function approveReview(
   refId: string,
-  overridePayload?: { from: string[]; to: string },
+  overridePayload?: ReviewOverridePayload,
   signal?: AbortSignal
-): Promise<{ status: string; error_message?: string }> {
+): Promise<{
+  status: string
+  error_message?: string
+  promotion_summary?: PromotionSummary | null
+}> {
   if (isMocksEnabled()) {
     const store = getMockReviewsStore()
     const review = store.find((r) => r.ref_id === refId)
