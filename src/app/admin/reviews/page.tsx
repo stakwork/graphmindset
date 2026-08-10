@@ -424,9 +424,9 @@ export default function ReviewsPage() {
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all",
                   active
-                    ? "border-primary/40 bg-primary/15 text-primary"
+                    ? "border-primary/70 bg-primary/10 text-primary"
                     : anySelected
-                      ? "border-border/40 bg-transparent text-muted-foreground/50 hover:border-muted-foreground/40 hover:text-foreground hover:opacity-100"
+                      ? "border-border/60 bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground hover:opacity-100"
                       : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
                 )}
               >
@@ -484,7 +484,7 @@ export default function ReviewsPage() {
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all",
                 nodeTypeFilter === ""
-                  ? "border-primary/40 bg-primary/15 text-primary"
+                  ? "border-primary/70 bg-primary/10 text-primary"
                   : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
               )}
             >
@@ -505,7 +505,7 @@ export default function ReviewsPage() {
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all",
                     nodeTypeFilter === type
-                      ? "border-primary/40 bg-primary/15 text-primary"
+                      ? "border-primary/70 bg-primary/10 text-primary"
                       : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
                   )}
                 >

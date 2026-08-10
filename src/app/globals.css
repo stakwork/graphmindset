@@ -54,21 +54,21 @@
 :root {
   --background: oklch(0.08 0.022 260);
   --foreground: oklch(0.93 0.01 260);
-  --card: oklch(0.12 0.022 260);
+  --card: oklch(0.17 0.022 260);
   --card-foreground: oklch(0.93 0.01 260);
-  --popover: oklch(0.1 0.025 260);
+  --popover: oklch(0.16 0.025 260);
   --popover-foreground: oklch(0.93 0.01 260);
   --primary: oklch(0.72 0.14 200);
   --primary-foreground: oklch(0.08 0.022 260);
-  --secondary: oklch(0.16 0.025 260);
+  --secondary: oklch(0.22 0.025 260);
   --secondary-foreground: oklch(0.85 0.01 260);
-  --muted: oklch(0.14 0.02 260);
-  --muted-foreground: oklch(0.55 0.02 260);
-  --accent: oklch(0.16 0.025 260);
+  --muted: oklch(0.20 0.02 260);
+  --muted-foreground: oklch(0.68 0.02 260);
+  --accent: oklch(0.22 0.025 260);
   --accent-foreground: oklch(0.9 0.01 260);
   --destructive: oklch(0.65 0.2 25);
-  --border: oklch(0.2 0.025 260);
-  --input: oklch(0.16 0.025 260);
+  --border: oklch(0.46 0.025 260);
+  --input: oklch(0.22 0.025 260);
   --ring: oklch(0.65 0.12 200);
   --chart-1: oklch(0.72 0.14 200);
   --chart-2: oklch(0.65 0.15 160);
@@ -85,28 +85,28 @@
   --sidebar-primary-foreground: oklch(0.08 0.02 260);
   --sidebar-accent: oklch(0.13 0.025 260);
   --sidebar-accent-foreground: oklch(0.9 0.01 260);
-  --sidebar-border: oklch(0.18 0.025 260);
+  --sidebar-border: oklch(0.40 0.025 260);
   --sidebar-ring: oklch(0.55 0.1 200);
 }
 
 .dark {
   --background: oklch(0.08 0.022 260);
   --foreground: oklch(0.93 0.01 260);
-  --card: oklch(0.12 0.022 260);
+  --card: oklch(0.17 0.022 260);
   --card-foreground: oklch(0.93 0.01 260);
-  --popover: oklch(0.1 0.025 260);
+  --popover: oklch(0.16 0.025 260);
   --popover-foreground: oklch(0.93 0.01 260);
   --primary: oklch(0.72 0.14 200);
   --primary-foreground: oklch(0.08 0.022 260);
-  --secondary: oklch(0.16 0.025 260);
+  --secondary: oklch(0.22 0.025 260);
   --secondary-foreground: oklch(0.85 0.01 260);
-  --muted: oklch(0.14 0.02 260);
-  --muted-foreground: oklch(0.55 0.02 260);
-  --accent: oklch(0.16 0.025 260);
+  --muted: oklch(0.20 0.02 260);
+  --muted-foreground: oklch(0.68 0.02 260);
+  --accent: oklch(0.22 0.025 260);
   --accent-foreground: oklch(0.9 0.01 260);
   --destructive: oklch(0.65 0.2 25);
-  --border: oklch(0.2 0.025 260);
-  --input: oklch(0.16 0.025 260);
+  --border: oklch(0.46 0.025 260);
+  --input: oklch(0.22 0.025 260);
   --ring: oklch(0.65 0.12 200);
   --chart-1: oklch(0.72 0.14 200);
   --chart-2: oklch(0.65 0.15 160);
@@ -122,7 +122,7 @@
   --sidebar-primary-foreground: oklch(0.08 0.02 260);
   --sidebar-accent: oklch(0.13 0.025 260);
   --sidebar-accent-foreground: oklch(0.9 0.01 260);
-  --sidebar-border: oklch(0.18 0.025 260);
+  --sidebar-border: oklch(0.40 0.025 260);
   --sidebar-ring: oklch(0.55 0.1 200);
 }
 
@@ -304,25 +304,25 @@
 .skin-legal {
   --background:          oklch(0.09 0.03 250);   /* deep navy */
   --foreground:          oklch(0.92 0.02 55);    /* warm cream */
-  --card:                oklch(0.12 0.04 250);
+  --card:                oklch(0.17 0.04 250);
   --card-foreground:     oklch(0.92 0.02 55);
-  --popover:             oklch(0.11 0.04 250);
+  --popover:             oklch(0.16 0.04 250);
   --popover-foreground:  oklch(0.92 0.02 55);
   --primary:             oklch(0.72 0.15 75);    /* gold */
   --primary-foreground:  oklch(0.09 0.03 250);
-  --secondary:           oklch(0.16 0.04 250);
+  --secondary:           oklch(0.22 0.04 250);
   --secondary-foreground:oklch(0.88 0.02 55);
-  --muted:               oklch(0.15 0.035 250);
-  --muted-foreground:    oklch(0.55 0.02 55);
-  --accent:              oklch(0.16 0.04 250);
+  --muted:               oklch(0.21 0.035 250);
+  --muted-foreground:    oklch(0.68 0.02 55);
+  --accent:              oklch(0.22 0.04 250);
   --accent-foreground:   oklch(0.92 0.02 55);
-  --border:              oklch(0.22 0.04 250);
-  --input:               oklch(0.16 0.04 250);
+  --border:              oklch(0.46 0.04 250);
+  --input:               oklch(0.22 0.04 250);
   --ring:                oklch(0.65 0.13 75);    /* gold ring */
   --cyan:                oklch(0.72 0.15 75);    /* remap cyan → gold */
   --cyan-muted:          oklch(0.45 0.08 75);
   --sidebar:             oklch(0.07 0.03 250);
   --sidebar-foreground:  oklch(0.88 0.02 55);
   --sidebar-primary:     oklch(0.72 0.15 75);
-  --sidebar-border:      oklch(0.20 0.04 250);
+  --sidebar-border:      oklch(0.40 0.04 250);
 }

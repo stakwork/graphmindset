@@ -94,7 +94,12 @@ export function isInFlightStatus(status: StakworkRunStatus): boolean {
  * (human-review dispatch).
  */
 export function useStakworkRunStatus(
-  refId: string,
+  /**
+   * Node/review ref id to track. Pass `null` when this caller has nothing to
+   * track (hooks can't be called conditionally) — the hook then skips the
+   * hydration fetch and polling entirely instead of querying a sentinel id.
+   */
+  refId: string | null,
   jobType: string,
   options: UseStakworkRunStatusOptions = {}
 ): UseStakworkRunStatusResult {
@@ -143,6 +148,7 @@ export function useStakworkRunStatus(
   // Mount-time hydration (and re-run when refId changes)
   useEffect(() => {
     setStatus(null)
+    if (!refId) return
     let cancelled = false
     setLoading(true)
 
@@ -172,6 +178,7 @@ export function useStakworkRunStatus(
 
   const trigger = useCallback(
     async (triggerFn: () => Promise<{ stakwork_run_ref_id: string }>) => {
+      if (!refId) return
       if (isInFlightStatus(status)) return
       setTriggering(true)
       setStatus("PENDING")
@@ -193,6 +200,7 @@ export function useStakworkRunStatus(
 
   const markTriggered = useCallback(
     () => {
+      if (!refId) return
       if (isInFlightStatus(status)) return
       setStatus("PENDING")
       startPoll(refId)
