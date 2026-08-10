@@ -797,7 +797,7 @@ export function NodePreviewPanel({ node, onBack, schemas }: NodePreviewPanelProp
     trigger: triggerDeepResearchRun,
     triggering: deepResearchLoading,
   } = useStakworkRunStatus(
-    DEEP_RESEARCH_NODE_TYPES.includes(currentNode.node_type) ? currentNode.ref_id : "__noop__",
+    DEEP_RESEARCH_NODE_TYPES.includes(currentNode.node_type) ? currentNode.ref_id : null,
     "deep_research",
     { onCompleted: () => setProbeNonce((n) => n + 1) }
   )

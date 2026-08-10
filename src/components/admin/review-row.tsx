@@ -418,7 +418,7 @@ function ConfirmActionPopover({
           "shrink-0 whitespace-nowrap rounded border px-2 py-0.5 text-[11px] font-medium transition-all text-center",
           minWidthClass,
           disabled
-            ? "cursor-not-allowed border-border/40 bg-transparent text-muted-foreground/40"
+            ? "cursor-not-allowed border-border/60 bg-transparent text-muted-foreground/70"
             : isApprove
               ? open
                 ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-200"
@@ -586,7 +586,7 @@ export function ReviewRow({
     triggering: humanReviewTriggering,
     markTriggered: markHumanReviewTriggered,
   } = useStakworkRunStatus(
-    isMergeReviewEligible ? review.ref_id : "__noop__",
+    isMergeReviewEligible ? review.ref_id : null,
     "node_merge_review",
     {
       // The workflow reports back through the ingest webhook, which turns its
