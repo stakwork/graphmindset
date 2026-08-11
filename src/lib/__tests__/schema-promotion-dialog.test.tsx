@@ -26,6 +26,21 @@ function makeProposal(overrides: Partial<SchemaProposal> = {}): SchemaProposal {
     status: "pending",
     entry_count: 2,
     entry_ref_ids: ["entry-1", "entry-2"],
+    entries: [
+      {
+        ref_id: "entry-1",
+        name: "PO-1",
+        intended_type: "PurchaseOrder",
+        rejection_reason: "unknown_type",
+      },
+      {
+        ref_id: "entry-2",
+        name: "PO-2",
+        intended_type: "PurchaseOrder",
+        rejection_reason: "unknown_type",
+      },
+    ],
+    edges: [],
     unresolved_subject_ids: [],
     properties: [
       {
@@ -217,5 +232,65 @@ describe("SchemaPromotionDialog", () => {
     expect(
       await screen.findByText(/no longer parked entries and will be skipped/i)
     ).toBeInTheDocument()
+  })
+
+  it("names the nodes being promoted, not just how many", async () => {
+    renderDialog()
+    expect(await screen.findByText("PO-1")).toBeInTheDocument()
+    expect(screen.getByText("PO-2")).toBeInTheDocument()
+  })
+
+  it("shows the relationships that will be promoted with them", async () => {
+    mockGetSchemaProposal.mockResolvedValue(
+      makeProposal({
+        edges: [
+          {
+            ref_id: "edge-1",
+            intended_type: "SUPPLIED_BY",
+            source_ref_id: "entry-1",
+            source_name: "PO-1",
+            source_intended_type: "PurchaseOrder",
+            target_ref_id: "entry-2",
+            target_name: "PO-2",
+            target_intended_type: "PurchaseOrder",
+            both_ends_in_review: true,
+          },
+        ],
+      })
+    )
+    renderDialog()
+    expect(await screen.findByText("SUPPLIED_BY")).toBeInTheDocument()
+    expect(screen.getByText(/1 promoted/)).toBeInTheDocument()
+  })
+
+  it("flags an edge whose other end stays parked", async () => {
+    // The admin needs this before approving: the promoted node comes out
+    // disconnected from whatever is on the far side.
+    mockGetSchemaProposal.mockResolvedValue(
+      makeProposal({
+        edges: [
+          {
+            ref_id: "edge-2",
+            intended_type: "FULFILLED_BY",
+            source_ref_id: "entry-1",
+            source_name: "PO-1",
+            source_intended_type: "PurchaseOrder",
+            target_ref_id: "other-review-entry",
+            target_name: "Globex",
+            target_intended_type: "Supplier",
+            both_ends_in_review: false,
+          },
+        ],
+      })
+    )
+    renderDialog()
+    expect(await screen.findByText(/still parked/)).toBeInTheDocument()
+    expect(screen.getByText(/1 left parked/)).toBeInTheDocument()
+  })
+
+  it("omits the relationships section when there are none", async () => {
+    renderDialog()
+    await screen.findByText("PO-1")
+    expect(screen.queryByText(/Relationships/)).not.toBeInTheDocument()
   })
 })

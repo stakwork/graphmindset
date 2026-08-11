@@ -132,6 +132,18 @@ interface MergeDirection {
   toId: string
 }
 
+/**
+ * Whether a promotion needs reporting back rather than silently succeeding.
+ *
+ * Edge failures count: the type and nodes can land perfectly while the
+ * relationships between them stay parked, and "approved" cannot express that.
+ * `edges.pending` is deliberately NOT a problem — those are edges whose other
+ * end simply is not promoted yet, which is the expected steady state.
+ */
+function hasPromotionProblem(summary: PromotionSummary): boolean {
+  return summary.failed.length > 0 || (summary.edges?.failed.length ?? 0) > 0
+}
+
 function extractDirection(action_name: string, action_payload: unknown): MergeDirection | null {
   if (!action_payload || typeof action_payload !== "object") return null
   const p = action_payload as Record<string, unknown>
@@ -699,7 +711,7 @@ export function ReviewRow({
       }
       // Surface partial promotion outcomes before the row is refetched away —
       // "approved" alone doesn't say whether the entries actually landed.
-      if (res.promotion_summary && res.promotion_summary.failed.length > 0) {
+      if (res.promotion_summary && hasPromotionProblem(res.promotion_summary)) {
         setPromotionSummary(res.promotion_summary)
         onCountRefresh?.()
         return
@@ -957,22 +969,45 @@ export function ReviewRow({
         </div>
       )}
 
-      {/* Partial promotion: the type was created but some entries did not
-          replay. Reported here because the row's status ("approved") can't
+      {/* Partial promotion: the type was created but some entries or edges did
+          not replay. Reported here because the row's status ("approved") can't
           express it. */}
-      {promotionSummary && promotionSummary.failed.length > 0 && (
+      {promotionSummary && hasPromotionProblem(promotionSummary) && (
         <div className="px-3 pb-2 pl-[82px] text-[11px] text-amber-400">
-          Type created. {promotionSummary.promoted.length} of{" "}
-          {promotionSummary.attempted} entries promoted;{" "}
-          {promotionSummary.failed.length} failed:
-          <ul className="mt-0.5 list-disc pl-4 text-muted-foreground">
-            {promotionSummary.failed.map((f) => (
-              <li key={f.entry_ref_id}>
-                <span className="font-mono">{f.entry_ref_id.slice(0, 8)}</span>{" "}
-                — {f.error}
-              </li>
-            ))}
-          </ul>
+          {promotionSummary.failed.length > 0 && (
+            <>
+              Type created. {promotionSummary.promoted.length} of{" "}
+              {promotionSummary.attempted} entries promoted;{" "}
+              {promotionSummary.failed.length} failed:
+              <ul className="mt-0.5 list-disc pl-4 text-muted-foreground">
+                {promotionSummary.failed.map((f) => (
+                  <li key={f.entry_ref_id}>
+                    <span className="font-mono">
+                      {f.entry_ref_id.slice(0, 8)}
+                    </span>{" "}
+                    — {f.error}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {promotionSummary.edges &&
+            promotionSummary.edges.failed.length > 0 && (
+              <>
+                {promotionSummary.edges.failed.length} relationship(s) could not
+                be promoted and are still parked:
+                <ul className="mt-0.5 list-disc pl-4 text-muted-foreground">
+                  {promotionSummary.edges.failed.map((f) => (
+                    <li key={f.edge_ref_id}>
+                      <span className="font-mono">
+                        {f.edge_ref_id.slice(0, 8)}
+                      </span>{" "}
+                      — {f.error}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
         </div>
       )}
 
