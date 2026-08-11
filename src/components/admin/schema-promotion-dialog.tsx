@@ -48,6 +48,89 @@ function formatSample(sample: unknown): string {
   return JSON.stringify(sample)
 }
 
+/** A short, stable label for a parked node: its payload name, else its ref_id. */
+function entryLabel(name: string | null, refId: string): string {
+  return name?.trim() || `${refId.slice(0, 8)}…`
+}
+
+/**
+ * The subgraph this approval touches: which nodes, and how they are joined.
+ *
+ * Without this the dialog shows only aggregate property counts ("5 parked
+ * entries"), so an admin cannot tell whether approving yields a connected graph
+ * or a fragment. The one-ended edges are the point: their other side stays
+ * parked, so they are NOT replayed now and the promoted nodes come out
+ * disconnected from them until that side is approved too.
+ */
+function SubgraphPreview({ proposal }: { proposal: SchemaProposal }) {
+  const joined = proposal.edges.filter((e) => e.both_ends_in_review)
+  const dangling = proposal.edges.filter((e) => !e.both_ends_in_review)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        Nodes being promoted ({proposal.entries.length})
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {proposal.entries.map((entry) => (
+          <span
+            key={entry.ref_id}
+            title={entry.ref_id}
+            className="rounded border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[11px]"
+          >
+            {entryLabel(entry.name, entry.ref_id)}
+          </span>
+        ))}
+      </div>
+
+      {proposal.edges.length > 0 && (
+        <>
+          <div className="mt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Relationships ({joined.length} promoted
+            {dangling.length > 0 ? `, ${dangling.length} left parked` : ""})
+          </div>
+          <div className="flex flex-col gap-1">
+            {joined.map((edge) => (
+              <div
+                key={edge.ref_id}
+                className="flex flex-wrap items-center gap-1.5 text-[11px]"
+              >
+                <span className="font-mono">
+                  {entryLabel(edge.source_name, edge.source_ref_id)}
+                </span>
+                <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-px font-mono text-[10px] text-emerald-400">
+                  {edge.intended_type ?? "—"}
+                </span>
+                <span className="font-mono">
+                  {entryLabel(edge.target_name, edge.target_ref_id)}
+                </span>
+              </div>
+            ))}
+            {dangling.map((edge) => (
+              <div
+                key={edge.ref_id}
+                className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"
+                title="The other end is parked under a different type, so this edge stays in the scratchpad until that side is approved."
+              >
+                <span className="font-mono">
+                  {entryLabel(edge.source_name, edge.source_ref_id)}
+                </span>
+                <span className="rounded border border-border/60 bg-muted/40 px-1.5 py-px font-mono text-[10px]">
+                  {edge.intended_type ?? "—"}
+                </span>
+                <span className="font-mono">
+                  {entryLabel(edge.target_name, edge.target_ref_id)}
+                </span>
+                <span className="text-[10px] italic">still parked</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function rowsFromProposal(proposal: SchemaProposal): PropertyRow[] {
   return proposal.properties.map((p) => ({
     id: p.name,
@@ -407,6 +490,10 @@ export function SchemaPromotionDialog({
                   className="h-7 text-[12px]"
                 />
               </label>
+            </div>
+
+            <div className="rounded border border-border/60 bg-muted/20 p-2.5">
+              <SubgraphPreview proposal={proposal} />
             </div>
 
             {droppedNames.length > 0 && (

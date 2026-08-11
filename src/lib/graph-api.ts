@@ -894,12 +894,40 @@ export interface ProposedProperty {
   sample: unknown
 }
 
+/** A parked node this approval would promote. */
+export interface ProposedEntry {
+  ref_id: string
+  name: string | null
+  intended_type: string | null
+  rejection_reason: string | null
+}
+
+/** A parked edge touching this review's entries. */
+export interface ProposedEdge {
+  ref_id: string
+  /** The edge type the caller originally sent, kept on the parked edge. */
+  intended_type: string | null
+  source_ref_id: string
+  source_name: string | null
+  source_intended_type: string | null
+  target_ref_id: string
+  target_name: string | null
+  target_intended_type: string | null
+  /**
+   * Only an edge with BOTH ends in this review becomes a real edge on approval.
+   * A one-ended edge stays parked until its other side is promoted.
+   */
+  both_ends_in_review: boolean
+}
+
 export interface SchemaProposal {
   review_ref_id: string
   intended_type: string | null
   status: ReviewStatus
   entry_count: number
   entry_ref_ids: string[]
+  entries: ProposedEntry[]
+  edges: ProposedEdge[]
   unresolved_subject_ids: string[]
   properties: ProposedProperty[]
   conflicts: Array<{
@@ -922,6 +950,18 @@ export interface PromotionSummary {
   }>
   failed: Array<{ entry_ref_id: string; error: string }>
   skipped: Array<{ entry_ref_id: string; reason: string }>
+  /** Parked edges converted to real edges once both ends became canonical. */
+  edges?: {
+    replayed: Array<{
+      edge_ref_id: string
+      edge_type: string
+      source_ref_id: string
+      target_ref_id: string
+    }>
+    failed: Array<{ edge_ref_id: string; error: string }>
+    /** Left parked because the other end is not promoted yet. */
+    pending: number
+  }
 }
 
 /** The admin's confirmed property table, sent back as the approve override. */
