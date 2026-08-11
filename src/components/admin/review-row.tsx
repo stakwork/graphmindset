@@ -1082,9 +1082,13 @@ export function ReviewRow({
                                     return next
                                   })
                                 }}
-                                className="shrink-0 flex h-4 w-4 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground hover:border-primary/60 hover:text-primary transition-colors"
+                                className="group shrink-0 flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                               >
-                                <span className="h-2 w-2 rounded-full" />
+                                {/* A bare dot reads as a bullet at this size —
+                                    the action has to be spelled out to be
+                                    findable at all. */}
+                                <span className="h-2 w-2 rounded-full border border-current" />
+                                Make canonical
                               </button>
                             </div>
                           )
@@ -1122,6 +1126,18 @@ export function ReviewRow({
                       </div>
                     </div>
                   </div>
+
+                  {/* Approving now runs something other than what was
+                      proposed — say so before the operator commits. */}
+                  {isModified && !mergeError && (
+                    <p className="text-[11px] text-primary">
+                      Edited — approving merges {effectiveFrom.length} source
+                      {effectiveFrom.length === 1 ? "" : "s"} into{" "}
+                      {getDisplayName(subjectMap.get(canonicalId), schemas) ??
+                        canonicalId}
+                      , not the original proposal.
+                    </p>
+                  )}
 
                   {/* Merge error */}
                   {mergeError && (
