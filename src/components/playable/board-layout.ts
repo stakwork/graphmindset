@@ -21,6 +21,9 @@ import {
  * Organization, Product, Location) are placed in the band above the strip at
  * the barycenter of the chapters that mention them — so position encodes
  * "where in the episode this thing matters" and mention edges stay short.
+ * The band is sized independently of the strip: on a short episode, where the
+ * anchors all collapse onto one x and encode nothing, the chips fall back to a
+ * centered grid.
  */
 
 export interface CardPlacement {
@@ -90,6 +93,9 @@ const CHIP_GAP = 10
 const BAND_GAP = 31 // space between the episode card bottom and the entity band
 const ENTITY_ROW_PITCH = 44
 const ENTITY_MAX_ROWS = 6
+/** Widest the band goes when chips are laid out as a grid — keeps a short
+ *  episode's band in proportion with the episode card above it. */
+const ENTITY_MAX_COLS = 4
 const BUS_GAP = 46 // space between the entity band and the chapter bus
 
 function hasMedia(node: BoardNode): boolean {
@@ -135,7 +141,6 @@ export function computeBoardLayout(detail = false): BoardLayout {
   const chapterInfos = getChapters()
   const chaptersTotal = chapterInfos.length * CHAPTER_W + (chapterInfos.length - 1) * CHAPTER_GAP
   const stripMin = -chaptersTotal / 2
-  const stripMax = chaptersTotal / 2
 
   // Chapters are placed AFTER the entity band, whose height depends on how
   // many rows the chips need — so compute entities first, then shift the
@@ -170,38 +175,88 @@ export function computeBoardLayout(detail = false): BoardLayout {
   // actual (possibly detail-grown) bottom, so the two never collide.
   const entityBandTop = episode ? episode.y + episode.h + BAND_GAP : 96
 
-  // ─── Greedy row packing: first row where the chip doesn't overlap ──────
-  const rows: { x: number }[][] = []
-  const fits = (row: { x: number }[], x: number) =>
-    row.every((c) => x + CHIP_W + CHIP_GAP <= c.x || c.x + CHIP_W + CHIP_GAP <= x)
+  // ─── Entity band geometry ─────────────────────────────────────────────
+  // Anchoring encodes "where in the episode this thing matters" only when the
+  // anchors actually differ. With a single chapter — or no mention edges —
+  // every anchor collapses onto the same x and the axis means nothing, so lay
+  // the chips out as a centered grid instead of pretending it's temporal.
+  const anchors = anchored.map((a) => a.anchor)
+  const anchorSpread = anchors.length ? Math.max(...anchors) - Math.min(...anchors) : 0
+  const degenerate = anchorSpread < CHIP_W + CHIP_GAP
+
+  // The band gets its OWN width rather than borrowing the chapter strip's. A
+  // short episode has a narrow strip — one chapter is 196px, narrower than a
+  // single 150px chip — which would clamp every chip to the same x, leave the
+  // row packer unable to ever share a row, and collapse the band into a
+  // vertical column.
+  const bandCols = Math.max(
+    1,
+    degenerate ? Math.min(anchored.length, ENTITY_MAX_COLS) : 0,
+    Math.ceil(anchored.length / ENTITY_MAX_ROWS)
+  )
+  const bandW = Math.max(chaptersTotal, EPISODE_W, bandCols * (CHIP_W + CHIP_GAP) - CHIP_GAP)
+  const bandMin = -bandW / 2
+  const bandMax = bandW / 2
+
   const entities: BoardLayout["entities"] = []
-  for (const { node, anchor } of anchored) {
-    const x = Math.min(Math.max(anchor - CHIP_W / 2, stripMin), stripMax - CHIP_W)
-    let rowIdx = rows.findIndex((row) => fits(row, x))
-    if (rowIdx === -1 && rows.length < ENTITY_MAX_ROWS) {
-      rows.push([])
-      rowIdx = rows.length - 1
-    }
-    if (rowIdx === -1) {
-      // Band full — tack onto the shortest row, right of its last chip.
-      rowIdx = rows.reduce((min, row, i) => (row.length < rows[min].length ? i : min), 0)
-      const last = rows[rowIdx].reduce((max, c) => Math.max(max, c.x), stripMin)
-      const fx = Math.min(last + CHIP_W + CHIP_GAP, stripMax - CHIP_W)
-      rows[rowIdx].push({ x: fx })
+  let bandRows: number
+
+  if (degenerate) {
+    // ─── Degenerate anchors: centered grid ──────────────────────────────
+    const perRow = bandCols
+    bandRows = Math.ceil(anchored.length / perRow)
+    anchored.forEach(({ node }, i) => {
+      const row = Math.floor(i / perRow)
+      const col = i % perRow
+      const inRow = Math.min(perRow, anchored.length - row * perRow)
+      const rowW = inRow * CHIP_W + (inRow - 1) * CHIP_GAP
       entities.push({
         node,
-        card: { id: node.ref_id, x: fx, y: entityBandTop + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
+        card: {
+          id: node.ref_id,
+          x: -rowW / 2 + col * (CHIP_W + CHIP_GAP),
+          y: entityBandTop + row * ENTITY_ROW_PITCH,
+          w: CHIP_W,
+          h: CHIP_H,
+        },
       })
-      continue
-    }
-    rows[rowIdx].push({ x })
-    entities.push({
-      node,
-      card: { id: node.ref_id, x, y: entityBandTop + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
     })
+  } else {
+    // ─── Greedy row packing: first row where the chip doesn't overlap ────
+    const rows: { x: number }[][] = []
+    const fits = (row: { x: number }[], x: number) =>
+      row.every((c) => x + CHIP_W + CHIP_GAP <= c.x || c.x + CHIP_W + CHIP_GAP <= x)
+    for (const { node, anchor } of anchored) {
+      const x = Math.min(Math.max(anchor - CHIP_W / 2, bandMin), bandMax - CHIP_W)
+      let rowIdx = rows.findIndex((row) => fits(row, x))
+      if (rowIdx === -1 && rows.length < ENTITY_MAX_ROWS) {
+        rows.push([])
+        rowIdx = rows.length - 1
+      }
+      if (rowIdx === -1) {
+        // Band full — extend the shortest row past its last chip. Never clamp
+        // back inside the band: a clamped x lands on top of a chip that is
+        // already there, which reads as one pill drawn over another.
+        rowIdx = rows.reduce((min, row, i) => (row.length < rows[min].length ? i : min), 0)
+        const last = rows[rowIdx].reduce((max, c) => Math.max(max, c.x), bandMin)
+        const fx = last + CHIP_W + CHIP_GAP
+        rows[rowIdx].push({ x: fx })
+        entities.push({
+          node,
+          card: { id: node.ref_id, x: fx, y: entityBandTop + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
+        })
+        continue
+      }
+      rows[rowIdx].push({ x })
+      entities.push({
+        node,
+        card: { id: node.ref_id, x, y: entityBandTop + rowIdx * ENTITY_ROW_PITCH, w: CHIP_W, h: CHIP_H },
+      })
+    }
+    bandRows = rows.length
   }
 
-  const bandBottom = entityBandTop + Math.max(rows.length, 1) * ENTITY_ROW_PITCH
+  const bandBottom = entityBandTop + Math.max(bandRows, 1) * ENTITY_ROW_PITCH
   const busY = bandBottom + BUS_GAP
   const chapterY = busY + 40
 

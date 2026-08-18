@@ -9,7 +9,7 @@ import {
   getTypeCounts,
   setBoardData,
 } from "@/lib/board-dataset"
-import { computeBoardLayout } from "../board-layout"
+import { computeBoardLayout, type CardPlacement } from "../board-layout"
 import { loadFixture } from "./fixture"
 
 beforeEach(() => {
@@ -86,5 +86,76 @@ describe("PlayableExplorer (board view)", () => {
       loadFixture()
     }
     expect(getChapters()).toHaveLength(fixtureChapterCount)
+  })
+})
+
+describe("entity band on a short episode", () => {
+  /** One chapter, ten entities — the shape that collapsed the band into a
+   *  single overlapping column when chip x was clamped to the chapter strip. */
+  function loadShortEpisode(entityCount: number) {
+    const nodes = [
+      { ref_id: "ep-1", node_type: "Episode", properties: { episode_title: "Short" } },
+      { ref_id: "ch-1", node_type: "Chapter", properties: { name: "Only chapter" } },
+      ...Array.from({ length: entityCount }, (_, i) => ({
+        ref_id: `t-${i}`,
+        node_type: "Topic",
+        properties: { name: `Topic ${i}` },
+      })),
+    ]
+    const edges = [
+      { ref_id: "e-ch", edge_type: "HAS", source: "ep-1", target: "ch-1", properties: { index: 0 } },
+      ...Array.from({ length: entityCount }, (_, i) => ({
+        ref_id: `e-m-${i}`,
+        edge_type: "MENTIONS",
+        source: "ch-1",
+        target: `t-${i}`,
+        properties: {},
+      })),
+    ]
+    setBoardData(nodes, edges, "ep-1")
+  }
+
+  function overlaps(a: CardPlacement, b: CardPlacement) {
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  }
+
+  it("spreads chips across columns instead of one per row", () => {
+    try {
+      loadShortEpisode(10)
+      const layout = computeBoardLayout()
+      expect(layout.entities).toHaveLength(10)
+
+      // a real grid: several chips share a row, so the band stays short
+      const perRow = new Map<number, number>()
+      for (const e of layout.entities) {
+        perRow.set(e.card.y, (perRow.get(e.card.y) ?? 0) + 1)
+      }
+      expect(Math.max(...perRow.values())).toBeGreaterThanOrEqual(3)
+      expect(perRow.size).toBeLessThanOrEqual(4)
+
+      // and the band still clears the chapter bus below it
+      for (const e of layout.entities) {
+        expect(e.card.y + e.card.h).toBeLessThanOrEqual(layout.chapterBusY)
+      }
+    } finally {
+      loadFixture()
+    }
+  })
+
+  it("never draws one chip on top of another", () => {
+    try {
+      for (const n of [1, 3, 6, 10, 25]) {
+        loadShortEpisode(n)
+        const cards = computeBoardLayout().entities.map((e) => e.card)
+        expect(cards).toHaveLength(n)
+        for (let i = 0; i < cards.length; i++) {
+          for (let j = i + 1; j < cards.length; j++) {
+            expect(overlaps(cards[i], cards[j])).toBe(false)
+          }
+        }
+      }
+    } finally {
+      loadFixture()
+    }
   })
 })
