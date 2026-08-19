@@ -46,6 +46,14 @@ export function OntologyAgentPanel({ onClose }: { onClose: () => void }) {
   const schemas = useSchemaStore((s) => s.schemas)
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
+  // One stable session_id per mounted chat thread. This relies on
+  // OntologyAgentPanel being unmounted/remounted by its parent (OntologyPage
+  // renders `{showAgent ? <OntologyAgentPanel /> : …}`), which naturally resets
+  // this state on close. If a future "New Chat" action clears `turns` without
+  // unmounting, it must also explicitly reset (or re-key) this state — otherwise
+  // the session_id will silently persist across what the user sees as a new
+  // conversation.
+  const [sessionId] = useState(() => crypto.randomUUID())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -127,7 +135,7 @@ export function OntologyAgentPanel({ onClose }: { onClose: () => void }) {
     ])
 
     try {
-      const { stakwork_run_ref_id } = await triggerOntologyAgent(instruction, history)
+      const { stakwork_run_ref_id } = await triggerOntologyAgent({ instruction, history, sessionId })
       patchAgentTurn(agentId, { runRef: stakwork_run_ref_id })
       startPoll(agentId, stakwork_run_ref_id)
     } catch {
