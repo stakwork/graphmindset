@@ -772,11 +772,17 @@ let _mockOntologyRunCounter = 0
 
 // Admin-only, graph-scoped. Triggers the ontology_agent workflow; proposals
 // come back as reviews (polled via getStakworkRun → listReviews(run_ref_id)).
-export async function triggerOntologyAgent(
-  instruction: string,
-  history?: OntologyAgentMessage[],
+export async function triggerOntologyAgent({
+  instruction,
+  history,
+  sessionId,
+  signal,
+}: {
+  instruction: string
+  history?: OntologyAgentMessage[]
+  sessionId: string
   signal?: AbortSignal
-): Promise<{ stakwork_run_ref_id: string }> {
+}): Promise<{ stakwork_run_ref_id: string }> {
   if (isMocksEnabled()) {
     const runRef = `mock-ontology-run-${++_mockOntologyRunCounter}`
     _mockOntologyPollCounts[runRef] = 0
@@ -787,7 +793,7 @@ export async function triggerOntologyAgent(
   }
   return api.post<{ stakwork_run_ref_id: string }>(
     "/v2/schema/ontology-agent",
-    { instruction, history: history ?? [] },
+    { instruction, history: history ?? [], session_id: sessionId },
     undefined,
     signal
   )
