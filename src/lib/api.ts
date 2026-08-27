@@ -1,10 +1,27 @@
 import { getSignedMessage, getL402 } from "./sphinx"
+import { injectedApiUrl } from "./runtime-config"
 
 function resolveApiUrl(): string {
   if (typeof window === "undefined") {
-    return process.env.NEXT_PUBLIC_API_URL || "https://bitcoin.sphinx.chat/api"
+    // Server render: read the live environment directly. GRAPH_MINDSET_API_URL
+    // is not inlined at build time, so this reflects the running container.
+    return (
+      process.env.GRAPH_MINDSET_API_URL?.trim() ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "https://bitcoin.sphinx.chat/api"
+    )
   }
 
+  // Runtime value injected into the document by the root layout. Takes
+  // precedence over NEXT_PUBLIC_API_URL, which is only ever what happened to be
+  // set when the image was built.
+  const injected = injectedApiUrl()
+
+  if (injected) {
+    return injected
+  }
+
+  // Still honoured for builds that bake the URL in via --build-arg.
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL
   }
@@ -25,7 +42,21 @@ function resolveApiUrl(): string {
   return `${origin}/api`
 }
 
-export const API_URL = resolveApiUrl()
+let cachedApiUrl: string | undefined
+
+/**
+ * Resolved on first use rather than at module load, so the runtime value the
+ * root layout injects into the document is guaranteed to be in place by the
+ * time anything asks for it. Import this instead of a module-level constant.
+ */
+export function getApiUrl(): string {
+  return (cachedApiUrl ??= resolveApiUrl())
+}
+
+/** Test seam — forces the next getApiUrl() call to re-resolve. */
+export function resetApiUrlCache(): void {
+  cachedApiUrl = undefined
+}
 
 async function request<Res>(
   url: string,
@@ -74,7 +105,7 @@ export const api = {
     endpoint: string,
     headers?: RequestInit["headers"],
     signal?: AbortSignal
-  ) => request<Res>(`${API_URL}${endpoint}`, headers ? { headers } : undefined, signal),
+  ) => request<Res>(`${getApiUrl()}${endpoint}`, headers ? { headers } : undefined, signal),
 
   post: <Res>(
     endpoint: string,
@@ -83,7 +114,7 @@ export const api = {
     signal?: AbortSignal
   ) =>
     request<Res>(
-      `${API_URL}${endpoint}`,
+      `${getApiUrl()}${endpoint}`,
       {
         body: JSON.stringify(body),
         headers: { ...headers, "Content-Type": "application/json" },
@@ -99,7 +130,7 @@ export const api = {
     signal?: AbortSignal
   ) =>
     request<Res>(
-      `${API_URL}${endpoint}`,
+      `${getApiUrl()}${endpoint}`,
       {
         body: JSON.stringify(body),
         headers: { ...headers, "Content-Type": "application/json" },
@@ -114,7 +145,7 @@ export const api = {
     signal?: AbortSignal
   ) =>
     request<Res>(
-      `${API_URL}${endpoint}`,
+      `${getApiUrl()}${endpoint}`,
       {
         headers: { ...headers, "Content-Type": "application/json" },
         method: "DELETE",

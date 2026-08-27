@@ -1,7 +1,23 @@
 import type { Metadata, Viewport } from "next"
 import { Rajdhani, Plus_Jakarta_Sans, Fira_Code } from "next/font/google"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  RUNTIME_CONFIG_GLOBAL,
+  readRuntimeConfig,
+  serializeRuntimeConfig,
+} from "@/lib/runtime-config"
 import "./globals.css"
+
+/**
+ * Required for runtime configuration to mean anything.
+ *
+ * Next prerenders a layout with no dynamic inputs at build time, which would
+ * evaluate readRuntimeConfig() during `next build` and bake that value into the
+ * HTML — reintroducing exactly the build-time freezing this replaces. Rendering
+ * per request is what lets GRAPH_MINDSET_API_URL be read from the live
+ * environment on every boot.
+ */
+export const dynamic = "force-dynamic"
 
 const rajdhani = Rajdhani({
   variable: "--font-heading",
@@ -51,6 +67,17 @@ export default function RootLayout({
       className={`${rajdhani.variable} ${jakarta.variable} ${firaCode.variable} h-full antialiased dark`}
     >
       <body className="h-full overflow-hidden">
+        {/*
+          Inline and first in the document so it runs during parse, before the
+          deferred application bundles — getApiUrl() therefore always sees it.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.${RUNTIME_CONFIG_GLOBAL}=${serializeRuntimeConfig(
+              readRuntimeConfig()
+            )}`,
+          }}
+        />
         <div style={{ display: "none" }} data-ai-discovery="true">
           <h1>GraphMindset</h1>
           <p>
