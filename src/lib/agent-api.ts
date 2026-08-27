@@ -1,6 +1,6 @@
 "use client"
 
-import { API_URL } from "./api"
+import { getApiUrl } from "./api"
 import { getSignedMessage, getL402, payL402 } from "./sphinx"
 import { useModalStore } from "@/stores/modal-store"
 import { isMocksEnabled } from "./mock-data"
@@ -60,7 +60,7 @@ function unwrapEnvelope(raw: string): { answer: string; cited_ref_ids: string[] 
 
 // Builds a signed URL for a given API path
 async function buildSignedUrl(path: string): Promise<string> {
-  const url = new URL(`${API_URL}${path}`)
+  const url = new URL(`${getApiUrl()}${path}`)
   const signed = await getSignedMessage()
   if (signed.signature) {
     url.searchParams.append("sig", signed.signature)

@@ -1,4 +1,4 @@
-import { api, API_URL } from "./api"
+import { api, getApiUrl } from "./api"
 import { getSignedMessage, getL402 } from "./sphinx"
 import { isMocksEnabled, MOCK_REVIEWS } from "./mock-data"
 
@@ -216,7 +216,7 @@ export async function uploadImageToNode(
   file: File,
   signal?: AbortSignal
 ): Promise<{ url: string; ref_id: string; status?: string }> {
-  const url = new URL(`${API_URL}/v2/nodes/${refId}/image`)
+  const url = new URL(`${getApiUrl()}/v2/nodes/${refId}/image`)
 
   // Sphinx-signed admin path piggybacks on query params (matches api.ts).
   const signed = await getSignedMessage()
@@ -284,7 +284,7 @@ export async function addImageContent(
   status_messages: string[]
   temp_url?: string
 }> {
-  const url = new URL(`${API_URL}/v2/content/image`)
+  const url = new URL(`${getApiUrl()}/v2/content/image`)
 
   const signed = await getSignedMessage()
   if (signed.signature) {
@@ -1219,7 +1219,7 @@ export async function addLegalDocumentFile(
   file: File,
   signal?: AbortSignal
 ): Promise<{ status: string; nodes: Array<Record<string, unknown>>; status_messages: string[] }> {
-  const url = new URL(`${API_URL}/v2/legal/upload`)
+  const url = new URL(`${getApiUrl()}/v2/legal/upload`)
 
   const signed = await getSignedMessage()
   if (signed.signature) {
