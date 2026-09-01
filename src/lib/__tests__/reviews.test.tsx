@@ -205,7 +205,7 @@ describe("ReviewRow", () => {
 
   it("calls approveReview with correct ref_id after confirmation", async () => {
     const user = userEvent.setup()
-    mockApproveReview.mockResolvedValue({ status: "approved" })
+    mockApproveReview.mockResolvedValue({ status: "Success" })
     const onRefresh = vi.fn()
 
     const { getByText } = render(
@@ -223,10 +223,10 @@ describe("ReviewRow", () => {
     await waitFor(() => expect(onRefresh).toHaveBeenCalled())
   })
 
-  it("shows inline error when approve returns failed status", async () => {
+  it("shows inline error when approve returns an Error envelope", async () => {
     const user = userEvent.setup()
     mockApproveReview.mockResolvedValue({
-      status: "failed",
+      status: "Error",
       error_message: "no handler registered for action: supersede",
     })
 
@@ -246,7 +246,7 @@ describe("ReviewRow", () => {
 
   it("calls dismissReview with reason after entering text", async () => {
     const user = userEvent.setup()
-    mockDismissReview.mockResolvedValue({ status: "dismissed" })
+    mockDismissReview.mockResolvedValue({ status: "Success" })
     const onRefresh = vi.fn()
 
     const { getByText, getByPlaceholderText } = render(
@@ -266,7 +266,7 @@ describe("ReviewRow", () => {
 
   it("calls dismissReview without reason when textarea left empty", async () => {
     const user = userEvent.setup()
-    mockDismissReview.mockResolvedValue({ status: "dismissed" })
+    mockDismissReview.mockResolvedValue({ status: "Success" })
     const onRefresh = vi.fn()
 
     const { getByText } = render(
@@ -1061,7 +1061,7 @@ describe("ReviewRow merge_nodes interactive controls", () => {
 
   beforeEach(() => {
     mockApproveReview.mockReset()
-    mockApproveReview.mockResolvedValue({ status: "approved" })
+    mockApproveReview.mockResolvedValue({ status: "Success" })
   })
 
   it("shows all sources checked by default on expand", async () => {
