@@ -307,7 +307,11 @@ export default function ReviewsPage() {
     const results = await Promise.allSettled(
       selectedReviews.map((r) => fn(r.ref_id))
     )
-    const failures = results.filter((r) => r.status === "rejected").length
+    // A failed approve action answers HTTP 200 with an Error envelope, so a
+    // fulfilled promise is not enough — check the envelope status too.
+    const failures = results.filter(
+      (r) => r.status === "rejected" || r.value.status !== "Success"
+    ).length
     setBulkRunning(null)
     if (failures > 0) {
       setBulkError(

@@ -1145,15 +1145,26 @@ export async function getSchemaProposal(
   )
 }
 
+/**
+ * Edges-style envelope shared by the review decision endpoints: `status` is
+ * the operation outcome ("Success"/"Error"), while the updated review under
+ * `review` carries the lifecycle state (approved/failed/dismissed). A failed
+ * approve action still answers HTTP 200 with `status: "Error"`.
+ */
+export interface ReviewDecisionResponse {
+  status: string
+  message?: string
+  status_messages?: string[]
+  error_message?: string
+  promotion_summary?: PromotionSummary | null
+  review?: Review
+}
+
 export async function approveReview(
   refId: string,
   overridePayload?: ReviewOverridePayload,
   signal?: AbortSignal
-): Promise<{
-  status: string
-  error_message?: string
-  promotion_summary?: PromotionSummary | null
-}> {
+): Promise<ReviewDecisionResponse> {
   if (isMocksEnabled()) {
     const store = getMockReviewsStore()
     const review = store.find((r) => r.ref_id === refId)
@@ -1162,10 +1173,10 @@ export async function approveReview(
       review.decided_at = new Date().toISOString()
       review.decided_by = "mock-admin"
     }
-    return { status: "approved" }
+    return { status: "Success", review }
   }
   const body = overridePayload ? { override_payload: overridePayload } : {}
-  return api.post<{ status: string; error_message?: string }>(
+  return api.post<ReviewDecisionResponse>(
     `/v2/reviews/${refId}/approve`,
     body,
     undefined,
@@ -1177,7 +1188,7 @@ export async function dismissReview(
   refId: string,
   reason?: string,
   signal?: AbortSignal
-): Promise<{ status: string }> {
+): Promise<ReviewDecisionResponse> {
   if (isMocksEnabled()) {
     const store = getMockReviewsStore()
     const review = store.find((r) => r.ref_id === refId)
@@ -1187,9 +1198,9 @@ export async function dismissReview(
       review.decided_by = "mock-admin"
       if (reason) review.dismissal_reason = reason
     }
-    return { status: "dismissed" }
+    return { status: "Success", review }
   }
-  return api.post<{ status: string }>(
+  return api.post<ReviewDecisionResponse>(
     `/v2/reviews/${refId}/dismiss`,
     { reason },
     undefined,
