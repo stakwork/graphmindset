@@ -640,7 +640,10 @@ export function ReviewRow({
   const [checkedSources, setCheckedSources] = useState<Set<string>>(new Set())
   const [canonicalId, setCanonicalId] = useState<string>("")
 
-  const relativeTime = formatDateRelative(review.created_at, review.created_at ?? "")
+  // Decided reviews show when the decision happened; pending ones show creation
+  // time (decided_at is unset until approve/dismiss).
+  const rowTimestamp = review.decided_at ?? review.created_at
+  const relativeTime = formatDateRelative(rowTimestamp, rowTimestamp ?? "")
 
   const direction = useMemo(
     () => extractDirection(review.action_name, review.action_payload),
