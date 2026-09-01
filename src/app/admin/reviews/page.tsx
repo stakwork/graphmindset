@@ -43,7 +43,7 @@ const SORT_OPTIONS = [
   { label: "Highest priority", value: "priority" },
 ]
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 50
 
 function SkeletonRows() {
   return (
