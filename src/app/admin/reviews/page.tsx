@@ -9,8 +9,9 @@ import type { LucideIcon } from "lucide-react"
 import { useReviewStore } from "@/stores/review-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { approveReview, dismissReview, listReviews, getReviewNodeTypeCounts, triggerMergeWorkflow } from "@/lib/graph-api"
-import type { Review, ReviewStatus } from "@/lib/graph-api"
+import type { DeciderCategory, Review, ReviewStatus } from "@/lib/graph-api"
 import { ReviewRow, getApproveVerb } from "@/components/admin/review-row"
+import { ReviewStatsPopover } from "@/components/admin/review-stats-popover"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { SelectCustom } from "@/components/ui/select-custom"
@@ -41,6 +42,18 @@ const ACTION_CHIPS: { label: string; value: string; icon?: LucideIcon }[] = [
 const SORT_OPTIONS = [
   { label: "Newest first", value: "created_at" },
   { label: "Highest priority", value: "priority" },
+]
+
+// decided_at is null on pending rows, so this sort only makes sense once the
+// view can contain decided reviews.
+const DECIDED_SORT_OPTION = { label: "Recently decided", value: "decided_at" }
+
+const DECIDER_OPTIONS: { label: string; value: DeciderCategory | "" }[] = [
+  { label: "All reviewers", value: "" },
+  { label: "Admin", value: "admin" },
+  { label: "Workflow", value: "workflow" },
+  { label: "System", value: "system" },
+  { label: "Other", value: "other" },
 ]
 
 const PAGE_SIZE = 50
@@ -80,6 +93,13 @@ export default function ReviewsPage() {
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | "">("pending")
   const [actionFilter, setActionFilter] = useState("")
   const [sort, setSort] = useState("created_at")
+  const [deciderFilter, setDeciderFilter] = useState<DeciderCategory | "">("")
+
+  // The decided-only controls live on every tab but Pending.
+  const onDecidedView = statusFilter !== "pending"
+  const sortOptions = onDecidedView
+    ? [...SORT_OPTIONS, DECIDED_SORT_OPTION]
+    : SORT_OPTIONS
   const [searchQuery, setSearchQuery] = useState("")
   const debouncedSearch = useDebounce(searchQuery, 300)
 
@@ -124,6 +144,7 @@ export default function ReviewsPage() {
             limit: PAGE_SIZE,
             search: debouncedSearch || undefined,
             node_type: nodeTypeFilter || undefined,
+            decider: deciderFilter || undefined,
           },
           ctrl.signal
         )
@@ -151,7 +172,7 @@ export default function ReviewsPage() {
         if (!options?.silent) setLoading(false)
       }
     },
-    [statusFilter, actionFilter, sort, debouncedSearch, nodeTypeFilter]
+    [statusFilter, actionFilter, sort, debouncedSearch, nodeTypeFilter, deciderFilter]
   )
 
   useEffect(() => {
@@ -167,12 +188,13 @@ export default function ReviewsPage() {
           status: statusFilter || undefined,
           action_name: actionFilter || undefined,
           search: debouncedSearch || undefined,
+          decider: deciderFilter || undefined,
         })
         setNodeTypeCounts(res.counts)
         setTruncatedCounts(res.truncated)
       } catch {}
     }, 300)
-  }, [statusFilter, actionFilter, debouncedSearch])
+  }, [statusFilter, actionFilter, debouncedSearch, deciderFilter])
 
   useEffect(() => {
     fetchNodeTypeCounts()
@@ -401,7 +423,13 @@ export default function ReviewsPage() {
             <button
               key={tab.value || "all"}
               type="button"
-              onClick={() => { setStatusFilter(tab.value); setNodeTypeFilter("") }}
+              onClick={() => {
+                setStatusFilter(tab.value)
+                setNodeTypeFilter("")
+                setDeciderFilter("")
+                // Pending rows have no decided_at — fall back to the default sort.
+                if (tab.value === "pending" && sort === "decided_at") setSort("created_at")
+              }}
               className={cn(
                 "relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors",
                 active
@@ -483,13 +511,23 @@ export default function ReviewsPage() {
           <span className="text-[11px] text-muted-foreground">
             {total} {total === 1 ? "result" : "results"}
           </span>
+          {onDecidedView && (
+            <SelectCustom
+              value={deciderFilter}
+              onChange={(v) => setDeciderFilter(v as DeciderCategory | "")}
+              options={DECIDER_OPTIONS}
+              compact
+              className="w-[130px]"
+            />
+          )}
           <SelectCustom
             value={sort}
             onChange={setSort}
-            options={SORT_OPTIONS}
+            options={sortOptions}
             compact
             className="w-[160px]"
           />
+          <ReviewStatsPopover actionName={actionFilter || undefined} />
         </div>
       </div>
 

@@ -12,6 +12,7 @@ const {
   mockGetReviewNodeTypeCounts,
   mockTriggerMergeWorkflow,
   mockGetLatestStakworkRun,
+  mockGetReviewStats,
 } = vi.hoisted(() => ({
   mockApproveReview: vi.fn(),
   mockDismissReview: vi.fn(),
@@ -19,6 +20,7 @@ const {
   mockGetReviewNodeTypeCounts: vi.fn(),
   mockTriggerMergeWorkflow: vi.fn(),
   mockGetLatestStakworkRun: vi.fn(),
+  mockGetReviewStats: vi.fn(),
 }))
 
 vi.mock("@/lib/graph-api", async (importOriginal) => {
@@ -31,6 +33,7 @@ vi.mock("@/lib/graph-api", async (importOriginal) => {
     getReviewNodeTypeCounts: (...args: unknown[]) => mockGetReviewNodeTypeCounts(...args),
     triggerMergeWorkflow: (...args: unknown[]) => mockTriggerMergeWorkflow(...args),
     getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
+    getReviewStats: (...args: unknown[]) => mockGetReviewStats(...args),
   }
 })
 
@@ -2243,5 +2246,218 @@ describe("Toolkit non-admin", () => {
       />
     )
     expect(queryByLabelText("Reviews")).toBeNull()
+  })
+})
+
+// ── deciderCategory ──────────────────────────────────────────────────────────
+
+describe("deciderCategory", () => {
+  it("classifies decided_by values into reviewer categories", async () => {
+    const { deciderCategory } = await import("@/lib/graph-api")
+    expect(deciderCategory("admin")).toBe("admin")
+    // historical boltwall-stamped pubkey (66 hex chars)
+    expect(deciderCategory("02723956fa52318a" + "a".repeat(50))).toBe("admin")
+    expect(deciderCategory("stakwork")).toBe("workflow")
+    expect(deciderCategory("stakwork-job")).toBe("workflow")
+    expect(deciderCategory("stawork-job")).toBe("workflow")
+    expect(deciderCategory("system")).toBe("system")
+    expect(deciderCategory("system:migration_121")).toBe("system")
+    expect(deciderCategory("")).toBe("other")
+    expect(deciderCategory(undefined)).toBe("other")
+    expect(deciderCategory("someone-else")).toBe("other")
+  })
+})
+
+// ── ReviewStatsPopover ───────────────────────────────────────────────────────
+
+describe("ReviewStatsPopover", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetReviewStats.mockResolvedValue({
+      days: [
+        {
+          day: "2026-09-01",
+          total: 3,
+          approved: 2,
+          dismissed: 1,
+          failed: 0,
+          deciders: { admin: 1, workflow: 2, system: 0, other: 0 },
+        },
+        {
+          day: "2026-09-02",
+          total: 5,
+          approved: 4,
+          dismissed: 0,
+          failed: 1,
+          deciders: { admin: 4, workflow: 1, system: 0, other: 0 },
+        },
+      ],
+      totals: {
+        total: 8,
+        approved: 6,
+        dismissed: 1,
+        failed: 1,
+        deciders: { admin: 5, workflow: 3, system: 0, other: 0 },
+      },
+      window_days: 7,
+      since: 0,
+    })
+  })
+
+  it("fetches and shows totals plus reviewer breakdown when opened", async () => {
+    const user = userEvent.setup()
+    const { ReviewStatsPopover } = await import(
+      "@/components/admin/review-stats-popover"
+    )
+    render(<ReviewStatsPopover actionName="merge_nodes" />)
+
+    expect(mockGetReviewStats).not.toHaveBeenCalled()
+    await user.click(screen.getByTestId("review-stats-btn"))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("review-stats-panel")).toBeTruthy()
+    })
+    expect(mockGetReviewStats).toHaveBeenCalledWith(
+      expect.objectContaining({ days: 7, action_name: "merge_nodes" })
+    )
+    await waitFor(() => {
+      expect(screen.getByText("8")).toBeTruthy()
+      expect(screen.getByText("6 approved")).toBeTruthy()
+      expect(screen.getByText("1 dismissed")).toBeTruthy()
+      expect(screen.getByText("1 failed")).toBeTruthy()
+      expect(screen.getByText("Admin")).toBeTruthy()
+      expect(screen.getByText("Workflow")).toBeTruthy()
+    })
+    // zero-count reviewer chips are hidden
+    expect(screen.queryByText("System")).toBeNull()
+  })
+
+  it("shows an error message when the stats fetch fails", async () => {
+    mockGetReviewStats.mockRejectedValue(new Error("boom"))
+    const user = userEvent.setup()
+    const { ReviewStatsPopover } = await import(
+      "@/components/admin/review-stats-popover"
+    )
+    render(<ReviewStatsPopover />)
+
+    await user.click(screen.getByTestId("review-stats-btn"))
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load analytics")).toBeTruthy()
+    })
+  })
+})
+
+// ── ReviewsPage decided-view controls ────────────────────────────────────────
+
+describe("ReviewsPage decided-view controls", () => {
+  beforeEach(async () => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    mockListReviews.mockResolvedValue({ reviews: [], total: 0, skip: 0, limit: 20 })
+    mockGetReviewNodeTypeCounts.mockResolvedValue({ counts: {}, truncated: false })
+  })
+
+  async function renderPage() {
+    vi.doMock("@/stores/review-store", () => ({
+      useReviewStore: () => ({ pendingCount: 0, setPendingCount: vi.fn() }),
+    }))
+    vi.doMock("@/stores/schema-store", () => ({
+      useSchemaStore: (sel: (s: { schemas: never[] }) => unknown) =>
+        sel({ schemas: [] }),
+    }))
+    vi.doMock("@/components/admin/review-row", () => ({
+      ReviewRow: ({ review }: { review: Review }) => (
+        <div data-testid={`review-row-${review.ref_id}`}>{review.rationale}</div>
+      ),
+      getApproveVerb: (action: string) => action,
+    }))
+    // Render selects as native so options are clickable in the test
+    vi.doMock("@/components/ui/select-custom", () => ({
+      SelectCustom: ({
+        value,
+        onChange,
+        options,
+      }: {
+        value: string
+        onChange: (v: string) => void
+        options: { label: string; value: string }[]
+      }) => (
+        <select value={value} onChange={(e) => onChange(e.target.value)}>
+          {options.map((o) => (
+            <option key={o.value || "all"} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      ),
+    }))
+    vi.doMock("@/components/ui/checkbox", () => ({
+      Checkbox: () => <input type="checkbox" />,
+    }))
+    const { default: ReviewsPage } = await import("@/app/admin/reviews/page")
+    return render(<ReviewsPage />)
+  }
+
+  it("hides reviewer filter and decided sort on the Pending tab", async () => {
+    await renderPage()
+    await waitFor(() => expect(mockListReviews).toHaveBeenCalled())
+    expect(screen.queryByText("All reviewers")).toBeNull()
+    expect(screen.queryByText("Recently decided")).toBeNull()
+  })
+
+  it("shows both controls on the Approved tab and passes the decider filter", async () => {
+    const user = userEvent.setup()
+    await renderPage()
+    await waitFor(() => expect(mockListReviews).toHaveBeenCalled())
+
+    await user.click(screen.getByRole("button", { name: "Approved" }))
+    await waitFor(() => {
+      expect(screen.getByText("All reviewers")).toBeTruthy()
+      expect(screen.getByText("Recently decided")).toBeTruthy()
+    })
+
+    const deciderSelect = screen
+      .getByText("All reviewers")
+      .closest("select") as HTMLSelectElement
+    await user.selectOptions(deciderSelect, "workflow")
+    await waitFor(() => {
+      expect(mockListReviews).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "approved", decider: "workflow" }),
+        expect.anything()
+      )
+    })
+  })
+
+  it("clears the decider filter and decided sort when returning to Pending", async () => {
+    const user = userEvent.setup()
+    await renderPage()
+    await waitFor(() => expect(mockListReviews).toHaveBeenCalled())
+
+    await user.click(screen.getByRole("button", { name: "Approved" }))
+    const sortSelect = (await screen.findByText("Recently decided")).closest(
+      "select"
+    ) as HTMLSelectElement
+    await user.selectOptions(sortSelect, "decided_at")
+    await waitFor(() => {
+      expect(mockListReviews).toHaveBeenCalledWith(
+        expect.objectContaining({ sort: "decided_at" }),
+        expect.anything()
+      )
+    })
+
+    // The pending-badge refresh also calls listReviews (limit: 1, no sort), so
+    // assert on the page fetch's shape rather than whichever call landed last.
+    mockListReviews.mockClear()
+    await user.click(screen.getByRole("button", { name: "Pending" }))
+    await waitFor(() => {
+      expect(mockListReviews).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "pending", sort: "created_at" }),
+        expect.anything()
+      )
+    })
+    const decidedSortCalls = mockListReviews.mock.calls.filter(
+      ([params]) => params?.sort === "decided_at" || params?.decider !== undefined
+    )
+    expect(decidedSortCalls).toHaveLength(0)
   })
 })
