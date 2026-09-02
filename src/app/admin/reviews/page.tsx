@@ -325,6 +325,13 @@ export default function ReviewsPage() {
     refreshCounts()
   }
 
+  // Each dispatch holds a jarvis worker thread through a synchronous Stakwork
+  // project-creation call, and the pool is ~32 slots (4 workers × 8 threads).
+  // Firing 50 at once queued the overflow past boltwall's upstream timeout —
+  // a consistent ~14 opaque 500s per batch. Chunks stay well under the pool
+  // and pace Stakwork; a 50-review bulk is ~7 short waves.
+  const HUMAN_REVIEW_DISPATCH_CHUNK = 8
+
   // Human review dispatches a workflow but leaves the reviews pending, so unlike
   // approve/dismiss there is nothing to refetch — the rows adopt their new run
   // through the dispatch token and take over the polling from there.
@@ -332,9 +339,19 @@ export default function ReviewsPage() {
     if (humanReviewCandidates.length === 0) return
     setBulkRunning("human_review")
     setBulkError(null)
-    const results = await Promise.allSettled(
-      humanReviewCandidates.map((r) => triggerMergeWorkflow(r.ref_id))
-    )
+    const results: PromiseSettledResult<unknown>[] = []
+    for (
+      let i = 0;
+      i < humanReviewCandidates.length;
+      i += HUMAN_REVIEW_DISPATCH_CHUNK
+    ) {
+      const chunk = humanReviewCandidates.slice(i, i + HUMAN_REVIEW_DISPATCH_CHUNK)
+      results.push(
+        ...(await Promise.allSettled(
+          chunk.map((r) => triggerMergeWorkflow(r.ref_id))
+        ))
+      )
+    }
     const dispatchedIds = humanReviewCandidates
       .filter((_, i) => results[i].status === "fulfilled")
       .map((r) => r.ref_id)
