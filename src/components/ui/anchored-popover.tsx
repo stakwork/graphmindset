@@ -17,10 +17,15 @@ interface AnchoredPopoverProps {
   // Upper bound on the surface height so a long list stays a tidy, scrollable
   // popover instead of stretching to fill the viewport.
   maxHeight?: number
+  // Which edge of the anchor the popover lines up with. "start" (default)
+  // pins the left edges together; "end" pins the right edges — use it for
+  // triggers near the right viewport edge so the surface grows leftwards.
+  align?: "start" | "end"
 }
 
 interface Position {
-  left: number
+  left?: number
+  right?: number
   width?: number
   top?: number
   bottom?: number
@@ -50,6 +55,7 @@ export function AnchoredPopover({
   matchWidth = true,
   gap = 6,
   maxHeight = DEFAULT_MAX_HEIGHT,
+  align = "start",
 }: AnchoredPopoverProps) {
   const popoverRef = React.useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = React.useState(false)
@@ -67,14 +73,15 @@ export function AnchoredPopover({
     const placeBelow = spaceBelow >= PREFERRED_MIN || spaceBelow >= spaceAbove
     const available = placeBelow ? spaceBelow : spaceAbove
     setPos({
-      left: r.left,
+      left: align === "end" ? undefined : r.left,
+      right: align === "end" ? window.innerWidth - r.right : undefined,
       width: matchWidth ? r.width : undefined,
       top: placeBelow ? r.bottom + gap : undefined,
       bottom: placeBelow ? undefined : window.innerHeight - r.top + gap,
       // Cap to a tidy size, but never exceed the room actually available.
       maxHeight: Math.min(maxHeight, Math.max(120, available)),
     })
-  }, [anchorRef, gap, matchWidth, maxHeight])
+  }, [anchorRef, gap, matchWidth, maxHeight, align])
 
   // Position on open and keep it pinned as the page scrolls/resizes. Capture
   // scroll so we also catch scrolling inside ancestor containers (the modal).
@@ -113,6 +120,7 @@ export function AnchoredPopover({
       style={{
         position: "fixed",
         left: pos.left,
+        right: pos.right,
         top: pos.top,
         bottom: pos.bottom,
         width: pos.width,

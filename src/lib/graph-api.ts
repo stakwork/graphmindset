@@ -1027,8 +1027,22 @@ function getMockReviewsStore(): Review[] {
   return _mockReviewsStore
 }
 
+// Reviewer categories for the decided-by filter and the analytics popover.
+// Mirrors the backend's DECIDER_PREDICATES: 'admin' includes the historical
+// boltwall-stamped pubkeys, 'workflow' the Stakwork job labels (typos
+// included), 'system' the reconciliation/migration tombstones.
+export type DeciderCategory = "admin" | "workflow" | "system" | "other"
+
+export function deciderCategory(decidedBy?: string | null): DeciderCategory {
+  const value = (decidedBy ?? "").trim()
+  if (value === "admin" || /^[0-9a-f]{64,66}$/i.test(value)) return "admin"
+  if (value.includes("stakwork") || value.includes("stawork")) return "workflow"
+  if (value.startsWith("system")) return "system"
+  return "other"
+}
+
 export async function listReviews(
-  params?: { status?: ReviewStatus; type?: string; action_name?: string; run_ref_id?: string; sort?: string; skip?: number; limit?: number; search?: string; node_type?: string },
+  params?: { status?: ReviewStatus; type?: string; action_name?: string; run_ref_id?: string; sort?: string; skip?: number; limit?: number; search?: string; node_type?: string; decider?: DeciderCategory },
   signal?: AbortSignal
 ): Promise<ReviewsListResponse> {
   if (isMocksEnabled()) {
@@ -1038,6 +1052,7 @@ export async function listReviews(
     if (params?.type) filtered = filtered.filter((r) => r.type === params.type)
     if (params?.action_name) filtered = filtered.filter((r) => r.action_name === params.action_name)
     if (params?.run_ref_id) filtered = filtered.filter((r) => r.run_ref_id === params.run_ref_id)
+    if (params?.decider) filtered = filtered.filter((r) => deciderCategory(r.decided_by) === params.decider)
     if (params?.search) {
       const q = params.search.toLowerCase()
       filtered = filtered.filter(
@@ -1056,6 +1071,9 @@ export async function listReviews(
     const sort = params?.sort ?? "created_at"
     if (sort === "priority") {
       filtered.sort((a, b) => b.priority - a.priority)
+    } else if (sort === "decided_at") {
+      const decidedMs = (r: Review) => (r.decided_at ? new Date(r.decided_at).getTime() : 0)
+      filtered.sort((a, b) => decidedMs(b) - decidedMs(a))
     } else {
       filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     }
@@ -1079,11 +1097,12 @@ export async function listReviews(
   if (params?.limit !== undefined) qs.set("limit", String(params.limit))
   if (params?.search) qs.set("search", params.search)
   if (params?.node_type) qs.set("node_type", params.node_type)
+  if (params?.decider) qs.set("decider", params.decider)
   return api.get<ReviewsListResponse>(`/v2/reviews?${qs}`, undefined, signal)
 }
 
 export async function getReviewNodeTypeCounts(
-  params?: { status?: ReviewStatus; action_name?: string; search?: string },
+  params?: { status?: ReviewStatus; action_name?: string; search?: string; decider?: DeciderCategory },
   signal?: AbortSignal
 ): Promise<{ counts: Record<string, number>; truncated: boolean }> {
   if (isMocksEnabled()) {
@@ -1091,6 +1110,7 @@ export async function getReviewNodeTypeCounts(
     let filtered = [...store]
     if (params?.status) filtered = filtered.filter((r) => r.status === params.status)
     if (params?.action_name) filtered = filtered.filter((r) => r.action_name === params.action_name)
+    if (params?.decider) filtered = filtered.filter((r) => deciderCategory(r.decided_by) === params.decider)
     if (params?.search) {
       const q = params.search.toLowerCase()
       filtered = filtered.filter(
@@ -1121,11 +1141,94 @@ export async function getReviewNodeTypeCounts(
   if (params?.status) qs.set("status", params.status)
   if (params?.action_name) qs.set("action_name", params.action_name)
   if (params?.search) qs.set("search", params.search)
+  if (params?.decider) qs.set("decider", params.decider)
   return api.get<{ counts: Record<string, number>; truncated: boolean }>(
     `/v2/reviews/node_type_counts?${qs}`,
     undefined,
     signal
   )
+}
+
+export interface ReviewStatsBucket {
+  total: number
+  approved: number
+  dismissed: number
+  failed: number
+  deciders: Record<DeciderCategory, number>
+}
+
+export interface ReviewStatsDay extends ReviewStatsBucket {
+  // ISO date (local to the requested tz offset), e.g. "2026-09-02"
+  day: string
+}
+
+export interface ReviewStatsResponse {
+  days: ReviewStatsDay[]
+  totals: ReviewStatsBucket
+  window_days: number
+  since: number
+}
+
+function emptyStatsBucket(): ReviewStatsBucket {
+  return {
+    total: 0,
+    approved: 0,
+    dismissed: 0,
+    failed: 0,
+    deciders: { admin: 0, workflow: 0, system: 0, other: 0 },
+  }
+}
+
+/**
+ * Per-day decision counts for the reviews analytics popover. Days are bucketed
+ * on the browser's local midnight — the backend takes our UTC offset so its
+ * "today" matches the operator's.
+ */
+export async function getReviewStats(
+  params?: { days?: number; action_name?: string },
+  signal?: AbortSignal
+): Promise<ReviewStatsResponse> {
+  const days = params?.days ?? 7
+  if (isMocksEnabled()) {
+    const store = getMockReviewsStore()
+    const dayKey = (iso: string) => {
+      const d = new Date(iso)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    }
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    start.setDate(start.getDate() - (days - 1))
+    const dayBuckets: ReviewStatsDay[] = Array.from({ length: days }, (_, i) => {
+      const d = new Date(start)
+      d.setDate(start.getDate() + i)
+      return { day: dayKey(d.toISOString()), ...emptyStatsBucket() }
+    })
+    const byDay = new Map(dayBuckets.map((b) => [b.day, b]))
+    const totals = emptyStatsBucket()
+    for (const review of store) {
+      if (review.status === "pending" || !review.decided_at) continue
+      if (params?.action_name && review.action_name !== params.action_name) continue
+      const bucket = byDay.get(dayKey(review.decided_at))
+      if (!bucket) continue
+      const category = deciderCategory(review.decided_by)
+      for (const b of [bucket, totals]) {
+        b.total += 1
+        if (review.status === "approved" || review.status === "dismissed" || review.status === "failed") {
+          b[review.status] += 1
+        }
+        b.deciders[category] += 1
+      }
+    }
+    return { days: dayBuckets, totals, window_days: days, since: start.getTime() / 1000 }
+  }
+
+  const qs = new URLSearchParams()
+  qs.set("days", String(days))
+  // JS getTimezoneOffset() is minutes *behind* UTC (UTC+4 → -240), the API
+  // wants minutes ahead, hence the negation.
+  qs.set("tz_offset_minutes", String(-new Date().getTimezoneOffset()))
+  if (params?.action_name) qs.set("action_name", params.action_name)
+  return api.get<ReviewStatsResponse>(`/v2/reviews/stats?${qs}`, undefined, signal)
 }
 
 /**
