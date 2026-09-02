@@ -139,6 +139,41 @@ describe("ReviewRow", () => {
     expect(badge!.className).toContain("bg-red-500")
   })
 
+  // ── Decider attribution ─────────────────────────────────────────────────────
+
+  it("shows who decided on decided reviews", () => {
+    const { container } = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({ status: "dismissed", decided_by: "stakwork" })}
+        onRefresh={noop}
+      />
+    )
+    const decider = container.querySelector("[data-testid='review-decider']")
+    expect(decider).toBeTruthy()
+    expect(decider!.textContent).toBe("by stakwork")
+  })
+
+  it("hides decider on pending reviews and on legacy blank decided_by", () => {
+    const pending = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({ status: "pending", decided_by: "admin" })}
+        onRefresh={noop}
+      />
+    )
+    expect(pending.container.querySelector("[data-testid='review-decider']")).toBeNull()
+
+    const legacy = render(
+      <ReviewRow
+        schemas={[]}
+        review={makeReview({ status: "dismissed", decided_by: "" })}
+        onRefresh={noop}
+      />
+    )
+    expect(legacy.container.querySelector("[data-testid='review-decider']")).toBeNull()
+  })
+
   // ── Approve / Dismiss only for pending ─────────────────────────────────────
 
   it("shows Approve and Dismiss buttons only for pending rows", () => {

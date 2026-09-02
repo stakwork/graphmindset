@@ -1178,7 +1178,12 @@ export async function approveReview(
   // cancel_active_runs: an admin deciding here makes any in-flight
   // human-review workflow moot, so ask the backend to stop it. Workflows
   // deciding their own reviews omit this — cancelling would kill their run.
-  const body: Record<string, unknown> = { cancel_active_runs: true }
+  // decided_by distinguishes admin-UI decisions from workflow ones on the
+  // review node (workflows send their own identity, e.g. "stakwork").
+  const body: Record<string, unknown> = {
+    cancel_active_runs: true,
+    decided_by: "admin",
+  }
   if (overridePayload) body.override_payload = overridePayload
   return api.post<ReviewDecisionResponse>(
     `/v2/reviews/${refId}/approve`,
@@ -1204,10 +1209,11 @@ export async function dismissReview(
     }
     return { status: "Success", review }
   }
-  // cancel_active_runs: same admin-decided semantics as approveReview above.
+  // cancel_active_runs + decided_by: same admin-decided semantics as
+  // approveReview above.
   return api.post<ReviewDecisionResponse>(
     `/v2/reviews/${refId}/dismiss`,
-    { reason, cancel_active_runs: true },
+    { reason, cancel_active_runs: true, decided_by: "admin" },
     undefined,
     signal
   )

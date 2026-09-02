@@ -644,6 +644,10 @@ export function ReviewRow({
   // time (decided_at is unset until approve/dismiss).
   const rowTimestamp = review.decided_at ?? review.created_at
   const relativeTime = formatDateRelative(rowTimestamp, rowTimestamp ?? "")
+  // Who made the decision ("admin" from the UI, "stakwork" from workflows).
+  // Trim guards legacy reviews decided before decided_by was reliable ("").
+  const decider =
+    review.status !== "pending" ? review.decided_by?.trim() : undefined
 
   const direction = useMemo(
     () => extractDirection(review.action_name, review.action_payload),
@@ -851,6 +855,12 @@ export function ReviewRow({
           {review.run_ref_id && <span>Run #{review.run_ref_id.slice(-5)}</span>}
           {review.run_ref_id && <span>·</span>}
           <span>{relativeTime}</span>
+          {decider && (
+            <>
+              <span>·</span>
+              <span data-testid="review-decider">by {decider}</span>
+            </>
+          )}
         </div>
 
         <div className="flex shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
