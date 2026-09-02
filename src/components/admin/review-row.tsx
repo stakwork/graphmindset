@@ -13,6 +13,7 @@ import type {
 } from "@/lib/graph-api"
 import { approveReview, dismissReview, triggerMergeWorkflow } from "@/lib/graph-api"
 import { SchemaPromotionDialog } from "@/components/admin/schema-promotion-dialog"
+import { MergeContextPanel } from "@/components/admin/merge-context-panel"
 import { useStakworkRunStatus } from "@/lib/hooks/use-stakwork-run-status"
 import { cn, displayNodeType } from "@/lib/utils"
 import {
@@ -1485,6 +1486,11 @@ export function ReviewRow({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* Graph evidence for merge decisions — fetched lazily on expand */}
+          {review.action_name === "merge_nodes" && (
+            <MergeContextPanel review={review} />
           )}
 
           {(() => {

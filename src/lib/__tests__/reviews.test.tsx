@@ -13,6 +13,7 @@ const {
   mockTriggerMergeWorkflow,
   mockGetLatestStakworkRun,
   mockGetReviewStats,
+  mockGetSubgraph,
 } = vi.hoisted(() => ({
   mockApproveReview: vi.fn(),
   mockDismissReview: vi.fn(),
@@ -21,6 +22,9 @@ const {
   mockTriggerMergeWorkflow: vi.fn(),
   mockGetLatestStakworkRun: vi.fn(),
   mockGetReviewStats: vi.fn(),
+  // Default: empty neighborhood so ReviewRow tests that expand merge rows
+  // render the context panel quietly without configuring it.
+  mockGetSubgraph: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
 }))
 
 vi.mock("@/lib/graph-api", async (importOriginal) => {
@@ -34,6 +38,7 @@ vi.mock("@/lib/graph-api", async (importOriginal) => {
     triggerMergeWorkflow: (...args: unknown[]) => mockTriggerMergeWorkflow(...args),
     getLatestStakworkRun: (...args: unknown[]) => mockGetLatestStakworkRun(...args),
     getReviewStats: (...args: unknown[]) => mockGetReviewStats(...args),
+    getSubgraph: (...args: unknown[]) => mockGetSubgraph(...args),
   }
 })
 
@@ -2459,5 +2464,105 @@ describe("ReviewsPage decided-view controls", () => {
       ([params]) => params?.sort === "decided_at" || params?.decider !== undefined
     )
     expect(decidedSortCalls).toHaveLength(0)
+  })
+})
+
+// ── MergeContextPanel ────────────────────────────────────────────────────────
+
+describe("MergeContextPanel", () => {
+  const subjectA = "n1"
+  const subjectB = "n2"
+
+  function graphFor(subject: string, opts: { shared?: boolean; tweetText?: string }) {
+    const nodes = [
+      { ref_id: "shared-ep", node_type: "Episode", properties: { name: "Shared Episode" } },
+    ]
+    const edges = []
+    if (opts.shared) {
+      edges.push({ ref_id: 1, edge_type: "MENTIONS", source: "shared-ep", target: subject })
+    }
+    if (opts.tweetText) {
+      nodes.push({
+        ref_id: `tweet-${subject}`,
+        node_type: "Tweet",
+        properties: { text: opts.tweetText },
+      })
+      edges.push({
+        ref_id: 2,
+        edge_type: "MENTIONS",
+        source: `tweet-${subject}`,
+        target: subject,
+      })
+    }
+    return { nodes, edges }
+  }
+
+  beforeEach(() => {
+    mockGetSubgraph.mockReset()
+  })
+
+  it("fetches both subjects' subgraphs and renders excerpts plus overlap", async () => {
+    mockGetSubgraph.mockImplementation((params: { start_node: string }) =>
+      Promise.resolve(
+        graphFor(params.start_node, {
+          shared: true,
+          tweetText: params.start_node === subjectA ? '"extracted   sentence"' : undefined,
+        })
+      )
+    )
+    const { MergeContextPanel } = await import(
+      "@/components/admin/merge-context-panel"
+    )
+    render(<MergeContextPanel review={makeReview({ subject_ids: [subjectA, subjectB] })} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("merge-context-overlap")).toBeTruthy()
+    })
+    expect(mockGetSubgraph).toHaveBeenCalledTimes(2)
+    expect(mockGetSubgraph).toHaveBeenCalledWith(
+      expect.objectContaining({ start_node: subjectA, depth: 1 }),
+      expect.anything()
+    )
+    // Excerpt is cleaned (quotes stripped, whitespace collapsed)
+    expect(screen.getByText(/“extracted sentence”/)).toBeTruthy()
+    // Shared neighbor line names the example
+    expect(screen.getByTestId("merge-context-overlap").textContent).toContain(
+      "1 shared connection"
+    )
+    expect(screen.getByTestId("merge-context-overlap").textContent).toContain(
+      "Shared Episode"
+    )
+  })
+
+  it("flags disjoint neighborhoods", async () => {
+    mockGetSubgraph.mockImplementation((params: { start_node: string }) =>
+      Promise.resolve(
+        params.start_node === subjectA
+          ? { nodes: [{ ref_id: "only-a", node_type: "Episode", properties: {} }], edges: [{ ref_id: 1, edge_type: "MENTIONS", source: "only-a", target: subjectA }] }
+          : { nodes: [], edges: [] }
+      )
+    )
+    const { MergeContextPanel } = await import(
+      "@/components/admin/merge-context-panel"
+    )
+    render(<MergeContextPanel review={makeReview({ subject_ids: [subjectA, subjectB] })} />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("No shared connections — the neighborhoods are disjoint")
+      ).toBeTruthy()
+    })
+  })
+
+  it("degrades quietly when the subgraph fetch fails", async () => {
+    mockGetSubgraph.mockRejectedValue(new Error("boom"))
+    const { MergeContextPanel } = await import(
+      "@/components/admin/merge-context-panel"
+    )
+    render(<MergeContextPanel review={makeReview({ subject_ids: [subjectA, subjectB] })} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Graph context unavailable")).toBeTruthy()
+    })
   })
 })
