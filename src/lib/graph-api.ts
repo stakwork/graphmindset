@@ -1231,6 +1231,57 @@ export async function getReviewStats(
   return api.get<ReviewStatsResponse>(`/v2/reviews/stats?${qs}`, undefined, signal)
 }
 
+// ── Subgraph (GET /v2/graph/subgraph) ────────────────────────────────────────
+
+export interface SubgraphNode {
+  ref_id: string
+  node_type: string | null
+  properties: Record<string, unknown> | null
+}
+
+export interface SubgraphEdge {
+  ref_id: string | number
+  edge_type: string
+  source: string
+  target: string
+  properties?: Record<string, unknown> | null
+}
+
+export interface SubgraphResponse {
+  nodes: SubgraphNode[]
+  edges: SubgraphEdge[]
+}
+
+/**
+ * Neighborhood of a node — namespace-aware v2 of the graph traversal.
+ * depth defaults to 1 server-side; `q` searches within the neighborhood.
+ * Used by the merge-review context panel to find the sentences an entity
+ * was extracted from (incoming MENTIONS edges to text-bearing nodes).
+ */
+export async function getSubgraph(
+  params: {
+    start_node: string
+    depth?: number
+    limit?: number
+    q?: string
+    edge_type?: string[]
+    node_type?: string[]
+  },
+  signal?: AbortSignal
+): Promise<SubgraphResponse> {
+  if (isMocksEnabled()) {
+    return { nodes: [], edges: [] }
+  }
+  const qs = new URLSearchParams()
+  qs.set("start_node", params.start_node)
+  if (params.depth !== undefined) qs.set("depth", String(params.depth))
+  if (params.limit !== undefined) qs.set("limit", String(params.limit))
+  if (params.q) qs.set("q", params.q)
+  for (const et of params.edge_type ?? []) qs.append("edge_type", et)
+  for (const nt of params.node_type ?? []) qs.append("node_type", nt)
+  return api.get<SubgraphResponse>(`/v2/graph/subgraph?${qs}`, undefined, signal)
+}
+
 /**
  * Fetch the property table proposed for a scratchpad_entry review's new type.
  *
