@@ -2470,88 +2470,114 @@ describe("ReviewsPage decided-view controls", () => {
 // ── MergeContextPanel ────────────────────────────────────────────────────────
 
 describe("MergeContextPanel", () => {
-  const subjectA = "n1"
-  const subjectB = "n2"
+  // Fixture direction: action_payload { from: ["n2"], to: "n1" } — so the
+  // panel must show n2 (source) first and n1 (canonical) last, mirroring the
+  // Sources → Canonical columns above it.
+  const canonical = "n1"
+  const source = "n2"
 
-  function graphFor(subject: string, opts: { shared?: boolean; tweetText?: string }) {
-    const nodes = [
-      { ref_id: "shared-ep", node_type: "Episode", properties: { name: "Shared Episode" } },
-    ]
-    const edges = []
-    if (opts.shared) {
-      edges.push({ ref_id: 1, edge_type: "MENTIONS", source: "shared-ep", target: subject })
+  function mentionsGraph(subject: string, text?: string) {
+    if (!text) return { nodes: [], edges: [] }
+    return {
+      nodes: [
+        { ref_id: `tweet-${subject}`, node_type: "Tweet", properties: { text } },
+      ],
+      edges: [
+        {
+          ref_id: 1,
+          edge_type: "MENTIONS",
+          source: `tweet-${subject}`,
+          target: subject,
+        },
+      ],
     }
-    if (opts.tweetText) {
-      nodes.push({
-        ref_id: `tweet-${subject}`,
-        node_type: "Tweet",
-        properties: { text: opts.tweetText },
-      })
-      edges.push({
-        ref_id: 2,
-        edge_type: "MENTIONS",
-        source: `tweet-${subject}`,
-        target: subject,
-      })
-    }
-    return { nodes, edges }
   }
 
   beforeEach(() => {
     mockGetSubgraph.mockReset()
   })
 
-  it("fetches both subjects' subgraphs and renders excerpts plus overlap", async () => {
+  it("orders cards sources-first and renders highlighted source sentences", async () => {
     mockGetSubgraph.mockImplementation((params: { start_node: string }) =>
       Promise.resolve(
-        graphFor(params.start_node, {
-          shared: true,
-          tweetText: params.start_node === subjectA ? '"extracted   sentence"' : undefined,
-        })
+        mentionsGraph(
+          params.start_node,
+          params.start_node === source
+            ? '"RT   @OpenAI: Node Two is now in the desktop app"'
+            : undefined
+        )
       )
     )
     const { MergeContextPanel } = await import(
       "@/components/admin/merge-context-panel"
     )
-    render(<MergeContextPanel review={makeReview({ subject_ids: [subjectA, subjectB] })} />)
+    const { container } = render(<MergeContextPanel review={makeReview()} />)
 
     await waitFor(() => {
-      expect(screen.getByTestId("merge-context-overlap")).toBeTruthy()
+      expect(screen.getByTestId(`merge-context-subject-${source}`)).toBeTruthy()
     })
+
+    // MENTIONS-only fetch, one call per subject
     expect(mockGetSubgraph).toHaveBeenCalledTimes(2)
     expect(mockGetSubgraph).toHaveBeenCalledWith(
-      expect.objectContaining({ start_node: subjectA, depth: 1 }),
+      expect.objectContaining({
+        start_node: source,
+        depth: 1,
+        edge_type: ["MENTIONS"],
+      }),
       expect.anything()
     )
-    // Excerpt is cleaned (quotes stripped, whitespace collapsed)
-    expect(screen.getByText(/“extracted sentence”/)).toBeTruthy()
-    // Shared neighbor line names the example
-    expect(screen.getByTestId("merge-context-overlap").textContent).toContain(
-      "1 shared connection"
+
+    // Source card comes before the canonical card in DOM order
+    const cards = Array.from(
+      container.querySelectorAll('[data-testid^="merge-context-subject-"]')
     )
-    expect(screen.getByTestId("merge-context-overlap").textContent).toContain(
-      "Shared Episode"
+    expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual([
+      `merge-context-subject-${source}`,
+      `merge-context-subject-${canonical}`,
+    ])
+
+    // The short tweet fits inside the word window, so it shows whole, with
+    // the name's words highlighted. The <mark>s split the text, so assert
+    // on combined textContent.
+    const sourceCard = screen.getByTestId(`merge-context-subject-${source}`)
+    expect(sourceCard.textContent).toContain(
+      "RT @OpenAI: Node Two is now in the desktop app"
     )
+    const marks = Array.from(container.querySelectorAll("mark")).map(
+      (m) => m.textContent
+    )
+    expect(marks).toEqual(["Node", "Two"])
+
+    // The canonical side has no source text
+    expect(screen.getByText("No source text found")).toBeTruthy()
   })
 
-  it("flags disjoint neighborhoods", async () => {
-    mockGetSubgraph.mockImplementation((params: { start_node: string }) =>
-      Promise.resolve(
-        params.start_node === subjectA
-          ? { nodes: [{ ref_id: "only-a", node_type: "Episode", properties: {} }], edges: [{ ref_id: 1, edge_type: "MENTIONS", source: "only-a", target: subjectA }] }
-          : { nodes: [], edges: [] }
-      )
-    )
+  it("falls back to subject_ids order when the payload has no direction", async () => {
+    mockGetSubgraph.mockResolvedValue({ nodes: [], edges: [] })
     const { MergeContextPanel } = await import(
       "@/components/admin/merge-context-panel"
     )
-    render(<MergeContextPanel review={makeReview({ subject_ids: [subjectA, subjectB] })} />)
+    const review = makeReview({
+      action_payload: {},
+      subject_ids: ["s1", "s2"],
+      subject_nodes: [
+        { ref_id: "s1", node_type: "Topic", properties: { name: "S One" } },
+        { ref_id: "s2", node_type: "Topic", properties: { name: "S Two" } },
+      ],
+    })
+    const { container } = render(<MergeContextPanel review={review} />)
 
     await waitFor(() => {
-      expect(
-        screen.getByText("No shared connections — the neighborhoods are disjoint")
-      ).toBeTruthy()
+      expect(screen.getByTestId("merge-context-subject-s1")).toBeTruthy()
     })
+    const cards = Array.from(
+      container.querySelectorAll('[data-testid^="merge-context-subject-"]')
+    )
+    expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual([
+      "merge-context-subject-s1",
+      "merge-context-subject-s2",
+    ])
   })
 
   it("degrades quietly when the subgraph fetch fails", async () => {
@@ -2559,10 +2585,66 @@ describe("MergeContextPanel", () => {
     const { MergeContextPanel } = await import(
       "@/components/admin/merge-context-panel"
     )
-    render(<MergeContextPanel review={makeReview({ subject_ids: [subjectA, subjectB] })} />)
+    render(<MergeContextPanel review={makeReview()} />)
 
     await waitFor(() => {
-      expect(screen.getByText("Graph context unavailable")).toBeTruthy()
+      expect(screen.getByText("Source sentences unavailable")).toBeTruthy()
     })
+  })
+})
+
+// ── Copy node id button ──────────────────────────────────────────────────────
+
+describe("SubjectListItem copy button", () => {
+  const user = userEvent.setup()
+  const noop = () => {}
+
+  it("copies the subject's ref_id to the clipboard on click", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    })
+
+    const review = makeReview({
+      action_name: "merge_nodes",
+      action_payload: { from: ["n2"], to: "n1" },
+    })
+    const { getByText, getByTestId } = render(
+      <ReviewRow schemas={[]} review={review} onRefresh={noop} />
+    )
+    // Expand the row
+    await user.click(getByText("Node Two"))
+
+    await user.click(getByTestId("copy-ref-n2"))
+    expect(writeText).toHaveBeenCalledWith("n2")
+    // Copied feedback swaps the icon state
+    expect(getByTestId("copy-ref-n2").getAttribute("title")).toBe("Copied")
+
+    // The canonical side has its own button
+    await user.click(getByTestId("copy-ref-n1"))
+    expect(writeText).toHaveBeenCalledWith("n1")
+  })
+
+  it("does not expand or navigate when the copy button is clicked", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    })
+
+    const review = makeReview({
+      action_name: "merge_nodes",
+      action_payload: { from: ["n2"], to: "n1" },
+    })
+    const { getByText, getByTestId, queryByText } = render(
+      <ReviewRow schemas={[]} review={review} onRefresh={noop} />
+    )
+    await user.click(getByText("Node Two"))
+    expect(queryByText(/Canonical \(survives\)/i)).toBeTruthy()
+
+    // Clicking copy must not collapse the panel (stopPropagation)
+    await user.click(getByTestId("copy-ref-n1"))
+    expect(queryByText(/Canonical \(survives\)/i)).toBeTruthy()
   })
 })

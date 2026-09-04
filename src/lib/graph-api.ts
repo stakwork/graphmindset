@@ -1277,8 +1277,11 @@ export async function getSubgraph(
   if (params.depth !== undefined) qs.set("depth", String(params.depth))
   if (params.limit !== undefined) qs.set("limit", String(params.limit))
   if (params.q) qs.set("q", params.q)
-  for (const et of params.edge_type ?? []) qs.append("edge_type", et)
-  for (const nt of params.node_type ?? []) qs.append("node_type", nt)
+  // The backend ast.literal_evals list params, so they go over the wire as a
+  // stringified list ('["MENTIONS"]'), not repeated keys — a JSON array of
+  // strings is a valid Python literal.
+  if (params.edge_type?.length) qs.set("edge_type", JSON.stringify(params.edge_type))
+  if (params.node_type?.length) qs.set("node_type", JSON.stringify(params.node_type))
   return api.get<SubgraphResponse>(`/v2/graph/subgraph?${qs}`, undefined, signal)
 }
 

@@ -1,49 +1,95 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { getSubgraph } from "@/lib/graph-api"
 import type { Review } from "@/lib/graph-api"
-import { deriveMergeContext } from "@/lib/merge-context"
-import type { MergeGraphContext, SubjectGraphContext } from "@/lib/merge-context"
+import { deriveMentions, nameStems } from "@/lib/merge-context"
+import type { MentionExcerpt } from "@/lib/merge-context"
 
-// Wide enough that the neighbor-overlap intersection is meaningful even for
-// well-connected entities; the payload is one hop only.
-const SUBGRAPH_LIMIT = 100
+const SUBGRAPH_LIMIT = 50
 // Merge reviews carry candidate + canonical; legacy multi-candidate reviews
 // are capped so a pathological row can't fan out requests.
 const MAX_SUBJECTS = 4
-const EDGE_TYPES_SHOWN = 3
 
-function subjectName(review: Review, refId: string): string {
+function subjectName(review: Review, refId: string): string | null {
   const subject = review.subject_nodes.find((sn) => sn.ref_id === refId)
   const props = subject?.properties
   for (const key of ["name", "title", "episode_title"]) {
     const value = props?.[key]
     if (typeof value === "string" && value.trim()) return value.trim()
   }
-  return refId.slice(0, 8)
-}
-
-function edgeCountsLine(subject: SubjectGraphContext): string {
-  const parts = Object.entries(subject.edgeCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, EDGE_TYPES_SHOWN)
-    .map(([type, count]) => `${type} ${count}`)
-  const connections = `${subject.degree} connection${subject.degree === 1 ? "" : "s"}`
-  return parts.length > 0 ? `${connections} · ${parts.join(" · ")}` : connections
+  return null
 }
 
 /**
- * Graph evidence under an expanded merge review: per subject its degree and
- * the sentences it was extracted from (via /v2/graph/subgraph), plus the
- * neighbor overlap between the subjects — shared neighbors argue for the
- * merge, disjoint neighborhoods against it.
+ * Card order mirrors the Sources → Canonical layout above the panel: the
+ * merge sources come first, the canonical (to) node last. subject_ids order
+ * is not reliable for this — it's fingerprint-sorted.
+ */
+function orderedSubjectIds(review: Review): string[] {
+  const payload = review.action_payload as { from?: unknown; to?: unknown } | null
+  const from = Array.isArray(payload?.from)
+    ? payload.from.filter((id): id is string => typeof id === "string" && id !== "")
+    : []
+  const to = typeof payload?.to === "string" ? payload.to : null
+  if (to) {
+    const sources = Array.from(new Set(from)).filter((id) => id !== to)
+    return [...sources, to].slice(0, MAX_SUBJECTS)
+  }
+  return review.subject_ids.slice(0, MAX_SUBJECTS)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/**
+ * The excerpt with the words matching the subject's name marked. Matching is
+ * stem-based (same stems the excerpt was windowed around), so inflected
+ * forms light up too — "extract" for a subject named "…extraction".
+ */
+function HighlightedExcerpt({ text, term }: { text: string; term: string | null }) {
+  const stems = nameStems(term)
+  if (stems.length === 0) return <>{text}</>
+  const pattern = new RegExp(
+    `\\b(${stems.map(escapeRegExp).join("|")})[\\w]*`,
+    "gi"
+  )
+  const out: ReactNode[] = []
+  let last = 0
+  let key = 0
+  for (const match of text.matchAll(pattern)) {
+    const idx = match.index ?? 0
+    if (idx > last) out.push(text.slice(last, idx))
+    out.push(
+      <mark key={key++} className="rounded-sm bg-primary/25 px-0.5 text-inherit">
+        {match[0]}
+      </mark>
+    )
+    last = idx + match[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return <>{out}</>
+}
+
+interface SubjectMentions {
+  refId: string
+  name: string | null
+  mentions: MentionExcerpt[]
+}
+
+/**
+ * The sentences each merge subject was extracted from, shown under the
+ * expanded row. Extracted entities carry no provenance properties — their
+ * incoming MENTIONS edges are the only trail back to the source text.
+ * Fetched lazily on expand; sources first, canonical last, matching the
+ * columns above.
  */
 export function MergeContextPanel({ review }: { review: Review }) {
-  const [context, setContext] = useState<MergeGraphContext | null>(null)
+  const [subjects, setSubjects] = useState<SubjectMentions[] | null>(null)
   const [failed, setFailed] = useState(false)
 
-  const subjectsKey = review.subject_ids.slice(0, MAX_SUBJECTS).join(",")
+  const subjectsKey = orderedSubjectIds(review).join(",")
 
   useEffect(() => {
     const subjectIds = subjectsKey ? subjectsKey.split(",") : []
@@ -55,13 +101,27 @@ export function MergeContextPanel({ review }: { review: Review }) {
         const graphs = await Promise.all(
           subjectIds.map((id) =>
             getSubgraph(
-              { start_node: id, depth: 1, limit: SUBGRAPH_LIMIT },
+              {
+                start_node: id,
+                depth: 1,
+                limit: SUBGRAPH_LIMIT,
+                edge_type: ["MENTIONS"],
+              },
               ctrl.signal
             )
           )
         )
         if (cancelled) return
-        setContext(deriveMergeContext(subjectIds, graphs))
+        setSubjects(
+          subjectIds.map((id, i) => {
+            const name = subjectName(review, id)
+            return {
+              refId: id,
+              name,
+              mentions: deriveMentions(id, graphs[i] ?? { nodes: [], edges: [] }, name),
+            }
+          })
+        )
       } catch {
         if (!cancelled) setFailed(true)
       }
@@ -70,12 +130,14 @@ export function MergeContextPanel({ review }: { review: Review }) {
       cancelled = true
       ctrl.abort()
     }
+    // review identity is stable for a row; subjectsKey captures what we fetch on
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectsKey])
 
   if (failed) {
     return (
       <p className="mt-3 border-t border-border/30 pt-2 text-[10px] text-muted-foreground">
-        Graph context unavailable
+        Source sentences unavailable
       </p>
     )
   }
@@ -83,81 +145,57 @@ export function MergeContextPanel({ review }: { review: Review }) {
   return (
     <div className="mt-3 border-t border-border/30 pt-2" data-testid="merge-context">
       <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Graph Context
+        Source Sentences
       </div>
 
-      {context === null ? (
+      {subjects === null ? (
         <div className="grid gap-2 sm:grid-cols-2">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-14 animate-pulse rounded-md bg-muted/20" />
+            <div key={i} className="h-12 animate-pulse rounded-md bg-muted/20" />
           ))}
         </div>
       ) : (
-        <>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {context.subjects.map((subject) => (
-              <div
-                key={subject.refId}
-                className="rounded-md border border-border/40 bg-background/40 p-2"
-                data-testid={`merge-context-subject-${subject.refId}`}
-              >
-                <div className="mb-1 flex items-baseline justify-between gap-2">
-                  <span className="truncate text-[11px] font-medium">
-                    {subjectName(review, subject.refId)}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {edgeCountsLine(subject)}
-                  </span>
-                </div>
-                {subject.mentions.length > 0 ? (
-                  <ul className="flex flex-col gap-1">
-                    {subject.mentions.map((mention) => (
-                      <li
-                        key={mention.refId}
-                        className="text-[10px] leading-relaxed text-foreground/70"
-                      >
-                        <span className="mr-1 rounded border border-border/50 bg-muted/30 px-1 py-px font-mono text-[8px] uppercase text-muted-foreground">
-                          {mention.nodeType ?? "?"}
-                        </span>
-                        “{mention.excerpt}”
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-[10px] italic text-muted-foreground">
-                    No source text found in the immediate neighborhood
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {context.subjects.length > 1 && (
-            <p
-              className={
-                context.sharedCount > 0
-                  ? "mt-1.5 text-[10px] text-emerald-400"
-                  : "mt-1.5 text-[10px] text-amber-400"
-              }
-              data-testid="merge-context-overlap"
+        <div className="grid gap-2 sm:grid-cols-2">
+          {subjects.map((subject) => (
+            <div
+              key={subject.refId}
+              className="rounded-md border border-border/40 bg-background/40 p-2"
+              data-testid={`merge-context-subject-${subject.refId}`}
             >
-              {context.sharedCount > 0 ? (
-                <>
-                  {context.sharedCount} shared connection
-                  {context.sharedCount === 1 ? "" : "s"}
-                  {context.sharedExamples.length > 0 && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      — {context.sharedExamples.map((n) => n.name).join(", ")}
-                    </span>
-                  )}
-                </>
+              <div className="mb-1 truncate text-[11px] font-medium">
+                {subject.name ?? subject.refId.slice(0, 8)}
+              </div>
+              {subject.mentions.length > 0 ? (
+                <ul className="flex flex-col gap-1">
+                  {subject.mentions.map((mention) => (
+                    <li
+                      key={mention.refId}
+                      className={
+                        mention.matched
+                          ? "text-[10px] leading-relaxed text-foreground/70"
+                          : "text-[10px] leading-relaxed text-muted-foreground/60"
+                      }
+                      title={
+                        mention.matched
+                          ? undefined
+                          : "The node's name does not appear in this source's text — showing its beginning"
+                      }
+                    >
+                      <span className="mr-1 rounded border border-border/50 bg-muted/30 px-1 py-px font-mono text-[8px] uppercase text-muted-foreground">
+                        {mention.nodeType ?? "?"}
+                      </span>
+                      “<HighlightedExcerpt text={mention.excerpt} term={subject.name} />”
+                    </li>
+                  ))}
+                </ul>
               ) : (
-                "No shared connections — the neighborhoods are disjoint"
+                <p className="text-[10px] italic text-muted-foreground">
+                  No source text found
+                </p>
               )}
-            </p>
-          )}
-        </>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
