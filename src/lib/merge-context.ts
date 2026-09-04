@@ -1,12 +1,14 @@
 import type { SubgraphNode, SubgraphResponse } from "@/lib/graph-api"
 
 /**
- * Derives comparison context for merge-review subjects from their 1-hop
- * subgraphs (GET /v2/graph/subgraph): how connected each node is, the
- * sentences it was extracted from (incoming MENTIONS from text-bearing
- * nodes), and how much the subjects' neighborhoods overlap — shared
- * neighbors are the strongest same-entity signal; disjoint neighborhoods
- * are a red flag for a proposed merge.
+ * Derives the source sentences a merge-review subject was extracted from,
+ * out of its 1-hop MENTIONS subgraph (GET /v2/graph/subgraph). Only the
+ * fragment around the subject's name is shown — a few words either side —
+ * not the whole property value.
+ *
+ * The name is matched word-by-word with crude prefix stemming, because the
+ * entity name is normalised by extraction and rarely appears verbatim
+ * ("Document search and extraction" ↔ "…search and extract document data…").
  *
  * Pure functions — the fetching lives in MergeContextPanel.
  */
@@ -15,157 +17,191 @@ export interface MentionExcerpt {
   refId: string
   nodeType: string | null
   excerpt: string
+  // False when the subject's name never occurs in the source text — the
+  // excerpt is then just the head of the text, shown as context-only.
+  matched: boolean
 }
 
-export interface SubjectGraphContext {
-  refId: string
-  degree: number
-  edgeCounts: Record<string, number>
-  neighborIds: string[]
-  mentions: MentionExcerpt[]
-}
-
-export interface SharedNeighbor {
-  refId: string
-  name: string
-  nodeType: string | null
-}
-
-export interface MergeGraphContext {
-  subjects: SubjectGraphContext[]
-  sharedCount: number
-  sharedExamples: SharedNeighbor[]
-}
-
-const EXCERPT_MAX = 220
-const MENTIONS_MAX = 3
-const SHARED_EXAMPLES_MAX = 4
-
-/** Keys tried, in order, for a mention source's displayable text. */
-const TEXT_KEYS = ["text", "name", "episode_title", "title", "summary"] as const
+// Window around the matched name: enough context either side to read the
+// claim being made, not just the phrase.
+const WORDS_BEFORE = 6
+const WORDS_AFTER = 10
+// Fallback head length (words) when the name doesn't occur in the text.
+const FALLBACK_WORDS = 20
+const MENTIONS_MAX = 4
 
 /**
- * Normalise source text for display: strip the literal wrapper quotes tweet
- * texts are stored with, collapse whitespace, truncate on a word boundary.
+ * Only properties that hold actual prose count as a source sentence — a
+ * Chapter/Episode *name* is a topic label, not the sentence the entity was
+ * extracted from. Verbatim sources first: a tweet's `text` and an episode's
+ * `transcript` (newer episodes store the full speaker-attributed transcript;
+ * older ones don't), then a chapter/clip's `description` (a real sentence
+ * naming the entities of that segment), then an episode's `summary`.
+ * Order doubles as ranking.
  */
-export function cleanExcerpt(raw: unknown): string | null {
+const TEXT_KEYS = ["text", "transcript", "description", "summary"] as const
+
+const STOPWORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "over",
+  "a", "an", "of", "to", "in", "on", "is", "are", "was", "were", "its",
+])
+
+function normaliseText(raw: unknown): string | null {
   if (typeof raw !== "string") return null
   let text = raw.trim()
+  // Tweet texts are stored with literal wrapper quotes and literal escape
+  // sequences (backslash-n, backslash-uXXXX) — decode them for display.
   if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
     text = text.slice(1, -1)
   }
+  text = text
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16))
+    )
+    .replace(/\\[nrt]/g, " ")
   text = text.split(/\s+/).join(" ").trim()
+  return text || null
+}
+
+function normaliseWord(word: string): string {
+  return word.toLowerCase().replace(/[^a-z0-9@#]/g, "")
+}
+
+/**
+ * Crude prefix stem: enough of the token that inflections still match
+ * ("extraction" → "extrac" matches "extract"/"extracting"), never shorter
+ * than 4 chars so tiny words stay exact.
+ */
+function stem(token: string): string {
+  if (token.length <= 4) return token
+  return token.slice(0, Math.max(4, token.length - 4))
+}
+
+/** Significant, stemmed words of the subject's name — also drives highlighting. */
+export function nameStems(name: string | null | undefined): string[] {
+  if (!name) return []
+  const stems: string[] = []
+  for (const word of name.split(/\s+/)) {
+    const cleaned = normaliseWord(word)
+    if (cleaned.length >= 3 && !STOPWORDS.has(cleaned)) {
+      const s = stem(cleaned)
+      if (!stems.includes(s)) stems.push(s)
+    }
+  }
+  return stems
+}
+
+function wordMatchesAnyStem(word: string, stems: string[]): boolean {
+  const cleaned = normaliseWord(word)
+  if (!cleaned) return false
+  return stems.some((s) => cleaned.startsWith(s))
+}
+
+/**
+ * The displayable fragment: the words around the first stretch of the text
+ * that matches the name (longest run of consecutive name-words wins, so a
+ * full-phrase occurrence beats a stray single word). Falls back to the head
+ * of the text when the name never occurs — flagged via `matched: false`.
+ */
+export function buildExcerpt(
+  raw: unknown,
+  name: string | null
+): { excerpt: string; matched: boolean } | null {
+  const text = normaliseText(raw)
   if (!text) return null
-  if (text.length > EXCERPT_MAX) {
-    text = text.slice(0, EXCERPT_MAX).replace(/\s+\S*$/, "") + "…"
+  const words = text.split(" ")
+  const stems = nameStems(name)
+
+  let matchStart = -1
+  let matchLen = 0
+  if (stems.length > 0) {
+    for (let i = 0; i < words.length; i++) {
+      if (!wordMatchesAnyStem(words[i], stems)) continue
+      let len = 1
+      while (
+        i + len < words.length &&
+        wordMatchesAnyStem(words[i + len], stems)
+      ) {
+        len++
+      }
+      if (len > matchLen) {
+        matchStart = i
+        matchLen = len
+      }
+      i += len
+    }
   }
-  return text
+
+  let start: number
+  let end: number
+  if (matchStart >= 0) {
+    start = Math.max(0, matchStart - WORDS_BEFORE)
+    end = Math.min(words.length, matchStart + matchLen + WORDS_AFTER)
+  } else {
+    start = 0
+    end = Math.min(words.length, FALLBACK_WORDS)
+  }
+
+  const prefix = start > 0 ? "… " : ""
+  const suffix = end < words.length ? " …" : ""
+  return {
+    excerpt: prefix + words.slice(start, end).join(" ") + suffix,
+    matched: matchStart >= 0,
+  }
 }
 
-function nodeExcerpt(node: SubgraphNode | undefined): string | null {
-  const props = node?.properties
-  if (!props) return null
-  for (const key of TEXT_KEYS) {
-    const cleaned = cleanExcerpt(props[key])
-    if (cleaned) return cleaned
-  }
-  return null
+export function excerptFor(raw: unknown, name: string | null): string | null {
+  return buildExcerpt(raw, name)?.excerpt ?? null
 }
 
-function nodeDisplayName(node: SubgraphNode | undefined, refId: string): string {
-  const props = node?.properties
-  for (const key of ["name", "title", "episode_title"]) {
-    const value = props?.[key]
-    if (typeof value === "string" && value.trim()) return value.trim()
-  }
-  return refId.slice(0, 8)
-}
-
-export function deriveSubjectContext(
+export function deriveMentions(
   refId: string,
-  subgraph: SubgraphResponse
-): SubjectGraphContext {
+  subgraph: SubgraphResponse,
+  name?: string | null
+): MentionExcerpt[] {
   const nodeById = new Map(subgraph.nodes.map((n) => [n.ref_id, n]))
-  const neighborIds = new Set<string>()
-  const edgeCounts: Record<string, number> = {}
-  const mentionSources: SubgraphNode[] = []
-  const seenMentionSources = new Set<string>()
+  const sources: SubgraphNode[] = []
+  const seen = new Set<string>()
 
   for (const edge of subgraph.edges) {
-    const isSource = edge.source === refId
-    const isTarget = edge.target === refId
-    // apoc.subgraphAll also returns edges among the neighbors themselves —
-    // only edges incident to the subject describe the subject.
-    if (!isSource && !isTarget) continue
-    const otherId = isSource ? edge.target : edge.source
-    if (!otherId || otherId === refId) continue
-    neighborIds.add(otherId)
-    edgeCounts[edge.edge_type] = (edgeCounts[edge.edge_type] ?? 0) + 1
-    if (edge.edge_type === "MENTIONS" && isTarget && !seenMentionSources.has(otherId)) {
-      seenMentionSources.add(otherId)
-      const source = nodeById.get(otherId)
-      if (source) mentionSources.push(source)
-    }
+    if (edge.edge_type !== "MENTIONS" || edge.target !== refId) continue
+    const sourceId = edge.source
+    if (!sourceId || sourceId === refId || seen.has(sourceId)) continue
+    seen.add(sourceId)
+    const source = nodeById.get(sourceId)
+    if (source) sources.push(source)
   }
 
-  const mentions: MentionExcerpt[] = []
-  for (const source of mentionSources) {
-    if (mentions.length >= MENTIONS_MAX) break
-    const excerpt = nodeExcerpt(source)
-    if (excerpt) {
-      mentions.push({ refId: source.ref_id, nodeType: source.node_type, excerpt })
-    }
-  }
-
-  return {
-    refId,
-    degree: neighborIds.size,
-    edgeCounts,
-    neighborIds: Array.from(neighborIds),
-    mentions,
-  }
-}
-
-export function deriveMergeContext(
-  subjectIds: string[],
-  subgraphs: SubgraphResponse[]
-): MergeGraphContext {
-  const subjects = subjectIds.map((id, i) =>
-    deriveSubjectContext(id, subgraphs[i] ?? { nodes: [], edges: [] })
-  )
-
-  // Shared = neighbors present on EVERY subject; the subjects themselves are
-  // excluded (candidate and canonical are often each other's IS_ALIAS
-  // neighbor, which says nothing about a third common connection).
-  let shared: Set<string> | null = null
-  for (const subject of subjects) {
-    const ids = new Set(subject.neighborIds)
-    if (shared === null) {
-      shared = ids
-    } else {
-      const previous: Set<string> = shared
-      shared = new Set(Array.from(previous).filter((id) => ids.has(id)))
-    }
-  }
-  const sharedIds = Array.from(shared ?? new Set<string>()).filter(
-    (id) => !subjectIds.includes(id)
-  )
-
-  const nodeById = new Map<string, SubgraphNode>()
-  for (const graph of subgraphs) {
-    for (const node of graph?.nodes ?? []) nodeById.set(node.ref_id, node)
-  }
-  const sharedExamples = sharedIds
-    .map((id) => {
-      const node = nodeById.get(id)
-      return {
-        refId: id,
-        name: nodeDisplayName(node, id),
-        nodeType: node?.node_type ?? null,
+  // Ranking: sources whose text actually contains the name beat ones where
+  // it never occurs (head-of-text fallbacks), then a `text` property beats a
+  // `summary` one — so the sentence showing the name is never crowded out.
+  const candidates: Array<MentionExcerpt & { rank: number }> = []
+  for (const source of sources) {
+    const props = source.properties
+    if (!props) continue
+    for (let rank = 0; rank < TEXT_KEYS.length; rank++) {
+      const built = buildExcerpt(props[TEXT_KEYS[rank]], name ?? null)
+      if (built) {
+        candidates.push({
+          refId: source.ref_id,
+          nodeType: source.node_type,
+          excerpt: built.excerpt,
+          matched: built.matched,
+          rank,
+        })
+        break
       }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, SHARED_EXAMPLES_MAX)
-
-  return { subjects, sharedCount: sharedIds.length, sharedExamples }
+    }
+  }
+  return candidates
+    .sort((a, b) =>
+      a.matched !== b.matched ? (a.matched ? -1 : 1) : a.rank - b.rank
+    )
+    .slice(0, MENTIONS_MAX)
+    .map(({ refId: rid, nodeType, excerpt, matched }) => ({
+      refId: rid,
+      nodeType,
+      excerpt,
+      matched,
+    }))
 }

@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ArrowRightLeft, CheckCircle2, ChevronRight, GitMerge, Layers, Loader2, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, Users, type LucideIcon } from "lucide-react"
+import { ArrowRight, ArrowRightLeft, Check, CheckCircle2, ChevronRight, Copy, GitMerge, Layers, Loader2, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, Users, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type {
   PromotionSummary,
@@ -500,6 +500,31 @@ function ConfirmActionPopover({
 
 // ── Subject list item (for expanded panel) ───────────────────────────────────
 
+function CopyRefButton({ refId }: { refId: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      title={copied ? "Copied" : `Copy node id ${refId}`}
+      aria-label={`Copy node id ${refId}`}
+      data-testid={`copy-ref-${refId}`}
+      onClick={(e) => {
+        e.stopPropagation()
+        navigator.clipboard?.writeText(refId).catch(() => {})
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+      className="shrink-0 rounded p-1 text-muted-foreground/50 transition-colors hover:bg-muted/40 hover:text-foreground"
+    >
+      {copied ? (
+        <Check className="h-3 w-3 text-emerald-400" />
+      ) : (
+        <Copy className="h-3 w-3" />
+      )}
+    </button>
+  )
+}
+
 function SubjectListItem({
   refId,
   resolved,
@@ -513,22 +538,28 @@ function SubjectListItem({
 }) {
   if (!resolved || resolved.node_type === null) {
     return (
-      <span className="block px-2 py-1 text-[10px] font-mono text-muted-foreground italic">
+      <span className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-muted-foreground italic">
         Deleted: {refId}
+        <CopyRefButton refId={refId} />
       </span>
     )
   }
   return (
-    <NodeRow
-      node={{
-        ref_id: refId,
-        node_type: resolved.node_type,
-        properties: resolved.properties ?? {},
-      }}
-      schemas={schemas}
-      onClick={onClick}
-      hideBoost
-    />
+    <div className="flex items-center gap-1">
+      <div className="min-w-0 flex-1">
+        <NodeRow
+          node={{
+            ref_id: refId,
+            node_type: resolved.node_type,
+            properties: resolved.properties ?? {},
+          }}
+          schemas={schemas}
+          onClick={onClick}
+          hideBoost
+        />
+      </div>
+      <CopyRefButton refId={refId} />
+    </div>
   )
 }
 

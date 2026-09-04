@@ -1,124 +1,193 @@
 import { describe, it, expect } from "vitest"
-import {
-  cleanExcerpt,
-  deriveMergeContext,
-  deriveSubjectContext,
-} from "@/lib/merge-context"
+import { deriveMentions, excerptFor, nameStems } from "@/lib/merge-context"
 import type { SubgraphResponse } from "@/lib/graph-api"
 
-function graph(partial: Partial<SubgraphResponse>): SubgraphResponse {
-  return { nodes: [], edges: [], ...partial }
-}
+describe("nameStems", () => {
+  it("keeps significant words, stemmed, without stopwords", () => {
+    expect(nameStems("Document search and extraction")).toEqual([
+      "docu",
+      "sear",
+      "extrac",
+    ])
+  })
 
-describe("cleanExcerpt", () => {
-  it("strips stored wrapper quotes and collapses whitespace", () => {
-    expect(cleanExcerpt('"A US ban   was\n\nsupposed"')).toBe(
-      "A US ban was supposed"
+  it("is empty for null/short names", () => {
+    expect(nameStems(null)).toEqual([])
+    expect(nameStems("of")).toEqual([])
+  })
+})
+
+describe("excerptFor", () => {
+  it("keeps short texts whole when the window covers them", () => {
+    const text =
+      '"RT @OpenAI: ChatGPT Voice is now in the desktop app today for everyone"'
+    expect(excerptFor(text, "ChatGPT Voice")).toBe(
+      "RT @OpenAI: ChatGPT Voice is now in the desktop app today for everyone"
+    )
+  })
+
+  it("windows around a mid-text occurrence with ellipses marking the cuts", () => {
+    const words = Array.from({ length: 30 }, (_, i) => `w${i}`)
+    words.splice(15, 0, "Docker", "Compose")
+    const result = excerptFor(words.join(" "), "Docker Compose")
+    expect(result).toBe(
+      "… " +
+        // 6 words before the match, the match, 10 words after
+        [...words.slice(9, 15), "Docker", "Compose", ...words.slice(17, 27)].join(" ") +
+        " …"
+    )
+  })
+
+  it("matches inflected forms via stems — the name rarely appears verbatim", () => {
+    const text =
+      "With the official skill your agent acts here to manage files and versions in bulk, search and extract document data, and query your cloud file system for anything else you need today."
+    const result = excerptFor(text, "Document search and extraction")
+    expect(result).toContain("extract document")
+    expect(result!.startsWith("… ")).toBe(true)
+    expect(result!.endsWith(" …")).toBe(true)
+  })
+
+  it("decodes literal escape sequences from stored tweet text", () => {
+    const text = '"two passes:\\n1\\ufe0f\\u20e3 A fast pass"'
+    const result = excerptFor(text, null)
+    expect(result).not.toContain("\\n")
+    expect(result).not.toContain("\\u")
+    expect(result).toContain("two passes:")
+    expect(result).toContain("A fast pass")
+  })
+
+  it("falls back to the head of the text when the name never occurs", () => {
+    const words = Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ")
+    expect(excerptFor(words, "Zebra")).toBe(
+      Array.from({ length: 20 }, (_, i) => `w${i}`).join(" ") + " …"
     )
   })
 
   it("returns null for non-strings and empty strings", () => {
-    expect(cleanExcerpt(undefined)).toBeNull()
-    expect(cleanExcerpt(42)).toBeNull()
-    expect(cleanExcerpt('""')).toBeNull()
-    expect(cleanExcerpt("   ")).toBeNull()
-  })
-
-  it("truncates long text on a word boundary with an ellipsis", () => {
-    const result = cleanExcerpt("word ".repeat(100))
-    expect(result!.length).toBeLessThanOrEqual(221)
-    expect(result!.endsWith("…")).toBe(true)
-    expect(result).not.toContain("wor…") // no mid-word cut
+    expect(excerptFor(undefined, "x")).toBeNull()
+    expect(excerptFor(42, "x")).toBeNull()
+    expect(excerptFor('""', "x")).toBeNull()
+    expect(excerptFor("   ", "x")).toBeNull()
   })
 })
 
-describe("deriveSubjectContext", () => {
+describe("deriveMentions", () => {
   const subject = "org-1"
-  const subgraph = graph({
+  const subgraph: SubgraphResponse = {
     nodes: [
       { ref_id: subject, node_type: "Organization", properties: { name: "United States" } },
       {
         ref_id: "tweet-1",
         node_type: "Tweet",
-        properties: { text: '"a sentence   mentioning it"' },
+        properties: { text: '"a sentence   mentioning United States"' },
       },
-      { ref_id: "chapter-1", node_type: "Chapter", properties: { name: "AI race overview" } },
-      { ref_id: "alias-1", node_type: "Organization", properties: { name: "USA" } },
+      {
+        ref_id: "chapter-1",
+        node_type: "Chapter",
+        properties: {
+          name: "AI race overview",
+          description: "The panel frames United States policy against China's.",
+        },
+      },
+      { ref_id: "chapter-2", node_type: "Chapter", properties: { name: "Closing thoughts" } },
+      { ref_id: "no-text", node_type: "Image", properties: {} },
       { ref_id: "bystander", node_type: "Episode", properties: { episode_title: "Ep" } },
     ],
     edges: [
       { ref_id: 1, edge_type: "MENTIONS", source: "tweet-1", target: subject },
       { ref_id: 2, edge_type: "MENTIONS", source: "chapter-1", target: subject },
-      { ref_id: 3, edge_type: "IS_ALIAS", source: "alias-1", target: subject },
-      // outgoing MENTIONS: counts as a connection but not a mention source
+      { ref_id: 3, edge_type: "MENTIONS", source: "no-text", target: subject },
+      { ref_id: 7, edge_type: "MENTIONS", source: "chapter-2", target: subject },
+      // outgoing MENTIONS: the subject mentioning something is not a source
       { ref_id: 4, edge_type: "MENTIONS", source: subject, target: "bystander" },
-      // edge between neighbors — apoc returns these; must not affect the subject
-      { ref_id: 5, edge_type: "HAS", source: "bystander", target: "chapter-1" },
+      // non-MENTIONS incident edge: not a source either
+      { ref_id: 5, edge_type: "IS_ALIAS", source: "bystander", target: subject },
+      // edge between neighbors — apoc returns these; must be ignored
+      { ref_id: 6, edge_type: "HAS", source: "bystander", target: "chapter-1" },
     ],
-  })
-
-  it("counts only incident edges and dedupes neighbors", () => {
-    const ctx = deriveSubjectContext(subject, subgraph)
-    expect(ctx.degree).toBe(4)
-    expect(ctx.edgeCounts).toEqual({ MENTIONS: 3, IS_ALIAS: 1 })
-  })
-
-  it("collects cleaned excerpts only from incoming MENTIONS sources", () => {
-    const ctx = deriveSubjectContext(subject, subgraph)
-    expect(ctx.mentions).toEqual([
-      { refId: "tweet-1", nodeType: "Tweet", excerpt: "a sentence mentioning it" },
-      { refId: "chapter-1", nodeType: "Chapter", excerpt: "AI race overview" },
-    ])
-  })
-})
-
-describe("deriveMergeContext", () => {
-  const a = "node-a"
-  const b = "node-b"
-
-  function graphFor(subject: string, neighbors: string[]): SubgraphResponse {
-    return graph({
-      nodes: neighbors.map((id) => ({
-        ref_id: id,
-        node_type: "Episode",
-        properties: { name: `Name ${id}` },
-      })),
-      edges: neighbors.map((id, i) => ({
-        ref_id: i,
-        edge_type: "MENTIONS",
-        source: id,
-        target: subject,
-      })),
-    })
   }
 
-  it("intersects neighborhoods, excluding the subjects themselves", () => {
-    // a and b are each other's neighbors (IS_ALIAS-style) plus one real shared
-    const ctx = deriveMergeContext(
-      [a, b],
-      [graphFor(a, ["shared-1", "only-a", b]), graphFor(b, ["shared-1", "only-b", a])]
-    )
-    expect(ctx.sharedCount).toBe(1)
-    expect(ctx.sharedExamples).toEqual([
-      { refId: "shared-1", name: "Name shared-1", nodeType: "Episode" },
+  it("collects prose properties only — labels like a chapter's name are not sentences", () => {
+    expect(deriveMentions(subject, subgraph, "United States")).toEqual([
+      {
+        refId: "tweet-1",
+        nodeType: "Tweet",
+        excerpt: "a sentence mentioning United States",
+        matched: true,
+      },
+      // chapter descriptions are prose and count as source sentences
+      {
+        refId: "chapter-1",
+        nodeType: "Chapter",
+        excerpt: "The panel frames United States policy against China's.",
+        matched: true,
+      },
+      // chapter-2 has only a name (topic label) → excluded
     ])
   })
 
-  it("reports zero overlap for disjoint neighborhoods", () => {
-    const ctx = deriveMergeContext(
-      [a, b],
-      [graphFor(a, ["x1", "x2"]), graphFor(b, ["y1"])]
-    )
-    expect(ctx.sharedCount).toBe(0)
-    expect(ctx.sharedExamples).toEqual([])
-    expect(ctx.subjects[0].degree).toBe(2)
-    expect(ctx.subjects[1].degree).toBe(1)
+  it("ranks sources containing the name above head-of-text fallbacks", () => {
+    const graph: SubgraphResponse = {
+      nodes: [
+        // text property but the name never occurs → fallback excerpt
+        { ref_id: "tweet-nomatch", node_type: "Tweet", properties: { text: "something entirely unrelated" } },
+        // only a summary, but it contains the name → matched excerpt
+        { ref_id: "ep-match", node_type: "Episode", properties: { summary: "a summary about United States policy" } },
+      ],
+      edges: [
+        { ref_id: 1, edge_type: "MENTIONS", source: "tweet-nomatch", target: subject },
+        { ref_id: 2, edge_type: "MENTIONS", source: "ep-match", target: subject },
+      ],
+    }
+    const mentions = deriveMentions(subject, graph, "United States")
+    expect(mentions.map((m) => [m.refId, m.matched])).toEqual([
+      ["ep-match", true],
+      ["tweet-nomatch", false],
+    ])
   })
 
-  it("tolerates a missing subgraph for a subject", () => {
-    const ctx = deriveMergeContext([a, b], [graphFor(a, ["x1"])])
-    expect(ctx.subjects).toHaveLength(2)
-    expect(ctx.subjects[1].degree).toBe(0)
-    expect(ctx.sharedCount).toBe(0)
+  it("ranks text sources above summary sources regardless of edge order", () => {
+    const graph: SubgraphResponse = {
+      nodes: [
+        { ref_id: "ep-1", node_type: "Episode", properties: { summary: "An episode summary about it" } },
+        { ref_id: "tweet-9", node_type: "Tweet", properties: { text: "the actual sentence" } },
+      ],
+      edges: [
+        // summary-bearing source comes FIRST in edge order…
+        { ref_id: 1, edge_type: "MENTIONS", source: "ep-1", target: subject },
+        { ref_id: 2, edge_type: "MENTIONS", source: "tweet-9", target: subject },
+      ],
+    }
+    const mentions = deriveMentions(subject, graph, null)
+    // …but the text-bearing tweet still ranks first
+    expect(mentions.map((m) => m.refId)).toEqual(["tweet-9", "ep-1"])
+  })
+
+  it("windows into an episode transcript when one is stored", () => {
+    const transcript =
+      '"Rene Haas: There\'s no computing problem left. ' +
+      "filler ".repeat(50) +
+      'Later on we discuss how United States policy shapes chip supply chains going forward for everyone involved."'
+    const graph: SubgraphResponse = {
+      nodes: [
+        {
+          ref_id: "ep-t",
+          node_type: "Episode",
+          properties: { transcript, summary: "unrelated summary" },
+        },
+      ],
+      edges: [
+        { ref_id: 1, edge_type: "MENTIONS", source: "ep-t", target: subject },
+      ],
+    }
+    const mentions = deriveMentions(subject, graph, "United States")
+    expect(mentions).toHaveLength(1)
+    expect(mentions[0].matched).toBe(true)
+    expect(mentions[0].excerpt).toContain("United States policy shapes")
+    expect(mentions[0].excerpt.startsWith("… ")).toBe(true)
+  })
+
+  it("returns empty for an empty subgraph", () => {
+    expect(deriveMentions(subject, { nodes: [], edges: [] }, null)).toEqual([])
   })
 })
