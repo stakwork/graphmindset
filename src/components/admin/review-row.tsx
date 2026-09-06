@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowRight, ArrowRightLeft, Check, CheckCircle2, ChevronRight, Copy, GitMerge, Layers, Loader2, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, Users, type LucideIcon } from "lucide-react"
+import { ArrowDown, ArrowRight, ArrowRightLeft, Check, CheckCircle2, ChevronRight, Copy, Crown, GitMerge, Layers, Loader2, Network, Pencil, PlusCircle, PlusSquare, Share2, Trash2, Users, type LucideIcon } from "lucide-react"
 import { formatDateRelative } from "@/lib/date-format"
 import type {
   PromotionSummary,
@@ -21,7 +21,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { NodeRow } from "@/components/layout/node-row"
+import { Badge } from "@/components/ui/badge"
+import { getSchemaIconInfo } from "@/lib/schema-icons"
 import { Checkbox } from "@/components/ui/checkbox"
 import type { SchemaNode } from "@/lib/schema-types"
 import { DISPLAY_KEY_FALLBACKS, pickString } from "@/lib/node-display"
@@ -525,40 +526,211 @@ function CopyRefButton({ refId }: { refId: string }) {
   )
 }
 
+/**
+ * Micro-heading used for every section of the expanded panel. One place to
+ * tune the size — the 9px version was hard to read on dense rows.
+ */
+function SectionLabel({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
+ * A node inside the expanded panel. Purpose-built rather than reusing NodeRow:
+ * the name is allowed to wrap (a merge decision is unreadable when both names
+ * are cut to "Process reengi…"), the tile is smaller, and the row exposes a
+ * leading slot (checkbox / canonical marker) and a trailing actions slot so
+ * controls line up in fixed columns instead of squeezing the title.
+ */
 function SubjectListItem({
   refId,
   resolved,
   schemas,
   onClick,
+  leading,
+  actions,
+  emphasis = false,
 }: {
   refId: string
   resolved: SubjectNode | undefined
   schemas: SchemaNode[]
   onClick: () => void
+  /** Rendered in a fixed-width column before the icon (checkbox, radio…). */
+  leading?: React.ReactNode
+  /** Rendered after the copy button, vertically centred on the row. */
+  actions?: React.ReactNode
+  /** Canonical / surviving node styling. */
+  emphasis?: boolean
 }) {
   if (!resolved || resolved.node_type === null) {
     return (
-      <span className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-muted-foreground italic">
-        Deleted: {refId}
-        <CopyRefButton refId={refId} />
-      </span>
+      <div className="flex items-center gap-2.5 px-2 py-2">
+        {leading !== undefined && (
+          <span className="flex w-4 shrink-0 items-center justify-center">{leading}</span>
+        )}
+        <span className="flex min-w-0 items-center gap-1 font-mono text-[11px] italic text-muted-foreground">
+          Deleted: {refId}
+          <CopyRefButton refId={refId} />
+        </span>
+      </div>
     )
   }
+
   return (
-    <div className="flex items-center gap-1">
-      <div className="min-w-0 flex-1">
-        <NodeRow
-          node={{
-            ref_id: refId,
-            node_type: resolved.node_type,
-            properties: resolved.properties ?? {},
-          }}
-          schemas={schemas}
-          onClick={onClick}
-          hideBoost
+    <SubjectRowBody
+      refId={refId}
+      resolved={resolved}
+      schemas={schemas}
+      onClick={onClick}
+      leading={leading}
+      actions={actions}
+      emphasis={emphasis}
+    />
+  )
+}
+
+function SubjectRowBody({
+  refId,
+  resolved,
+  schemas,
+  onClick,
+  leading,
+  actions,
+  emphasis,
+}: {
+  refId: string
+  resolved: SubjectNode
+  schemas: SchemaNode[]
+  onClick: () => void
+  leading?: React.ReactNode
+  actions?: React.ReactNode
+  emphasis: boolean
+}) {
+  const [imgError, setImgError] = useState(false)
+  const nodeType = resolved.node_type ?? "Unknown"
+  const props = resolved.properties ?? {}
+  const schema = schemas.find((sc) => sc.type === nodeType)
+  const name = getDisplayName(resolved, schemas) ?? refId
+  const { icon: Icon, accent } = getSchemaIconInfo(schema?.icon)
+  const thumbnail = pickString(props, "image_url") ?? pickString(props, "thumbnail")
+  const showThumbnail = !!thumbnail && !imgError
+
+  // A one-line description helps tell near-duplicate names apart, which is
+  // exactly the judgement a merge review asks for.
+  const descKey = schema?.description_key
+  const snippetSource =
+    (descKey && pickString(props, descKey)) ??
+    pickString(props, "description") ??
+    pickString(props, "summary") ??
+    pickString(props, "bio")
+  const snippet = snippetSource && snippetSource !== name ? snippetSource : undefined
+
+  return (
+    <div className="flex items-start gap-2.5 px-2 py-2">
+      {leading !== undefined && (
+        <span className="flex h-7 w-4 shrink-0 items-center justify-center">{leading}</span>
+      )}
+      {showThumbnail ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={thumbnail}
+          alt=""
+          className="h-7 w-7 shrink-0 rounded-md border border-border/40 object-cover"
+          onError={() => setImgError(true)}
         />
+      ) : (
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border"
+          style={{ backgroundColor: `${accent}15`, borderColor: `${accent}30` }}
+        >
+          <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
+        </span>
+      )}
+      <div className="min-w-0 flex-1 self-center">
+        <p className="min-w-0 break-words text-[13px] leading-snug">
+          <button
+            type="button"
+            onClick={onClick}
+            title={name}
+            className={cn(
+              "cursor-pointer text-left text-foreground underline-offset-2 transition-colors hover:text-primary hover:underline",
+              emphasis && "font-semibold"
+            )}
+          >
+            {name}
+          </button>
+          <Badge
+            variant="outline"
+            className="ml-2 inline-flex h-4 shrink-0 translate-y-[-1px] px-1.5 py-0 align-middle font-mono text-[9px]"
+            style={{
+              borderColor: `${accent}55`,
+              color: accent,
+              backgroundColor: `${accent}10`,
+            }}
+          >
+            {displayNodeType(nodeType)}
+          </Badge>
+        </p>
+        {snippet && (
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground/80">
+            {snippet}
+          </p>
+        )}
       </div>
-      <CopyRefButton refId={refId} />
+      <div className="flex shrink-0 items-center gap-1 self-center">
+        <CopyRefButton refId={refId} />
+        {actions}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Stacked sources → canonical layout. Two side-by-side columns halved the
+ * width every name had; stacking gives each row the full panel so titles,
+ * badges and controls fit without truncation.
+ */
+function MergeDirectionLayout({
+  sourcesLabel,
+  sources,
+  canonicalLabel,
+  canonical,
+}: {
+  sourcesLabel: React.ReactNode
+  sources: React.ReactNode
+  canonicalLabel: React.ReactNode
+  canonical: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col">
+      <SectionLabel className="mb-1">{sourcesLabel}</SectionLabel>
+      <div className="divide-y divide-border/30 rounded-md border border-border/40 bg-background/40">
+        {sources}
+      </div>
+
+      <div className="flex items-center gap-2 py-1.5 pl-3 text-muted-foreground/60">
+        <ArrowDown className="h-3.5 w-3.5" />
+        <span className="text-[10px] uppercase tracking-[0.12em]">merges into</span>
+      </div>
+
+      <SectionLabel className="mb-1">{canonicalLabel}</SectionLabel>
+      <div className="rounded-md border border-primary/30 bg-primary/5">
+        {canonical}
+      </div>
     </div>
   )
 }
@@ -1081,101 +1253,81 @@ export function ReviewRow({
 
               return (
                 <div className="flex flex-col gap-2">
-                  <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
-                    {/* Sources column */}
-                    <div>
-                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        Sources ({sourceSlots.length})
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {sourceSlots.map((id) => {
-                          const isChecked = checkedSources.has(id)
-                          return (
-                            <div key={id} className="flex items-center gap-1.5">
-                              <Checkbox
-                                checked={isChecked}
-                                onChange={(checked) => {
-                                  setCheckedSources((prev) => {
-                                    const next = new Set(prev)
-                                    if (checked) next.add(id)
-                                    else next.delete(id)
-                                    return next
-                                  })
-                                }}
-                                ariaLabel={`Include ${id} in merge`}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <SubjectListItem
-                                  refId={id}
-                                  resolved={subjectMap.get(id)}
-                                  schemas={schemas}
-                                  onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${id}`) }}
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                title="Set as canonical"
-                                aria-label={`Set ${id} as canonical`}
-                                onClick={() => {
-                                  const prevCanonical = canonicalId
-                                  setCanonicalId(id)
-                                  setCheckedSources((prev) => {
-                                    const next = new Set(prev)
-                                    // The promoted source leaves sources; old canonical joins sources (checked)
-                                    next.delete(id)
-                                    next.add(prevCanonical)
-                                    return next
-                                  })
-                                }}
-                                className="group shrink-0 flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                              >
-                                {/* A bare dot reads as a bullet at this size —
-                                    the action has to be spelled out to be
-                                    findable at all. */}
-                                <span className="h-2 w-2 rounded-full border border-current" />
-                                Make canonical
-                              </button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Arrow */}
-                    <div className="flex items-center justify-center px-2">
-                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60" />
-                    </div>
-
-                    {/* Canonical column */}
-                    <div>
-                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                        Canonical (survives)
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="min-w-0 flex-1">
-                          <SubjectListItem
-                            refId={canonicalId}
-                            resolved={subjectMap.get(canonicalId)}
-                            schemas={schemas}
-                            onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${canonicalId}`) }}
-                          />
-                        </div>
-                        {/* Locked "canonical" radio indicator */}
-                        <div
-                          title="Current canonical node"
-                          aria-label="Canonical node (locked)"
-                          className="shrink-0 flex h-4 w-4 items-center justify-center rounded-full border border-primary/60 bg-primary/10 text-primary"
-                        >
-                          <span className="h-2 w-2 rounded-full bg-primary" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <MergeDirectionLayout
+                    sourcesLabel={<>Sources ({sourceSlots.length}) — merged in, then muted</>}
+                    sources={sourceSlots.map((id) => {
+                      const isChecked = checkedSources.has(id)
+                      return (
+                        <SubjectListItem
+                          key={id}
+                          refId={id}
+                          resolved={subjectMap.get(id)}
+                          schemas={schemas}
+                          onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${id}`) }}
+                          leading={
+                            <Checkbox
+                              checked={isChecked}
+                              onChange={(checked) => {
+                                setCheckedSources((prev) => {
+                                  const next = new Set(prev)
+                                  if (checked) next.add(id)
+                                  else next.delete(id)
+                                  return next
+                                })
+                              }}
+                              ariaLabel={`Include ${id} in merge`}
+                            />
+                          }
+                          actions={
+                            <button
+                              type="button"
+                              title="Set as canonical"
+                              aria-label={`Set ${id} as canonical`}
+                              onClick={() => {
+                                const prevCanonical = canonicalId
+                                setCanonicalId(id)
+                                setCheckedSources((prev) => {
+                                  const next = new Set(prev)
+                                  // The promoted source leaves sources; old canonical joins sources (checked)
+                                  next.delete(id)
+                                  next.add(prevCanonical)
+                                  return next
+                                })
+                              }}
+                              className="inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/60 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                            >
+                              <Crown className="h-3 w-3" />
+                              Make canonical
+                            </button>
+                          }
+                        />
+                      )
+                    })}
+                    canonicalLabel="Canonical (survives)"
+                    canonical={
+                      <SubjectListItem
+                        refId={canonicalId}
+                        resolved={subjectMap.get(canonicalId)}
+                        schemas={schemas}
+                        onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${canonicalId}`) }}
+                        emphasis
+                        leading={
+                          <span
+                            title="Current canonical node"
+                            aria-label="Canonical node (locked)"
+                            className="flex h-4 w-4 items-center justify-center rounded-full border border-primary/60 bg-primary/10 text-primary"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-primary" />
+                          </span>
+                        }
+                      />
+                    }
+                  />
 
                   {/* Approving now runs something other than what was
                       proposed — say so before the operator commits. */}
                   {isModified && !mergeError && (
-                    <p className="text-[11px] text-primary">
+                    <p className="border-l-2 border-primary/60 pl-2 text-[11px] leading-relaxed text-primary">
                       Edited — approving merges {effectiveFrom.length} source
                       {effectiveFrom.length === 1 ? "" : "s"} into{" "}
                       {getDisplayName(subjectMap.get(canonicalId), schemas) ??
@@ -1186,49 +1338,47 @@ export function ReviewRow({
 
                   {/* Merge error */}
                   {mergeError && (
-                    <p className="text-[11px] text-amber-400">{mergeError}</p>
+                    <p className="border-l-2 border-amber-400/60 pl-2 text-[11px] leading-relaxed text-amber-400">
+                      {mergeError}
+                    </p>
                   )}
                 </div>
               )
             })()
           ) : direction ? (
-            <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
-              <div>
-                <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Merging {direction.fromIds.length} source{direction.fromIds.length === 1 ? "" : "s"}
-                </div>
-                <div className="flex flex-col gap-px">
-                  {direction.fromIds.map((id) => (
-                    <SubjectListItem
-                      key={id}
-                      refId={id}
-                      resolved={subjectMap.get(id)}
-                      schemas={schemas}
-                      onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${id}`) }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center justify-center px-2">
-                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60" />
-              </div>
-              <div>
-                <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Into canonical
-                </div>
+            <MergeDirectionLayout
+              sourcesLabel={
+                review.action_name === "supersede"
+                  ? "Replaced"
+                  : <>Sources ({direction.fromIds.length})</>
+              }
+              sources={direction.fromIds.map((id) => (
+                <SubjectListItem
+                  key={id}
+                  refId={id}
+                  resolved={subjectMap.get(id)}
+                  schemas={schemas}
+                  onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${id}`) }}
+                />
+              ))}
+              canonicalLabel={
+                review.action_name === "supersede" ? "Replaced by" : "Canonical (survives)"
+              }
+              canonical={
                 <SubjectListItem
                   refId={direction.toId}
                   resolved={subjectMap.get(direction.toId)}
                   schemas={schemas}
                   onClick={() => { setReturnTo('/admin/reviews'); router.push(`/?id=${direction.toId}`) }}
+                  emphasis
                 />
-              </div>
-            </div>
+              }
+            />
           ) : review.action_name === "add_source" && review.action_payload && typeof review.action_payload === "object" ? (
             <div>
-              <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <SectionLabel className="mb-1.5">
                 Suggested Source
-              </div>
+              </SectionLabel>
               <div className="flex flex-col gap-1 text-[12px]">
                 <div>
                   <span className="text-muted-foreground">Type: </span>
@@ -1250,9 +1400,9 @@ export function ReviewRow({
               }
               return (
                 <div>
-                  <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  <SectionLabel className="mb-1.5">
                     Social Handle
-                  </div>
+                  </SectionLabel>
                   <div className="flex flex-wrap items-center gap-2 text-[12px]">
                     <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium capitalize">
                       {p.platform}
@@ -1286,9 +1436,9 @@ export function ReviewRow({
               const entries = Object.entries(props).filter(([k]) => !SYSTEM_KEYS.has(k))
               return (
                 <div>
-                  <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  <SectionLabel className="mb-1.5">
                     Proposed Node
-                  </div>
+                  </SectionLabel>
                   {p.node_type && (
                     <span className="mb-2 inline-flex items-center rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium">
                       {p.node_type}
@@ -1314,9 +1464,9 @@ export function ReviewRow({
               const targetNode = p.target_ref_id ? subjectMap.get(p.target_ref_id) : undefined
               return (
                 <div>
-                  <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  <SectionLabel className="mb-2">
                     Proposed Edge
-                  </div>
+                  </SectionLabel>
                   <div className="flex items-center gap-2 flex-wrap">
                     {p.source_ref_id && (
                       <InlineChip refId={p.source_ref_id} subject={sourceNode} schemas={schemas} />
@@ -1352,9 +1502,9 @@ export function ReviewRow({
                 <div className="flex flex-col gap-3">
                   {subject && (
                     <div>
-                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <SectionLabel className="mb-1.5">
                         Node Being Edited
-                      </div>
+                      </SectionLabel>
                       <SubjectListItem
                         refId={subject.ref_id}
                         resolved={subject}
@@ -1365,9 +1515,9 @@ export function ReviewRow({
                   )}
                   {typeChanged && (
                     <div>
-                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <SectionLabel className="mb-1.5">
                         Type Change
-                      </div>
+                      </SectionLabel>
                       <div className="flex items-center gap-2 text-[12px]">
                         <span className="rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px]">{currentType}</span>
                         <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
@@ -1377,9 +1527,9 @@ export function ReviewRow({
                   )}
                   {changedEntries.length > 0 && (
                     <div>
-                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <SectionLabel className="mb-1.5">
                         Proposed Changes
-                      </div>
+                      </SectionLabel>
                       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
                         {changedEntries.map(([k, v]) => (
                           <>
@@ -1392,9 +1542,9 @@ export function ReviewRow({
                   )}
                   {deletedProps.length > 0 && (
                     <div>
-                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <SectionLabel className="mb-1.5">
                         Remove Properties
-                      </div>
+                      </SectionLabel>
                       <div className="flex flex-wrap gap-1">
                         {deletedProps.map((k) => (
                           <span key={k} className="inline-flex items-center rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-mono text-red-400">
@@ -1419,9 +1569,9 @@ export function ReviewRow({
               return (
                 <div className="flex flex-col gap-3">
                   <div>
-                    <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    <SectionLabel className="mb-1.5">
                       Proposed Schema Type
-                    </div>
+                    </SectionLabel>
                     <div className="flex items-center gap-2">
                       {p.color && (
                         <span
@@ -1434,9 +1584,9 @@ export function ReviewRow({
                   </div>
                   {p.parent && (
                     <div>
-                      <div className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <SectionLabel className="mb-1">
                         Parent Hierarchy
-                      </div>
+                      </SectionLabel>
                       <div className="flex items-center gap-2 text-[12px]">
                         <span className="rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px]">{p.parent}</span>
                         <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
@@ -1446,9 +1596,9 @@ export function ReviewRow({
                   )}
                   {p.attributes && p.attributes.length > 0 && (
                     <div>
-                      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <SectionLabel className="mb-1.5">
                         Attributes
-                      </div>
+                      </SectionLabel>
                       <div className="flex flex-col gap-1">
                         {p.attributes.map((attr) => (
                           <div key={attr.key} className="flex items-center gap-2 text-[12px]">
@@ -1485,9 +1635,9 @@ export function ReviewRow({
               }
               return (
                 <div>
-                  <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  <SectionLabel className="mb-2">
                     Proposed Schema Edge
-                  </div>
+                  </SectionLabel>
                   <div className="flex items-center gap-2 flex-wrap text-[12px]">
                     <EdgeTypeNode value={p.source} />
                     <span className="flex items-center gap-1 text-muted-foreground">
@@ -1502,9 +1652,9 @@ export function ReviewRow({
             })()
           ) : (
             <div>
-              <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <SectionLabel className="mb-1.5">
                 Subjects ({review.subject_nodes.length})
-              </div>
+              </SectionLabel>
               <div className="flex flex-col gap-px">
                 {review.subject_nodes.map((sn) => (
                   <SubjectListItem
@@ -1530,9 +1680,7 @@ export function ReviewRow({
             return (
               <div className="mt-3 border-t border-border/30 pt-2">
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Rationale
-                  </span>
+                  <SectionLabel>Rationale</SectionLabel>
                   {conf && <ConfidenceIndicator value={conf.value} />}
                 </div>
                 <Tooltip>

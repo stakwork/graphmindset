@@ -144,7 +144,7 @@ export function MergeContextPanel({ review }: { review: Review }) {
 
   return (
     <div className="mt-3 border-t border-border/30 pt-2" data-testid="merge-context">
-      <div className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+      <div className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         Source Sentences
       </div>
 
@@ -162,7 +162,7 @@ export function MergeContextPanel({ review }: { review: Review }) {
               className="rounded-md border border-border/40 bg-background/40 p-2"
               data-testid={`merge-context-subject-${subject.refId}`}
             >
-              <div className="mb-1 truncate text-[11px] font-medium">
+              <div className="mb-1 break-words text-[11px] font-medium">
                 {subject.name ?? subject.refId.slice(0, 8)}
               </div>
               {subject.mentions.length > 0 ? (
