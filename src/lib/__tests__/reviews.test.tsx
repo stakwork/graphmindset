@@ -778,7 +778,7 @@ describe("ReviewRow", () => {
 
   it("edit_node expanded panel shows type-change indicator when node_type differs", async () => {
     const user = userEvent.setup()
-    const { getByText } = render(
+    const { getByText, getAllByText } = render(
       <ReviewRow
         schemas={[]}
         review={makeReview({
@@ -798,7 +798,8 @@ describe("ReviewRow", () => {
     // Compact row uses rowLabel from subject node name (no verb prefix)
     await user.click(getByText("Bitcoin Explained (Clip)"))
     expect(getByText("Type Change")).toBeTruthy()
-    expect(getByText("Clip")).toBeTruthy()
+    // "Clip" appears twice: the subject row's type badge and the type-change chip.
+    expect(getAllByText("Clip").length).toBeGreaterThanOrEqual(1)
     expect(getByText("Episode")).toBeTruthy()
   })
 
