@@ -28,7 +28,6 @@ export function FeedView() {
 
   useEffect(() => {
     clearSelection()
-    setActiveTypes(new Set())
   }, [searchTerm, clearSelection])
 
   // Mocks mode seeds from fixtures so the Latest feed has content before any search.
