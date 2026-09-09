@@ -4,6 +4,7 @@ import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { FeedView } from "@/components/feed/feed-view"
+import { SearchBar } from "@/components/search/search-bar"
 import { SourcesPanel } from "./sources-panel"
 import { MyContentPanel } from "./my-content-panel"
 import { ClipsPanel } from "./clips-panel"
@@ -59,6 +60,10 @@ export function LeftPane() {
   return (
     <aside className="relative h-full w-full flex flex-col border-r border-border/60 bg-background/60 noise-bg overflow-hidden">
       <div className="absolute inset-y-0 -right-px w-px bg-gradient-to-b from-transparent via-primary/25 to-transparent pointer-events-none" />
+
+      <div className="relative z-20 shrink-0 border-b border-border/60 bg-background/60 px-4 pt-4 pb-3">
+        <SearchBar />
+      </div>
 
       <div className="relative z-10 flex-1 min-h-0 overflow-hidden flex flex-col">
         {mode === "preview" && selectedNode && (

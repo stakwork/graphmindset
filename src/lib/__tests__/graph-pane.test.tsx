@@ -54,10 +54,6 @@ vi.mock("@/components/universe/graph-canvas", () => ({
   GraphCanvas: () => <div data-testid="graph-canvas" />,
 }))
 
-vi.mock("@/components/search/search-bar", () => ({
-  SearchBar: () => <div data-testid="search-bar" />,
-}))
-
 vi.mock("@/components/layout/universe-header", () => ({
   UniverseHeader: () => <div data-testid="universe-header" />,
 }))
