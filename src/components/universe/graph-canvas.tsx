@@ -1519,6 +1519,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     setCamTarget(OVERVIEW_CAM)
   }, [dataVersion, setCamTarget])
 
+  // Purely cosmetic — GraphView uses these ONLY for hover/select color boost
+  // and highlighted edges. They stay decoupled from viewState/focus: the
+  // actual "center camera + show only the subgraph" behavior for sidebar
+  // selection is driven by the focusOnNode effect below, not by this id.
   const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
 
@@ -1566,7 +1570,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // Feature 2 (GRAPH_FEATURES.md): pan to the rank-0 search hit once per new
   // search query. Tracks the last search term we've already panned for, so a
   // neighbor-fetch payload that arrives later (same query, fresher graph)
-  // doesn't re-pan and override a user click in between. handleNodeClick
+  // doesn't re-pan and override a user click in between. focusOnNode
   // consumes the pending pan by writing the current searchTerm into the ref —
   // see below.
   const lastPannedSearchTerm = useRef<string>("")
@@ -1608,17 +1612,18 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     setHoveredCardNode(null)
   }, [])
 
-  const handleNodeClick = useCallback(
+  // Shared "focus" sequence: re-scale the world around `nodeId`, compute its
+  // undirected subgraph, switch viewState into subgraph mode showing just
+  // that subgraph, and dolly the camera onto the node. Both a direct canvas
+  // click (handleNodeClick) and a sidebar selection (the effect below) funnel
+  // through this so the two selection sources produce identical behavior —
+  // only the surrounding bookkeeping (store clears, onNodeSelect callback)
+  // differs between them.
+  const focusOnNode = useCallback(
     (nodeId: number) => {
-      useGraphStore.getState().setSidebarSelectedNode(null)
-      useGraphStore.getState().setHoveredNode(null)
       const refId = indexMap.get(nodeId)
-      if (refId && onNodeSelect) {
-        const apiNode = nodes.find((n) => n.ref_id === refId)
-        if (apiNode) onNodeSelect(apiNode)
-      }
 
-      // Debug: snapshot the clicked node's world position BEFORE rescale.
+      // Debug: snapshot the focused node's world position BEFORE rescale.
       // The yellow ghost marker lives here so layout rebuilds become visible.
       const preClickPos = graph.nodes[nodeId]?.position
       if (refId && preClickPos) {
@@ -1628,7 +1633,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         }
       }
 
-      // Re-scale the world around the clicked node. Selected stays put on
+      // Re-scale the world around the focused node. Selected stays put on
       // screen; descendants' offsets from selected grow to R1-sized rings,
       // ancestors push outward. No camera motion — the anchor doesn't move.
       const initialDepth = graph.initialDepthMap?.get(nodeId) ?? 0
@@ -1686,8 +1691,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         }
       })
 
-      // Camera dollies to look at selected. Anchor's world position is
-      // fixed by rescaleAroundAnchor, so the camera target is constant
+      // Camera dollies to look at the focused node. Anchor's world position
+      // is fixed by rescaleAroundAnchor, so the camera target is constant
       // through the lerp — no drift like when both the camera and the
       // anchor were moving in opposite directions. Capture the current
       // orbit azimuth so the final view preserves it rather than snapping
@@ -1695,13 +1700,48 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       setCamTarget(computeCamTarget(graph, nodeId, cameraRef.current?.azimuthAngle ?? 0))
 
       // Consume any pending search-pan: if results haven't landed yet, a
-      // later payload would otherwise yank the camera off the node the
-      // user just clicked. Marking this term as "already panned for" stops
-      // the search-pan effect from firing for it.
+      // later payload would otherwise yank the camera off the node just
+      // focused. Marking this term as "already panned for" stops the
+      // search-pan effect from firing for it.
       lastPannedSearchTerm.current = searchTerm
     },
-    [graph, indexMap, nodes, onNodeSelect, setCamTarget, searchTerm]
+    [graph, indexMap, setCamTarget, searchTerm]
   )
+
+  const handleNodeClick = useCallback(
+    (nodeId: number) => {
+      useGraphStore.getState().setSidebarSelectedNode(null)
+      useGraphStore.getState().setHoveredNode(null)
+      const refId = indexMap.get(nodeId)
+      if (refId && onNodeSelect) {
+        const apiNode = nodes.find((n) => n.ref_id === refId)
+        if (apiNode) onNodeSelect(apiNode)
+      }
+      focusOnNode(nodeId)
+    },
+    [indexMap, nodes, onNodeSelect, focusOnNode]
+  )
+
+  // Sidebar selection should trigger the exact same focus sequence a canvas
+  // click does (center camera + collapse the view to just the subgraph) —
+  // not just the cosmetic externalSelectedId highlight computed above. Keyed
+  // on the ref_id (not the resolved index) so append-driven refIdToIndex
+  // churn from an UNRELATED node's neighbor fetch doesn't re-focus the node
+  // already active, while a node whose index isn't resolvable yet (still
+  // loading — see useNeighborFetch) naturally retries once refIdToIndex is
+  // rebuilt with it included.
+  const sidebarFocusedRefRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!sidebarSelectedNode) {
+      sidebarFocusedRefRef.current = null
+      return
+    }
+    if (sidebarFocusedRefRef.current === sidebarSelectedNode.ref_id) return
+    const idx = refIdToIndex.get(sidebarSelectedNode.ref_id)
+    if (idx === undefined) return
+    sidebarFocusedRefRef.current = sidebarSelectedNode.ref_id
+    focusOnNode(idx)
+  }, [sidebarSelectedNode, refIdToIndex, focusOnNode])
 
   const handleReset = useCallback(() => {
     restoreOriginalPositions(graph)
