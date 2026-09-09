@@ -55,6 +55,9 @@ vi.mock("@/stores/schema-store", () => ({
 vi.mock("@/components/feed/feed-view", () => ({
   FeedView: () => <div data-testid="feed-view" />,
 }))
+vi.mock("@/components/search/search-bar", () => ({
+  SearchBar: () => <div data-testid="search-bar" />,
+}))
 vi.mock("@/components/layout/sources-panel", () => ({
   SourcesPanel: () => <div data-testid="sources-panel" />,
 }))
@@ -87,6 +90,11 @@ describe("LeftPane pickMode()", () => {
   it("shows feed when nothing is open", () => {
     render(<LeftPane />)
     expect(screen.getByTestId("feed-view")).toBeTruthy()
+  })
+
+  it("renders SearchBar docked at the top, above the mode-switched content", () => {
+    render(<LeftPane />)
+    expect(screen.getByTestId("search-bar")).toBeTruthy()
   })
 
   it("shows clips panel when clipsOpen=true and no node selected", () => {

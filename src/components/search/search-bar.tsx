@@ -112,7 +112,7 @@ export function SearchBar() {
   }, [setSearchTerm, setGraphData, setLoading, clearSelection])
 
   return (
-    <form onSubmit={handleSubmit} className="relative w-full max-w-xl group">
+    <form onSubmit={handleSubmit} className="relative w-full group">
       <div
         className={`relative flex items-center rounded-lg border transition-all duration-300 ${
           focused
