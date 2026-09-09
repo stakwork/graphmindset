@@ -291,10 +291,16 @@ export function apiToGraph(
   return { graph, indexMap, refIdToIndex }
 }
 
-function applyLayout(graph: Graph) {
+// `rootId` (focus graph): lay the graph out around that node — it sits at the
+// origin, everything else rings outward by undirected hop distance. Without
+// it the dataset's own roots decide the center (extractInitialSubgraph).
+function applyLayout(graph: Graph, rootId?: number) {
   // Bumped from the 30 default — transcript/conversation graphs have chains
   // 40+ deep; truncating leaves the tail at buildGraph's (0,0,0) default.
-  const sub = extractInitialSubgraph(graph, 1000)
+  const sub =
+    rootId !== undefined && rootId >= 0 && rootId < graph.nodes.length
+      ? extractSubgraph(graph, rootId, 1000, { useAdj: "undirected" })
+      : extractInitialSubgraph(graph, 1000)
   const { positions, treeEdgeSet, childrenOf } = computeRadialLayout(
     sub.centerId,
     sub.neighborsByDepth,
@@ -1126,6 +1132,98 @@ const OVERVIEW_CAM: CamTarget = {
   lookX: 0, lookY: 0, lookZ: 0,
 }
 
+// Fixed world-unit margin around the framed nodes, plus a proportional share
+// of the extent — label pills sit above/beside their glyph and grow with the
+// ring radius, so a constant pad alone clips them on big neighborhoods.
+const FIT_PADDING = 4
+const FIT_PADDING_RATIO = 0.18
+// Never get closer than this to the top plane, so a two-node graph still
+// reads as a graph (glyph + label) rather than a giant blob.
+const FIT_MIN_HEIGHT = 14
+const CAMERA_FOV_DEG = 50
+
+// Top-down camera that frames ALL of `nodeIds` with `centerId` dead-center on
+// screen. Extents are measured as the farthest node from the center along
+// each screen axis (the camera's orbit azimuth rotates which world direction
+// is "up" on screen), so the frame is symmetric about the center node and
+// stays tight at any orbit angle. Height is chosen so both the vertical (fov)
+// and horizontal (fov × aspect) half-extents fit. Used for the focus graph
+// (sidebar pick), where the picked node is the subject and its 1-hop
+// neighborhood is what must be visible around it.
+//
+// Without `centerId` (or if it's not in `nodeIds`) the bounding-box center is
+// used instead.
+function computeFitCamTarget(
+  graph: Graph,
+  nodeIds: number[],
+  currentAzimuth: number,
+  aspect: number,
+  centerId?: number
+): CamTarget {
+  const cosA = Math.cos(currentAzimuth)
+  const sinA = Math.sin(currentAzimuth)
+  // u = screen-horizontal, v = screen-vertical, both in the ground plane.
+  const toUV = (p: Vec3) => ({ u: p.x * cosA - p.z * sinA, v: p.x * sinA + p.z * cosA })
+
+  let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity
+  let maxY = -Infinity
+  let count = 0
+  for (const id of nodeIds) {
+    const p = graph.nodes[id]?.position
+    if (!p) continue
+    const { u, v } = toUV(p)
+    if (u < minU) minU = u
+    if (u > maxU) maxU = u
+    if (v < minV) minV = v
+    if (v > maxV) maxV = v
+    if (p.y > maxY) maxY = p.y
+    count++
+  }
+  if (count === 0) return OVERVIEW_CAM
+
+  const centerPos = centerId !== undefined ? graph.nodes[centerId]?.position : undefined
+  let cu: number, cv: number, halfU: number, halfV: number
+  if (centerPos && nodeIds.includes(centerId!)) {
+    // Center ON the node: half-extents are the farthest reach from it.
+    const c = toUV(centerPos)
+    cu = c.u
+    cv = c.v
+    halfU = Math.max(maxU - cu, cu - minU, 0)
+    halfV = Math.max(maxV - cv, cv - minV, 0)
+  } else {
+    cu = (minU + maxU) / 2
+    cv = (minV + maxV) / 2
+    halfU = (maxU - minU) / 2
+    halfV = (maxV - minV) / 2
+  }
+  halfU += FIT_PADDING + halfU * FIT_PADDING_RATIO
+  halfV += FIT_PADDING + halfV * FIT_PADDING_RATIO
+
+  const cx = cu * cosA + cv * sinA
+  const cz = -cu * sinA + cv * cosA
+
+  const tanV = Math.tan((CAMERA_FOV_DEG / 2) * (Math.PI / 180))
+  const tanH = tanV * Math.max(0.1, aspect)
+  // The radial layout stacks rings DOWNWARD in y (ring 1 sits below the
+  // root, ring 2 below that), so the nodes are not coplanar. Measure the
+  // height from the HIGHEST node: that plane is the one nearest the camera,
+  // where the frustum cross-section is smallest. Lower nodes are farther
+  // away, project smaller, and therefore fit too.
+  const cameraHeight = Math.max(FIT_MIN_HEIGHT, Math.max(halfV / tanV, halfU / tanH))
+
+  // Same tiny in-plane offset as computeCamTarget — keeps setLookAt's
+  // up-vector math non-degenerate and preserves the user's orbit azimuth.
+  const offset = 0.1
+  return {
+    posX: cx + sinA * offset,
+    posY: maxY + cameraHeight,
+    posZ: cz + cosA * offset,
+    lookX: cx,
+    lookY: maxY,
+    lookZ: cz,
+  }
+}
+
 function smoothstep(x: number) {
   return x * x * (3 - 2 * x)
 }
@@ -1328,9 +1426,12 @@ interface GraphCanvasProps {
   edges: ApiEdge[]
   schemas: SchemaNode[]
   onNodeSelect?: (node: ApiNode) => void
+  /** Focus graph: center the layout on this node and fit the camera to the
+   *  whole graph instead of the default overview camera. */
+  layoutRootRefId?: string
 }
 
-export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvasProps) {
+export function GraphCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRefId }: GraphCanvasProps) {
   const cameraRef = useRef<CameraControlsImpl>(null)
   const sidebarHoveredNode = useGraphStore((s) => s.hoveredNode)
   const sidebarSelectedNode = useGraphStore((s) => s.sidebarSelectedNode)
@@ -1354,9 +1455,10 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // appends are folded in incrementally below via appendToGraph.
   const baseModel = useMemo(() => {
     const result = apiToGraph(nodes, edges, schemas)
-    applyLayout(result.graph)
+    const root = layoutRootRefId !== undefined ? result.refIdToIndex.get(layoutRootRefId) : undefined
+    applyLayout(result.graph, root)
     return result
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes/edges read at build time but intentionally NOT deps; see comment above
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes/edges/layoutRootRefId read at build time but intentionally NOT deps (they change together with dataVersion); see comment above
   }, [dataVersion, schemas])
 
   // Bumps once per full rebuild (new baseModel). GraphView uses it to snap on
@@ -1516,9 +1618,23 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // a clicked node would be undone every time a neighborhood arrives.
   useEffect(() => {
     setViewState({ mode: "overview" })
-    setCamTarget(OVERVIEW_CAM)
+    if (layoutRootRefId !== undefined) {
+      // Focus graph: it IS the thing to look at, so frame all of it.
+      const camObj = cameraRef.current?.camera as { aspect?: number } | undefined
+      const aspect = typeof camObj?.aspect === "number" && camObj.aspect > 0 ? camObj.aspect : 16 / 9
+      const all = graph.nodes.map((_, i) => i)
+      const rootIdx = refIdToIndex.get(layoutRootRefId)
+      setCamTarget(computeFitCamTarget(graph, all, cameraRef.current?.azimuthAngle ?? 0, aspect, rootIdx))
+    } else {
+      setCamTarget(OVERVIEW_CAM)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- graph/refIdToIndex/layoutRootRefId are read for the rebuild that dataVersion signals; not triggers themselves
   }, [dataVersion, setCamTarget])
 
+  // Purely cosmetic — GraphView uses these ONLY for hover/select color boost
+  // and highlighted edges. They stay decoupled from viewState/focus: the
+  // actual "center camera + show only the subgraph" behavior for sidebar
+  // selection is driven by the focusOnNode effect below, not by this id.
   const externalHoveredId = sidebarHoveredNode ? (refIdToIndex.get(sidebarHoveredNode.ref_id) ?? null) : null
   const externalSelectedId = sidebarSelectedNode ? (refIdToIndex.get(sidebarSelectedNode.ref_id) ?? null) : null
 
@@ -1566,7 +1682,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
   // Feature 2 (GRAPH_FEATURES.md): pan to the rank-0 search hit once per new
   // search query. Tracks the last search term we've already panned for, so a
   // neighbor-fetch payload that arrives later (same query, fresher graph)
-  // doesn't re-pan and override a user click in between. handleNodeClick
+  // doesn't re-pan and override a user click in between. focusOnNode
   // consumes the pending pan by writing the current searchTerm into the ref —
   // see below.
   const lastPannedSearchTerm = useRef<string>("")
@@ -1608,17 +1724,16 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
     setHoveredCardNode(null)
   }, [])
 
-  const handleNodeClick = useCallback(
+  // Canvas-click "focus" sequence: re-scale the world around `nodeId`,
+  // compute its undirected subgraph, switch viewState into subgraph mode
+  // showing just that subgraph, and dolly the camera onto the node.
+  // (Sidebar selection does NOT come through here — it swaps the canvas to a
+  // fresh focus graph instead; see useNeighborFetch + layoutRootRefId.)
+  const focusOnNode = useCallback(
     (nodeId: number) => {
-      useGraphStore.getState().setSidebarSelectedNode(null)
-      useGraphStore.getState().setHoveredNode(null)
       const refId = indexMap.get(nodeId)
-      if (refId && onNodeSelect) {
-        const apiNode = nodes.find((n) => n.ref_id === refId)
-        if (apiNode) onNodeSelect(apiNode)
-      }
 
-      // Debug: snapshot the clicked node's world position BEFORE rescale.
+      // Debug: snapshot the focused node's world position BEFORE rescale.
       // The yellow ghost marker lives here so layout rebuilds become visible.
       const preClickPos = graph.nodes[nodeId]?.position
       if (refId && preClickPos) {
@@ -1628,7 +1743,7 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         }
       }
 
-      // Re-scale the world around the clicked node. Selected stays put on
+      // Re-scale the world around the focused node. Selected stays put on
       // screen; descendants' offsets from selected grow to R1-sized rings,
       // ancestors push outward. No camera motion — the anchor doesn't move.
       const initialDepth = graph.initialDepthMap?.get(nodeId) ?? 0
@@ -1686,8 +1801,8 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
         }
       })
 
-      // Camera dollies to look at selected. Anchor's world position is
-      // fixed by rescaleAroundAnchor, so the camera target is constant
+      // Camera dollies to look at the focused node. Anchor's world position
+      // is fixed by rescaleAroundAnchor, so the camera target is constant
       // through the lerp — no drift like when both the camera and the
       // anchor were moving in opposite directions. Capture the current
       // orbit azimuth so the final view preserves it rather than snapping
@@ -1695,12 +1810,26 @@ export function GraphCanvas({ nodes, edges, schemas, onNodeSelect }: GraphCanvas
       setCamTarget(computeCamTarget(graph, nodeId, cameraRef.current?.azimuthAngle ?? 0))
 
       // Consume any pending search-pan: if results haven't landed yet, a
-      // later payload would otherwise yank the camera off the node the
-      // user just clicked. Marking this term as "already panned for" stops
-      // the search-pan effect from firing for it.
+      // later payload would otherwise yank the camera off the node just
+      // focused. Marking this term as "already panned for" stops the
+      // search-pan effect from firing for it.
       lastPannedSearchTerm.current = searchTerm
     },
-    [graph, indexMap, nodes, onNodeSelect, setCamTarget, searchTerm]
+    [graph, indexMap, setCamTarget, searchTerm]
+  )
+
+  const handleNodeClick = useCallback(
+    (nodeId: number) => {
+      useGraphStore.getState().setSidebarSelectedNode(null)
+      useGraphStore.getState().setHoveredNode(null)
+      const refId = indexMap.get(nodeId)
+      if (refId && onNodeSelect) {
+        const apiNode = nodes.find((n) => n.ref_id === refId)
+        if (apiNode) onNodeSelect(apiNode)
+      }
+      focusOnNode(nodeId)
+    },
+    [indexMap, nodes, onNodeSelect, focusOnNode]
   )
 
   const handleReset = useCallback(() => {

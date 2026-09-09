@@ -56,24 +56,31 @@ export function FeedView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // After a search, the graph store also holds expanded 1-hop neighbors that
+  // the backend returned without a score. The sidebar lists only scored hits.
+  const listNodes = useMemo(
+    () => (searchTerm ? nodes.filter((n) => typeof n.score === "number") : nodes),
+    [nodes, searchTerm]
+  )
+
   const typeCounts = useMemo(() => {
     const counts = new Map<string, number>()
-    for (const n of nodes) {
+    for (const n of listNodes) {
       const t = n.node_type ?? "Unknown"
       counts.set(t, (counts.get(t) ?? 0) + 1)
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1])
-  }, [nodes])
+  }, [listNodes])
 
   const filtered = useMemo(
     () =>
       activeTypes.size === 0
-        ? nodes
-        : nodes.filter((n) => activeTypes.has(n.node_type ?? "Unknown")),
-    [nodes, activeTypes]
+        ? listNodes
+        : listNodes.filter((n) => activeTypes.has(n.node_type ?? "Unknown")),
+    [listNodes, activeTypes]
   )
 
-  const hasResults = nodes.length > 0
+  const hasResults = listNodes.length > 0
 
   // Hot Takes only belongs on the landing surface (no active search).
   const showHotTakes = !searchTerm

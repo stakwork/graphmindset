@@ -14,6 +14,9 @@ export function GraphPane() {
   const edges = useGraphStore((s) => s.edges)
   const selectedNode = useGraphStore((s) => s.selectedNode)
   const setSelectedNode = useGraphStore((s) => s.setSelectedNode)
+  // While a sidebar pick is active the canvas shows that node's 1-hop
+  // neighborhood as its own graph (see useNeighborFetch / setFocusGraph).
+  const focusGraph = useGraphStore((s) => s.focusGraph)
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const loadingNeighbors = useGraphStore((s) => s.loadingNeighborRefs.size > 0)
   const schemas = useSchemaStore((s) => s.schemas)
@@ -75,8 +78,9 @@ export function GraphPane() {
       <div className="relative z-10 flex-1 min-h-0">
         {hasData ? (
           <GraphCanvas
-            nodes={nodes}
-            edges={edges}
+            nodes={focusGraph ? focusGraph.nodes : nodes}
+            edges={focusGraph ? focusGraph.edges : edges}
+            layoutRootRefId={focusGraph?.rootRefId}
             schemas={schemas}
             onNodeSelect={onSelect}
           />
