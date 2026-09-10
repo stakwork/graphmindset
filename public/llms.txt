@@ -127,7 +127,8 @@ direct LN-node check (see `/agents.txt`). Any non-empty string after
 | POST | `/api/top_up_lsat` | Tops up an existing LSAT. Body `{macaroon: <yours>, amount: <sats>}` (max 10000 sats). Returns `200 {success, payment_request, payment_hash}` — a new BOLT11 invoice + its hash. Pay it, then call `/api/top_up_confirm`. |
 | POST | `/api/top_up_confirm` | Settles a paid top-up. Requires `Authorization: LSAT <macaroon>:paid`. Body `{payment_hash: <from top_up_lsat>}`. Returns `200 {success, new_balance}` once the LN node sees the invoice settled. Idempotency-protected: a payment_hash can only be confirmed once, by the LSAT it was issued for. |
 | GET | `/api/top_up_status/:payment_hash` | Poll whether a top-up's invoice has settled yet. Useful while waiting for the human to pay. |
-| GET | `/api/transactions` | History. Returns `{transactions: [{action, type:"debit"\|"credit", amount, created_at, related_transaction_id?, node_ref_id?}, ...], scope}`. Amount is always positive; sign comes from `type`. Credits = top-ups, refunds, **and earnings**: `payout` (a flat server-set amount per unlock of a node you added — read it from the row's `amount`; `node_ref_id` attributes the payout to that node) and `boost` with `type="credit"` (someone boosted your content — anonymous L402 path only; Sphinx-signed recipients get off-ledger keysend and won't see anything here). Debits = `search`, `purchase` (you unlocked a node), `boost` (you boosted someone), `add_content`, `add_source`. Filter out rows where `action="purchase"` and `amount=0` (synthetic free-re-access grants). See `/agents.txt` "Earnings" for the full earnings model. |
+| POST | `/api/withdraw` | **Cash out balance (including earnings) to a Lightning wallet.** Requires `Authorization: LSAT <macaroon>:paid`. Body `{payment_request: <BOLT11>}` — the invoice is the destination, so generate it in the receiving wallet first. The invoice must carry an amount (amountless is rejected), be unexpired, not previously paid, and be within the token's balance. A server-set minimum applies; below it you get `400 BELOW_MINIMUM` whose `message` states the current figure. Boltwall debits the balance, pays the invoice from its LN node, and refunds the debit if the payment fails (`PAYMENT_FAILED`). Errors: `MISSING_AUTH`, `LSAT_NOT_FOUND`, `MISSING_PAYMENT_REQUEST`, `INVALID_INVOICE`, `AMOUNTLESS_INVOICE`, `BELOW_MINIMUM`, `INVOICE_EXPIRED`, `ALREADY_WITHDRAWN`, `INSUFFICIENT_BALANCE` (401). |
+| GET | `/api/transactions` | History. Returns `{transactions: [{action, type:"debit"\|"credit", amount, created_at, related_transaction_id?, node_ref_id?}, ...], scope}`. Amount is always positive; sign comes from `type`. Credits = top-ups, refunds, **and earnings**: `payout` (a flat server-set amount per unlock of a node you added — read it from the row's `amount`; `node_ref_id` attributes the payout to that node) and `boost` with `type="credit"` (someone boosted your content — anonymous L402 path only; Sphinx-signed recipients get off-ledger keysend and won't see anything here). Debits = `search`, `purchase` (you unlocked a node), `boost` (you boosted someone), `add_content`, `add_source`, `withdrawal` (paid out to your wallet). Filter out rows where `action="purchase"` and `amount=0` (synthetic free-re-access grants). See `/agents.txt` "Earnings" for the full earnings model. |
 
 ## Worked examples
 
@@ -399,6 +400,29 @@ payouts across every macaroon owned by that pubkey; otherwise
 
 See `/agents.txt` "Earnings" for the full model (including the
 non-atomic debit/payout caveat).
+
+### Withdraw ("cash out my sats")
+
+Balance — top-ups and earnings alike — can be paid out to any Lightning
+wallet. The wallet generates an invoice; you hand it to the server:
+
+```
+curl -sS -X POST -H 'Content-Type: application/json' \
+  -H 'Authorization: LSAT <macaroon>:paid' \
+  -d '{"payment_request":"lnbc..."}' \
+  https://ai.sphinx.chat/api/withdraw
+```
+
+Response on success: `{ "success": true }` and a `withdrawal` debit
+row appears in `/api/transactions`. On failure the body carries an
+`errorCode` (see the Payment table). The minimum withdrawal is a
+server-side constant, not stated here — a too-small invoice returns
+`BELOW_MINIMUM` with the current figure in `message`, so check
+`/api/balance` first and let the human size the invoice accordingly.
+
+If you cannot generate invoices yourself, ask the human for one the same
+way you ask them to pay: they open their wallet, choose "receive", enter
+the amount, and paste you the `lnbc…` string.
 
 ## Node properties (common fields)
 

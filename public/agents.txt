@@ -240,6 +240,12 @@ When the human says…                | Hit this endpoint
 "mint a fresh token"                | `POST /api/buy_lsat` (no body) → 402 with
                                     | macaroon+invoice → pay → use
                                     | `LSAT <macaroon-from-402>:paid`
+"withdraw" / "cash out" /           | `POST /api/withdraw` body `{payment_request}`
+  "send my sats to my wallet"       | (a BOLT11 invoice from the receiving wallet,
+                                    | with an amount ≤ balance). Same LSAT header.
+                                    | Server-set minimum — a too-small invoice gets
+                                    | `BELOW_MINIMUM` with the figure in `message`.
+                                    | See "Withdrawing" below.
 "open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
 "what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`
 "how many nodes / topics / people"  | `GET /api/stats` (free)
@@ -293,6 +299,28 @@ Two earn events:
    - **Anonymous LSAT** (no signature) → credited on the boltwall
      ledger as `{action:"boost", type:"credit", amount:N}` in
      `/api/transactions`.
+
+### Withdrawing — earnings are not trapped
+
+Anything on the token's balance, earned or topped up, can be paid out
+to a Lightning wallet with `POST /api/withdraw` and the usual
+`Authorization: LSAT <macaroon>:paid` header. The body is
+`{"payment_request": "<BOLT11>"}`: the invoice *is* the destination,
+so it must come from the wallet that should receive the sats, carry an
+explicit amount no larger than the balance, and be unexpired. The
+server debits first, pays the invoice from its own LN node, and refunds
+the debit if the payment fails.
+
+There is a server-set minimum withdrawal. Do not assume a figure —
+send the invoice and, on `400 BELOW_MINIMUM`, read the current minimum
+from the response `message` and tell the human.
+
+If you cannot generate invoices yourself, ask the human for one exactly
+as you ask them to pay: in one short message say how many sats are
+available (`GET /api/balance`), ask them to open their wallet, tap
+"receive", enter an amount, and paste you the `lnbc…` string. Then
+call `/api/withdraw` with it. Keysend boost earnings on a Sphinx-signed
+token are already in the wallet and never need this route.
 
 ### Identity binding (important for agents)
 
