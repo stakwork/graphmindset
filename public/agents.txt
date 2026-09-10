@@ -223,8 +223,9 @@ When the human says…                | Hit this endpoint
                                     | this file never states them.
 "show my transactions / history"    | `GET /api/transactions` → `{transactions[], scope}`
 "how much have I earned" /          | `GET /api/transactions` and sum rows where
-  "show my payouts" /               | `action="payout"` (unlock earnings, 10 sats
-  "earnings"                        | each, with `node_ref_id` for per-node
+  "show my payouts" /               | `action="payout"` (unlock earnings — a flat
+  "earnings"                        | server-set amount per unlock; read it from the
+                                    | row's `amount`, with `node_ref_id` for per-node
                                     | attribution). Boost earnings: if your LSAT is
                                     | Sphinx-signed they arrive as off-ledger keysend
                                     | to your wallet and won't appear here; if
@@ -265,13 +266,15 @@ Two earn events:
 
 1. **Unlocks (reveals).** When another user fetches a node you added
    via `GET /api/v2/nodes/<ref_id>?expand=edges`, the server pays
-   you a flat **10 sats per unlock**, debited from the unlocker.
+   you a **flat per-unlock payout**, debited from the unlocker. The
+   amount is a server-side constant, not stated here — never quote a
+   figure; read it from the `amount` on the credit rows below.
    Self-unlock is blocked — you can't pay yourself. The credit
    appears in `GET /api/transactions` as:
 
        { "action": "payout",
          "type":   "credit",
-         "amount": 10,
+         "amount": <server-set payout>,
          "related_transaction_id": "<unlocker's debit row>",
          "node_ref_id": "<your node>",
          "created_at": ... }
