@@ -14,6 +14,8 @@ const graphState = {
   nodes: [] as unknown[],
   edges: [] as unknown[],
   selectedNode: null as unknown,
+  focusGraph: null as unknown,
+  loadingNeighborRefs: new Set<string>(),
   setSelectedNode: vi.fn(),
   setSidebarSelectedNode: vi.fn(),
   clearSelection: vi.fn(),
@@ -50,8 +52,12 @@ vi.mock("@/stores/schema-store", () => ({
 
 // ── Child component mocks ─────────────────────────────────────────────────────
 
+vi.mock("@/components/universe/neo4j-canvas", () => ({
+  Neo4jCanvas: () => <div data-testid="graph-canvas" />,
+}))
+
 vi.mock("@/components/universe/graph-canvas", () => ({
-  GraphCanvas: () => <div data-testid="graph-canvas" />,
+  GraphCanvas: () => <div data-testid="graph-canvas-radial" />,
 }))
 
 vi.mock("@/components/layout/universe-header", () => ({

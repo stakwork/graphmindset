@@ -1,15 +1,57 @@
 "use client"
 
+import { useSyncExternalStore } from "react"
 import { Network, Loader2 } from "lucide-react"
 import { useGraphStore } from "@/stores/graph-store"
 import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
+import { Neo4jCanvas } from "./neo4j-canvas"
 import { GraphCanvas } from "./graph-canvas"
 import { UniverseHeader } from "@/components/layout/universe-header"
 import { Toolkit, ToolkitFAB } from "@/components/layout/toolkit"
 import type { GraphNode } from "@/lib/graph-api"
 
+// Which renderer draws the main graph. "neo4j" is the Neo4j Browser-style 2D
+// force view, "radial" the original 3D radial view. Remembered per browser.
+type GraphViewMode = "neo4j" | "radial"
+const VIEW_MODE_STORAGE_KEY = "graphmindset.graph-view-mode"
+const VIEW_MODES: { value: GraphViewMode; label: string }[] = [
+  { value: "neo4j", label: "2D" },
+  { value: "radial", label: "Radial" },
+]
+
+// localStorage exposed as an external store: the server snapshot is always
+// "neo4j" so SSR and the first client render agree, then the stored choice
+// takes over without a setState-in-effect.
+const viewModeListeners = new Set<() => void>()
+function subscribeViewMode(cb: () => void) {
+  viewModeListeners.add(cb)
+  window.addEventListener("storage", cb)
+  return () => {
+    viewModeListeners.delete(cb)
+    window.removeEventListener("storage", cb)
+  }
+}
+function readStoredViewMode(): GraphViewMode {
+  try {
+    return window.localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "radial" ? "radial" : "neo4j"
+  } catch {
+    return "neo4j"
+  }
+}
+function writeStoredViewMode(mode: GraphViewMode) {
+  try {
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
+  } catch {
+    // storage unavailable (private mode) — the choice just won't persist
+  }
+  for (const cb of viewModeListeners) cb()
+}
+
 export function GraphPane() {
+  const viewMode = useSyncExternalStore(subscribeViewMode, readStoredViewMode, () => "neo4j" as GraphViewMode)
+  const changeViewMode = writeStoredViewMode
+
   const nodes = useGraphStore((s) => s.nodes)
   const edges = useGraphStore((s) => s.edges)
   const selectedNode = useGraphStore((s) => s.selectedNode)
@@ -77,13 +119,23 @@ export function GraphPane() {
 
       <div className="relative z-10 flex-1 min-h-0">
         {hasData ? (
-          <GraphCanvas
-            nodes={focusGraph ? focusGraph.nodes : nodes}
-            edges={focusGraph ? focusGraph.edges : edges}
-            layoutRootRefId={focusGraph?.rootRefId}
-            schemas={schemas}
-            onNodeSelect={onSelect}
-          />
+          viewMode === "neo4j" ? (
+            <Neo4jCanvas
+              nodes={focusGraph ? focusGraph.nodes : nodes}
+              edges={focusGraph ? focusGraph.edges : edges}
+              layoutRootRefId={focusGraph?.rootRefId}
+              schemas={schemas}
+              onNodeSelect={onSelect}
+            />
+          ) : (
+            <GraphCanvas
+              nodes={focusGraph ? focusGraph.nodes : nodes}
+              edges={focusGraph ? focusGraph.edges : edges}
+              layoutRootRefId={focusGraph?.rootRefId}
+              schemas={schemas}
+              onNodeSelect={onSelect}
+            />
+          )
         ) : (
           <EmptyState />
         )}
@@ -103,6 +155,28 @@ export function GraphPane() {
         )}
 
         <div className="absolute top-4 left-5 z-20 pointer-events-none flex items-center gap-2">
+          <div
+            role="radiogroup"
+            aria-label="Graph view"
+            className="pointer-events-auto flex items-center rounded-md border border-border bg-background/80 p-0.5 backdrop-blur"
+          >
+            {VIEW_MODES.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                role="radio"
+                aria-checked={viewMode === m.value}
+                onClick={() => changeViewMode(m.value)}
+                className={`rounded px-2 py-0.5 font-mono text-[9px] tracking-[0.18em] uppercase transition-colors ${
+                  viewMode === m.value
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
           <div className="font-mono text-[9px] tracking-[0.22em] uppercase text-muted-foreground/70">
             {nodes.length}n · {edges.length}e
           </div>
