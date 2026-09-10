@@ -53,10 +53,16 @@ settlement on its LN node and activates the LSAT on the next request.
    Server responds:
 
        HTTP/2 402 Payment Required
-       WWW-Authenticate: LSAT macaroon="AgEOY...", invoice="lnbc100n1p..."
+       WWW-Authenticate: LSAT macaroon="AgEOY...", invoice="lnbc<amount>1p..."
        Access-Control-Expose-Headers: www-authenticate
        Content-Type: application/json
        {"error":{"message":"Payment required"}}
+
+   The invoice amount is the route's current price. Prices are set
+   server-side and can change without a docs update, so never assume a
+   figure — read it from the invoice, or look it up first with the free
+   `GET /api/getPrice` (all routes) or
+   `GET /api/getPrice?endpoint=v2/nodes&method=GET` (one route).
 
 2. Pay the `invoice` (BOLT11) with any Lightning wallet — Sphinx,
    Phoenix, Wallet of Satoshi, Muun, Alby, etc. You do **not** need to
@@ -123,8 +129,10 @@ least one form that works on their device:
   `lightning:lnbc...`. On macOS / iOS / Android with a Lightning
   wallet installed, this is clickable and opens the wallet directly.
   Most terminals also auto-link it without wrapping inside the URL.
-- The amount in sats and what the payment unlocks ("10 sats for one
-  search", "1000 sats top-up", etc.).
+- The amount in sats, parsed from the invoice itself, and what the
+  payment unlocks ("<N> sats for one search", "1000 sats top-up", etc.).
+  Do not quote a price from memory or from these docs — per-route
+  prices live server-side (`GET /api/getPrice`) and change.
 
 **Opportunistic, where you have shell access and can detect the OS:**
 
@@ -208,6 +216,11 @@ When the human says…                | Hit this endpoint
 "what's still processing"           | `GET /api/v2/content` and read `totalProcessing`
 "how many sats do I have" /         | `GET /api/balance` → `{balance}`
   "check my balance"                |
+"how much does X cost" /            | `GET /api/getPrice` (free, no auth) → every
+  "what are the prices"             | paid route with its current `price` in sats;
+                                    | add `?endpoint=<route>&method=<M>` for one.
+                                    | Prices are server-defined and may change —
+                                    | this file never states them.
 "show my transactions / history"    | `GET /api/transactions` → `{transactions[], scope}`
 "how much have I earned" /          | `GET /api/transactions` and sum rows where
   "show my payouts" /               | `action="payout"` (unlock earnings, 10 sats
@@ -309,11 +322,13 @@ authenticated with. Consequences:
 
 ## Sandbox
 
-There is no separate sandbox host — every call settles real (10-sat
-class) Lightning payments. The truly-free endpoints (see `/llms.txt`
-"Free / preflight") let an agent confirm the API is reachable and
-explore the ontology before asking the human to fund a token:
+There is no separate sandbox host — every paid call settles a real
+Lightning payment at the route's current price. The truly-free
+endpoints (see `/llms.txt` "Free / preflight") let an agent confirm the
+API is reachable, learn the tariff, and explore the ontology before
+asking the human to fund a token:
 
+- `GET /api/getPrice` — current price of every paid route
 - `GET /api/stats`
 - `GET /api/about`
 - `GET /api/v2/schema/domains`

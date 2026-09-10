@@ -10,6 +10,7 @@
    "If you cannot pay invoices yourself" section if you have no
    wallet integration.
 2. Explore for free first (no auth required):
+   - `GET /api/getPrice` — current price in sats of every paid route
    - `GET /api/stats`, `GET /api/about`, `GET /api/v2/schema/domains`
    - `GET /api/v2/nodes/topic-check?name=<name>`
    - `GET /api/v2/nodes/check?node_type=<T>&key=<k>`
@@ -41,6 +42,21 @@
   origin as the API. Swarm deploys rewrite `nav.*.swarm.*` →
   `boltwall.*.swarm.*`.
 
+## Pricing
+
+Per-route prices are **not** stated in this file. They are defined
+server-side, can be changed by an operator at any time, and some routes
+listed as paid below may currently be priced at 0 sats. Two ways to
+learn the real figure:
+
+- `GET /api/getPrice` (free, no auth) → `{data: [{endpoint, method,
+  price}]}` for every paid route. Add `?endpoint=v2/nodes&method=GET`
+  to ask about one route.
+- The 402 challenge itself — the BOLT11 `invoice` encodes the amount
+  (`lnbc50n…` = 5 sats, `lnbc100n…` = 10 sats; see `/agents.txt`).
+
+Always quote the invoice amount to the human, never a number from docs.
+
 ## Endpoints
 
 All endpoints are JSON. Paid endpoints respond `402 Payment Required`
@@ -57,7 +73,7 @@ direct LN-node check (see `/agents.txt`). Any non-empty string after
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/v2/nodes?q=&limit=&skip=&node_type=&domains=` | Hybrid search (exact + fuzzy + semantic). Returns `{nodes, edges, total}`. |
-| GET | `/api/v2/nodes/latest?skip_cache=1` | Latest 100 nodes + 1-hop edges. |
+| GET | `/api/v2/nodes/latest?skip_cache=1` | Latest 100 nodes + 1-hop edges. Priced via `/api/getPrice`; may be 0 sats. |
 | GET | `/api/v2/nodes?filter=date_added_to_graph>&lt;ISO&gt;&type=&limit=` | Recent nodes of a type. |
 | GET | `/api/v2/nodes/<ref_id>` | Single node. |
 | GET | `/api/v2/nodes/<ref_id>?expand=edges` | Node + 1-hop neighbors. |
@@ -98,6 +114,7 @@ direct LN-node check (see `/agents.txt`). Any non-empty string after
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| GET | `/api/getPrice` | Current price of every paid route: `{data: [{endpoint, method, price}]}`. `?endpoint=<route>&method=<M>` for one. |
 | GET | `/api/v2/nodes/topic-check?name=<name>` | Does a Topic node exist by name? |
 | GET | `/api/v2/nodes/check?node_type=&key=` | Generic duplicate check using ontology node_key. |
 | GET | `/api/` | Health (returns "Hello world"). |
@@ -242,13 +259,16 @@ Response:
 {
   "transactions": [
     { "action": "top_up",  "type": "credit", "amount": 1000, "created_at": 1779067200 },
-    { "action": "search",  "type": "debit",  "amount": 10,   "created_at": 1779067260 },
+    { "action": "search",  "type": "debit",  "amount": 5,    "created_at": 1779067260 },
     { "action": "content", "type": "debit",  "amount": 10,   "created_at": 1779067320 }
   ],
   "scope": "token"
 }
 ```
 
+- Debit amounts above are illustrative only — each equals the route's
+  price at the time of the call, which is server-defined (see
+  "Pricing" / `GET /api/getPrice`).
 - `amount` is always positive — sign comes from `type`.
 - Skip rows where `action="purchase"` and `amount=0`; those are
   synthetic free-re-access grants, not real activity.
