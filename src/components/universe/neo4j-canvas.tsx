@@ -1073,8 +1073,8 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
                     relEls.current.set(r.key, cur)
                   }}
                   d={g.d}
-                  strokeWidth={lit ? 2 : 1}
-                  strokeOpacity={lit ? 1 : neighborhood.size ? 0.12 : 0.35}
+                  strokeWidth={lit ? 2.5 : 1.5}
+                  strokeOpacity={lit ? 1 : neighborhood.size ? 0.18 : 0.6}
                   markerEnd="url(#neo4j-arrow)"
                 />
               )
