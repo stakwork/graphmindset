@@ -59,6 +59,14 @@ describe("colorForLabel", () => {
 })
 
 describe("ForceSimulation", () => {
+  it("repels separated, unlinked nodes without collision or gravity", () => {
+    const nodes = [node(-100, 0), node(100, 0)]
+    const sim = new ForceSimulation(nodes, [], { gravity: 0 })
+    sim.tick()
+    expect(nodes[0].x).toBeLessThan(-100)
+    expect(nodes[1].x).toBeGreaterThan(100)
+  })
+
   it("pushes coincident nodes apart and cools down", () => {
     const nodes = [node(0, 0), node(0, 0), node(0, 0)]
     const sim = new ForceSimulation(nodes, [])

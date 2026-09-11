@@ -139,10 +139,10 @@ export class ForceSimulation<N extends SimNode = SimNode> {
           const minD = (a.r + b.r) * 0.5
           if (d2 < minD * minD) d2 = minD * minD
           const w = (cfg.charge * alpha) / d2
-          a.vx -= dx * w
-          a.vy -= dy * w
-          b.vx += dx * w
-          b.vy += dy * w
+          a.vx += dx * w
+          a.vy += dy * w
+          b.vx -= dx * w
+          b.vy -= dy * w
         }
         // Collision (positions incl. pending velocity, like d3 forceCollide).
         const cx = b.x + b.vx - a.x - a.vx || dx

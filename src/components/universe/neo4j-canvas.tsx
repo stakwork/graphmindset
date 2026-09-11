@@ -1,7 +1,7 @@
 "use client"
 
 // Neo4j Browser-style graph view: force-directed 2D layout, fixed-radius
-// circles colored per label with the caption inside, straight/arced
+// circles colored per label with captions underneath, straight/arced
 // relationships with arrowheads and the type written along the line, a
 // label/relationship legend, drag-to-pin, wheel zoom and drag-to-pan.
 //
@@ -10,6 +10,8 @@
 // imperatively each simulation tick so a hot layout never re-renders React.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react"
+import { Minus, Plus, Maximize, Scan, Hash, Quote, Box, BookOpen, Scissors, User, Building2, Radio, AtSign, Video, FileText, MapPin, Calendar, CircleDot, type LucideIcon } from "lucide-react"
+import { getSchemaIcon } from "@/lib/schema-icons"
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api"
 import type { SchemaNode } from "@/lib/schema-types"
 import { useGraphStore } from "@/stores/graph-store"
@@ -25,15 +27,32 @@ import {
   colorForLabel,
   wrapCaption,
   NEO4J_NODE_RADIUS,
-  NEO4J_CAPTION_FONT_SIZE,
-  NEO4J_CAPTION_LINE_HEIGHT,
   NEO4J_RELATIONSHIP_COLOR,
   NEO4J_RELATIONSHIP_FONT_SIZE,
 } from "@/lib/neo4j-style"
 import { HoverPreviewCard } from "./hover-preview-card"
 
+const TYPE_ICONS: Record<string, LucideIcon> = {
+  topic: Hash, claim: Quote, product: Box, chapter: BookOpen,
+  clip: Scissors, person: User, organization: Building2,
+  episode: Radio, show: Radio, tweet: AtSign, video: Video,
+  document: FileText, place: MapPin, event: Calendar,
+}
+
+function typeIcon(type: string, schemas: SchemaNode[]): LucideIcon {
+  // Known types use semantic icons; legacy schema icons can be unrelated
+  // (for example, InterestsIcon renders a heart for a chapter).
+  const semantic = TYPE_ICONS[type.toLowerCase()]
+  if (semantic) return semantic
+  const configured = schemas.find((schema) => schema.type.toLowerCase() === type.toLowerCase())?.icon
+  return configured && configured !== "NodesIcon"
+    ? getSchemaIcon(configured)
+    : TYPE_ICONS[type.toLowerCase()] ?? CircleDot
+}
+
 interface N4Node extends SimNode {
   refId: string
+  radius: number
   type: string
   api: ApiNode
   /** Pinned by the user (dragged). Survives simulation reheats. */
@@ -67,11 +86,11 @@ interface Transform {
 const R = NEO4J_NODE_RADIUS
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 4
-const FIT_PADDING = 40
+const FIT_PADDING = 32
 const FIT_MAX_ZOOM = 1.4
 const DRAG_THRESHOLD_PX = 3
 const LANE_SPACING = 28
-const EDGE_LABEL_MIN_ZOOM = 0.45
+const EDGE_LABEL_MIN_ZOOM = 0.85
 const SELF_LOOP_SIZE = 40
 // Simulation heat while a node is dragged. Neo4j Browser keeps the rest of the
 // graph nearly still: low heat so only direct neighbors nudge, plus anchors
@@ -80,7 +99,7 @@ const DRAG_ALPHA = 0.1
 // Heat used to settle an appended neighborhood, and the ring the new nodes
 // start on around the node they attach to.
 const APPEND_ALPHA = 0.5
-const APPEND_RING_RADIUS = DEFAULT_FORCE_CONFIG.linkDistance
+const APPEND_RING_RADIUS = 150
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a} ${b}` : `${b} ${a}`
@@ -93,6 +112,7 @@ function relKey(e: ApiEdge): string {
 function makeNode(api: ApiNode): N4Node {
   return {
     refId: api.ref_id,
+    radius: R,
     type: api.node_type,
     api,
     x: 0,
@@ -101,7 +121,7 @@ function makeNode(api: ApiNode): N4Node {
     vy: 0,
     fx: null,
     fy: null,
-    r: R,
+    r: R + 20,
     userPinned: false,
     heldForAppend: false,
   }
@@ -111,6 +131,17 @@ function makeNode(api: ApiNode): N4Node {
 // visible; a single relationship stays straight. Lane sign is expressed in
 // the pair's canonical (sorted) orientation and flipped per edge direction.
 function assignLanes(rels: N4Rel[]) {
+  const degrees = new Map<N4Node, Set<N4Node>>()
+  for (const rel of rels) {
+    if (!degrees.has(rel.source)) degrees.set(rel.source, new Set())
+    if (!degrees.has(rel.target)) degrees.set(rel.target, new Set())
+    degrees.get(rel.source)!.add(rel.target)
+    degrees.get(rel.target)!.add(rel.source)
+  }
+  for (const [node, neighbors] of degrees) {
+    node.radius = R + Math.min(22, Math.log2(Math.max(1, neighbors.size)) * 5)
+    node.r = node.radius + 20
+  }
   const groups = new Map<string, N4Rel[]>()
   for (const r of rels) {
     const k = pairKey(r.source.refId, r.target.refId)
@@ -156,7 +187,8 @@ function buildModel(nodes: ApiNode[], edges: ApiEdge[], rootRefId?: string): Mod
 
   const sim = new ForceSimulation<N4Node>(
     simNodes,
-    rels.map((r) => ({ source: simNodes.indexOf(r.source), target: simNodes.indexOf(r.target) }))
+    rels.map((r) => ({ source: simNodes.indexOf(r.source), target: simNodes.indexOf(r.target) })),
+    { linkDistance: APPEND_RING_RADIUS, collidePadding: 12, gravity: 0.012, charge: -900 }
   )
   // Neo4j Browser precomputes the layout, so the graph appears already settled.
   if (root) {
@@ -168,7 +200,55 @@ function buildModel(nodes: ApiNode[], edges: ApiEdge[], rootRefId?: string): Mod
     root.fx = null
     root.fy = null
   }
+  if (!root) packComponents(simNodes, rels)
   return { nodes: simNodes, rels, byRef, sim }
+}
+
+// Pack disconnected components after settling, preserving each component's
+// internal layout so isolated nodes cannot force the entire graph to zoom out.
+function packComponents(nodes: N4Node[], rels: N4Rel[]) {
+  const adjacency = new Map(nodes.map((n) => [n, new Set<N4Node>()]))
+  for (const r of rels) {
+    adjacency.get(r.source)!.add(r.target)
+    adjacency.get(r.target)!.add(r.source)
+  }
+  const visited = new Set<N4Node>()
+  const groups: N4Node[][] = []
+  const isolated: N4Node[] = []
+  for (const n of nodes) {
+    if (visited.has(n)) continue
+    const group = [n]
+    visited.add(n)
+    for (let i = 0; i < group.length; i++) {
+      for (const next of adjacency.get(group[i])!) {
+        if (!visited.has(next)) { visited.add(next); group.push(next) }
+      }
+    }
+    if (group.length === 1) isolated.push(n)
+    else groups.push(group)
+  }
+  if (isolated.length) {
+    const columns = Math.ceil(Math.sqrt(isolated.length * 1.5))
+    isolated.forEach((n, i) => { n.x = (i % columns) * 110; n.y = Math.floor(i / columns) * 110 })
+    groups.push(isolated)
+  }
+  if (groups.length < 2) return
+  const boxes = groups.map((group) => {
+    const minX = Math.min(...group.map((n) => n.x))
+    const minY = Math.min(...group.map((n) => n.y))
+    return { group, minX, minY, width: Math.max(...group.map((n) => n.x)) - minX + 150, height: Math.max(...group.map((n) => n.y)) - minY + 150 }
+  }).sort((a, b) => b.height - a.height)
+  const targetWidth = Math.max(boxes[0].width, Math.sqrt(boxes.reduce((sum, b) => sum + b.width * b.height, 0)) * 1.4)
+  let x = 0, y = 0, rowHeight = 0
+  for (const box of boxes) {
+    if (x > 0 && x + box.width > targetWidth) { y += rowHeight + 70; x = 0; rowHeight = 0 }
+    for (const n of box.group) { n.x += x - box.minX; n.y += y - box.minY }
+    x += box.width + 70
+    rowHeight = Math.max(rowHeight, box.height)
+  }
+  const cx = (Math.min(...nodes.map((n) => n.x)) + Math.max(...nodes.map((n) => n.x))) / 2
+  const cy = (Math.min(...nodes.map((n) => n.y)) + Math.max(...nodes.map((n) => n.y))) / 2
+  for (const n of nodes) { n.x -= cx; n.y -= cy }
 }
 
 // Starting positions: BFS rings from the root (focus graphs), a phyllotaxis
@@ -371,7 +451,7 @@ function relGeometry(r: N4Rel): { d: string; lx: number; ly: number; angle: numb
   const s = r.source
   const t = r.target
   if (s === t) {
-    const top = s.y - R
+    const top = s.y - s.radius
     const d = `M ${s.x - 6} ${top + 2} C ${s.x - SELF_LOOP_SIZE} ${top - SELF_LOOP_SIZE}, ${s.x + SELF_LOOP_SIZE} ${top - SELF_LOOP_SIZE}, ${s.x + 6} ${top + 2}`
     return { d, lx: s.x, ly: top - SELF_LOOP_SIZE * 0.75, angle: 0 }
   }
@@ -384,10 +464,10 @@ function relGeometry(r: N4Rel): { d: string; lx: number; ly: number; angle: numb
   if (angle > 90 || angle < -90) angle += 180
 
   if (r.curve === 0) {
-    const sx = s.x + ux * R
-    const sy = s.y + uy * R
-    const tx = t.x - ux * R
-    const ty = t.y - uy * R
+    const sx = s.x + ux * s.radius
+    const sy = s.y + uy * s.radius
+    const tx = t.x - ux * t.radius
+    const ty = t.y - uy * t.radius
     return { d: `M ${sx} ${sy} L ${tx} ${ty}`, lx: (sx + tx) / 2, ly: (sy + ty) / 2, angle }
   }
 
@@ -400,13 +480,13 @@ function relGeometry(r: N4Rel): { d: string; lx: number; ly: number; angle: numb
   const sdx = cx - s.x
   const sdy = cy - s.y
   const sl = Math.sqrt(sdx * sdx + sdy * sdy) || 1
-  const sx = s.x + (sdx / sl) * R
-  const sy = s.y + (sdy / sl) * R
+  const sx = s.x + (sdx / sl) * s.radius
+  const sy = s.y + (sdy / sl) * s.radius
   const tdx = cx - t.x
   const tdy = cy - t.y
   const tl = Math.sqrt(tdx * tdx + tdy * tdy) || 1
-  const tx = t.x + (tdx / tl) * R
-  const ty = t.y + (tdy / tl) * R
+  const tx = t.x + (tdx / tl) * t.radius
+  const ty = t.y + (tdy / tl) * t.radius
   // Point on the curve at t = 0.5.
   const lx = 0.25 * sx + 0.5 * cx + 0.25 * tx
   const ly = 0.25 * sy + 0.5 * cy + 0.25 * ty
@@ -425,6 +505,10 @@ interface NodeGlyphProps {
   selected: boolean
   hot: boolean
   pinned: boolean
+  dimmed: boolean
+  title: string
+  prominent: boolean
+  icon: LucideIcon
   register: (refId: string, el: SVGGElement | null) => void
   onPointerDown: (node: N4Node, e: React.PointerEvent<SVGGElement>) => void
   onEnter: (node: N4Node, e: React.PointerEvent) => void
@@ -432,7 +516,7 @@ interface NodeGlyphProps {
   onDoubleClick: (node: N4Node, e: React.MouseEvent) => void
 }
 
-// One node: colored disc, caption inside, selection halo, pin dot. Memoized so
+// One node: colored disc, caption underneath, selection halo, pin dot. Memoized so
 // hover/selection changes only repaint the nodes whose props actually changed.
 const NodeGlyph = memo(function NodeGlyph({
   node,
@@ -440,6 +524,10 @@ const NodeGlyph = memo(function NodeGlyph({
   selected,
   hot,
   pinned,
+  dimmed,
+  title,
+  prominent,
+  icon: Icon,
   register,
   onPointerDown,
   onEnter,
@@ -451,24 +539,32 @@ const NodeGlyph = memo(function NodeGlyph({
     <g
       ref={(el) => register(node.refId, el)}
       transform={`translate(${node.x} ${node.y})`}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: "pointer", opacity: dimmed ? 0.25 : 1, transition: "opacity 150ms" }}
       onPointerDown={(e) => onPointerDown(node, e)}
       onPointerEnter={(e) => onEnter(node, e)}
       onPointerLeave={onLeave}
       onDoubleClick={(e) => onDoubleClick(node, e)}
       data-node-ref={node.refId}
       data-node-type={node.type}
+      data-prominent={prominent}
+      data-active={hot || selected}
     >
-      {selected && <circle r={R + 6} fill="none" stroke={color.fill} strokeOpacity={0.35} strokeWidth={10} />}
-      <circle r={R} fill={color.fill} stroke={hot || selected ? "#ffffff" : color.border} strokeWidth={hot ? 3 : 2} />
-      <text fill={color.text} fontSize={NEO4J_CAPTION_FONT_SIZE} textAnchor="middle" style={{ pointerEvents: "none" }}>
+      <title>{`${node.type}: ${title}`}</title>
+      {selected && <circle r={node.radius + 6} fill="none" stroke={color.fill} strokeOpacity={0.35} strokeWidth={10} />}
+      <circle r={node.radius + 5} fill={color.fill} fillOpacity={hot || selected ? 0.14 : 0.04} />
+      <circle r={node.radius} fill={color.fill} fillOpacity={0.3} stroke={hot || selected ? "#ffffff" : color.fill} strokeWidth={hot || selected ? 2 : 1.2} vectorEffect="non-scaling-stroke" />
+      <circle className="neo4j-node-dot" r={prominent ? 9 : 5} fill={color.fill} />
+      <Icon className="neo4j-node-icon" x={-node.radius * 0.6} y={-node.radius * 0.6} width={node.radius * 1.2} height={node.radius * 1.2} color={color.fill} strokeWidth={1.8} aria-hidden="true" style={{ pointerEvents: "none" }} />
+      <g className="neo4j-caption" style={{ transform: `translateY(${node.radius + 16}px) scale(var(--caption-scale, 1))`, pointerEvents: "none" }}>
+      <text fill="var(--foreground)" fontSize={12} textAnchor="middle" style={{ pointerEvents: "none", stroke: "var(--background)", strokeWidth: 4, paintOrder: "stroke", strokeLinejoin: "round" }}>
         {lines.map((line, i) => (
-          <tspan key={i} x={0} y={(i - (lines.length - 1) / 2) * NEO4J_CAPTION_LINE_HEIGHT} dy="0.35em">
+          <tspan key={i} x={0} y={i * 14} dy="0.35em">
             {line}
           </tspan>
         ))}
       </text>
-      {pinned && <circle cx={R * 0.7} cy={-R * 0.7} r={3} fill="#ffffff" stroke={color.border} strokeWidth={1} />}
+      </g>
+      {pinned && <circle cx={node.radius * 0.7} cy={-node.radius * 0.7} r={3} fill="#ffffff" stroke={color.border} strokeWidth={1} />}
     </g>
   )
 })
@@ -488,6 +584,8 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
   const sidebarSelectedRefId = useGraphStore((s) => s.sidebarSelectedNode?.ref_id ?? null)
   const sidebarHoveredRefId = useGraphStore((s) => s.hoveredNode?.ref_id ?? null)
 
+  const containerRef = useRef<HTMLDivElement>(null)
+  const zoomLabelRef = useRef<HTMLSpanElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const viewportRef = useRef<SVGGElement>(null)
   const relLabelsRef = useRef<SVGGElement>(null)
@@ -523,13 +621,42 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
     else nodeEls.current.delete(refId)
   }, [])
 
+  const updateLabelVisibility = useCallback(() => {
+    const { k } = transform.current
+    const scale = Math.min(4, Math.max(1, 0.85 / k))
+    const occupied: { x: number; y: number; w: number; h: number }[] = []
+    const candidates = model.nodes.map((n) => {
+      const el = nodeEls.current.get(n.refId)
+      return { n, el, active: el?.getAttribute("data-active") === "true", prominent: el?.getAttribute("data-prominent") === "true" }
+    }).sort((a, b) => Number(b.active) - Number(a.active) || Number(b.prominent) - Number(a.prominent))
+    for (const { n, el, active, prominent } of candidates) {
+      el?.setAttribute("data-show-icon", String(n.radius * k >= 7))
+      const label = el?.querySelector<SVGGElement>(".neo4j-caption")
+      if (!label) continue
+      const lines = [...label.querySelectorAll("tspan")]
+      const w = Math.max(...lines.map((line) => (line.textContent?.length ?? 0) * 6.7)) * scale * k + 10
+      const h = lines.length * 14 * scale * k + 8
+      const box = { x: n.x * k - w / 2, y: (n.y + n.radius + 16) * k - 5, w, h }
+      const collides = occupied.some((b) => box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y)
+      const visible = active || ((k >= 0.7 || prominent) && !collides)
+      label.style.visibility = visible ? "visible" : "hidden"
+      if (visible) occupied.push(box)
+    }
+  }, [model])
+
+  useLayoutEffect(() => { updateLabelVisibility() })
+
   const applyTransform = useCallback(() => {
     const { x, y, k } = transform.current
     viewportRef.current?.setAttribute("transform", `translate(${x} ${y}) scale(${k})`)
+    viewportRef.current?.setAttribute("data-overview", String(k < 0.7))
+    viewportRef.current?.style.setProperty("--caption-scale", String(Math.min(4, Math.max(1, 0.85 / k))))
+    if (zoomLabelRef.current) zoomLabelRef.current.textContent = `${Math.round(k * 100)}%`
+    updateLabelVisibility()
     if (relLabelsRef.current) {
-      relLabelsRef.current.style.display = k < EDGE_LABEL_MIN_ZOOM ? "none" : ""
+      relLabelsRef.current.setAttribute("data-detailed", String(k >= EDGE_LABEL_MIN_ZOOM))
     }
-  }, [])
+  }, [updateLabelVisibility])
 
   const applyPositions = useCallback(() => {
     for (const n of model.nodes) {
@@ -542,7 +669,8 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
       els.path?.setAttribute("d", g.d)
       els.label?.setAttribute("transform", `translate(${g.lx} ${g.ly}) rotate(${g.angle})`)
     }
-  }, [model])
+    updateLabelVisibility()
+  }, [model, updateLabelVisibility])
 
   const stopLoop = useCallback(() => {
     if (rafRef.current !== null) {
@@ -592,6 +720,16 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
     [applyTransform]
   )
 
+  function zoomBy(factor: number) {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const from = transform.current
+    const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, from.k * factor))
+    const cx = rect.width / 2
+    const cy = rect.height / 2
+    animateTransformTo({ x: cx - (cx - from.x) * k / from.k, y: cy - (cy - from.y) * k / from.k, k }, 180)
+  }
+
   const fitToView = useCallback(
     (animate = true) => {
       const svg = svgRef.current
@@ -603,23 +741,38 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
       let maxX = -Infinity
       let maxY = -Infinity
       for (const n of model.nodes) {
-        minX = Math.min(minX, n.x - R)
-        minY = Math.min(minY, n.y - R)
-        maxX = Math.max(maxX, n.x + R)
-        maxY = Math.max(maxY, n.y + R)
+        minX = Math.min(minX, n.x - 72)
+        minY = Math.min(minY, n.y - n.radius)
+        maxX = Math.max(maxX, n.x + 72)
+        maxY = Math.max(maxY, n.y + n.radius + 44)
       }
       const bw = Math.max(1, maxX - minX)
       const bh = Math.max(1, maxY - minY)
-      const k = Math.max(
-        MIN_ZOOM,
-        Math.min(FIT_MAX_ZOOM, (rect.width - FIT_PADDING * 2) / bw, (rect.height - FIT_PADDING * 2) / bh)
-      )
-      const x = rect.width / 2 - ((minX + maxX) / 2) * k
-      const y = rect.height / 2 - ((minY + maxY) / 2) * k
+      // Leave room for the view switch, right action rail, and bottom controls.
+      const right = rect.width >= 400 ? 88 : FIT_PADDING
+      const top = 64
+      const bottom = 72
+      const width = Math.max(1, rect.width - FIT_PADDING - right)
+      const height = Math.max(1, rect.height - top - bottom)
+      const k = Math.max(MIN_ZOOM, Math.min(FIT_MAX_ZOOM, width / bw, height / bh))
+      const x = FIT_PADDING + width / 2 - ((minX + maxX) / 2) * k
+      const y = top + height / 2 - ((minY + maxY) / 2) * k
       animateTransformTo({ x, y, k }, animate ? 350 : 0)
     },
     [model, animateTransformTo]
   )
+
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => fitToView(false))
+    })
+    observer.observe(svg)
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [fitToView])
 
   // New dataset: lay positions into the DOM, fit, and stop any old loop.
   useLayoutEffect(() => {
@@ -825,7 +978,7 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
 
   const captions = useMemo(() => {
     const m = new Map<string, string[]>()
-    for (const n of model.nodes) m.set(n.refId, wrapCaption(resolveNodeTitle(n.api, schemas)))
+    for (const n of model.nodes) m.set(n.refId, wrapCaption(resolveNodeTitle(n.api, schemas), 72, 2, 12))
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps -- structVersion tracks in-place growth of model.nodes
   }, [model, schemas, structVersion])
@@ -849,10 +1002,36 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
     return s
   }, [selectedRefId, sidebarSelectedRefId])
 
+  const degrees = new Map<string, number>()
+  for (const r of model.rels) {
+    degrees.set(r.source.refId, (degrees.get(r.source.refId) ?? 0) + 1)
+    degrees.set(r.target.refId, (degrees.get(r.target.refId) ?? 0) + 1)
+  }
+  const prominentRefs = new Set(
+    [...model.nodes].sort((a, b) => (degrees.get(b.refId) ?? 0) - (degrees.get(a.refId) ?? 0))
+      .slice(0, Math.min(12, Math.max(3, Math.ceil(model.nodes.length / 8))))
+      .map((n) => n.refId)
+  )
   const hotRef = hoveredRefId ?? sidebarHoveredRefId
+  const focusRef = hotRef ?? selectedRefId ?? sidebarSelectedRefId
+  const neighborhood = new Set<string>()
+  if (focusRef && model.byRef.has(focusRef)) {
+    neighborhood.add(focusRef)
+    for (const r of model.rels) {
+      if (r.source.refId === focusRef) neighborhood.add(r.target.refId)
+      if (r.target.refId === focusRef) neighborhood.add(r.source.refId)
+    }
+  }
 
   return (
-    <div className="relative h-full w-full select-none">
+    <div ref={containerRef} className="relative h-full w-full select-none bg-background [&:fullscreen]:h-screen [&:fullscreen]:w-screen">
+      <style>{`
+         .neo4j-rel-labels[data-detailed="false"] text:not([data-active="true"]) { display: none; }
+        [data-show-icon="false"] .neo4j-node-icon { display: none; }
+        [data-show-icon="true"] .neo4j-node-dot { display: none; }
+        [data-overview="true"] [data-prominent="false"][data-active="false"] .neo4j-caption { display: none; }
+
+      `}</style>
       <svg
         ref={svgRef}
         className="h-full w-full touch-none"
@@ -895,7 +1074,7 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
                   }}
                   d={g.d}
                   strokeWidth={lit ? 2 : 1}
-                  strokeOpacity={lit ? 1 : 0.85}
+                  strokeOpacity={lit ? 1 : neighborhood.size ? 0.12 : 0.35}
                   markerEnd="url(#neo4j-arrow)"
                 />
               )
@@ -921,6 +1100,8 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
                     relEls.current.set(r.key, cur)
                   }}
                   transform={`translate(${g.lx} ${g.ly}) rotate(${g.angle})`}
+                  data-active={r.source.refId === focusRef || r.target.refId === focusRef}
+                  opacity={neighborhood.size && r.source.refId !== focusRef && r.target.refId !== focusRef ? 0.15 : 1}
                   dy="0.32em"
                   style={{ stroke: "var(--background)", strokeWidth: 3, paintOrder: "stroke", strokeLinejoin: "round" }}
                 >
@@ -938,6 +1119,10 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
                 selected={highlightedRefs.has(n.refId)}
                 hot={hotRef === n.refId}
                 pinned={n.userPinned}
+                title={resolveNodeTitle(n.api, schemas)}
+                prominent={model.nodes.length <= 20 || prominentRefs.has(n.refId)}
+                icon={typeIcon(n.type, schemas)}
+                dimmed={neighborhood.size > 0 && !neighborhood.has(n.refId)}
                 register={registerNodeEl}
                 onPointerDown={onNodePointerDown}
                 onEnter={onNodeEnter}
@@ -949,15 +1134,19 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
         </g>
       </svg>
 
-      <div className="absolute bottom-4 left-4 right-24 z-20 flex flex-wrap items-center gap-1.5 pointer-events-none">
+      <details className="absolute bottom-4 left-4 z-20 max-w-[calc(100%-15rem)] rounded-lg border border-border/50 bg-background/95 text-xs backdrop-blur">
+        <summary className="cursor-pointer px-3 py-2 text-muted-foreground">Legend · {legend.labels.length} node types</summary>
+        <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto p-3 pt-1">
         {legend.labels.map(([label, count]) => {
           const c = colorForLabel(label)
+          const Icon = typeIcon(label, schemas)
           return (
             <span
               key={`l:${label}`}
-              className="rounded-full px-2.5 py-0.5 text-[11px] font-medium leading-4"
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium leading-4"
               style={{ background: c.fill, color: c.text, border: `1px solid ${c.border}` }}
             >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
               {label} ({count})
             </span>
           )
@@ -972,13 +1161,19 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
           </span>
         ))}
       </div>
+      </details>
 
-      <button
-        onClick={() => fitToView(true)}
-        className="absolute bottom-4 right-4 z-20 rounded-md bg-background/80 px-3 py-1.5 text-xs text-foreground backdrop-blur hover:bg-background"
-      >
-        Fit
-      </button>
+      <div className="absolute bottom-4 right-4 z-20 flex items-center gap-0.5 rounded-lg border border-border/60 bg-background/95 p-1 text-muted-foreground shadow-lg backdrop-blur">
+        <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoomBy(1 / 1.4)} className="rounded-md p-2 hover:bg-muted hover:text-foreground"><Minus className="h-4 w-4" /></button>
+        <span ref={zoomLabelRef} className="w-10 text-center font-mono text-[10px] tabular-nums">100%</span>
+        <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomBy(1.4)} className="rounded-md p-2 hover:bg-muted hover:text-foreground"><Plus className="h-4 w-4" /></button>
+        <span className="mx-1 h-4 w-px bg-border" />
+        <button type="button" aria-label="Fit graph" title="Fit graph" onClick={() => fitToView(true)} className="rounded-md p-2 hover:bg-muted hover:text-foreground"><Scan className="h-4 w-4" /></button>
+        <button type="button" aria-label="Toggle fullscreen" title="Fullscreen" onClick={() => {
+          if (document.fullscreenElement) void document.exitFullscreen()
+          else void containerRef.current?.requestFullscreen().catch(() => {})
+        }} className="rounded-md p-2 hover:bg-muted hover:text-foreground"><Maximize className="h-4 w-4" /></button>
+      </div>
 
       <HoverPreviewCard node={hoverCardNode} schemas={schemas} x={cursor.x} y={cursor.y} />
     </div>
