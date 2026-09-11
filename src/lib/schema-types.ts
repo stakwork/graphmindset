@@ -27,6 +27,14 @@ export interface SchemaNode {
   icon?: string
   secondary_color?: string
   paid_properties?: string[]
+  // Ordering signals computed backend-side from the ontology alone (never from
+  // instance counts). `height` is the position in the CHILD_OF hierarchy: 0 for
+  // a root, 1 + the highest parent otherwise. `centrality` is the number of
+  // direct child types + distinct other types linked by a schema edge. Sort by
+  // height ascending, then centrality descending. Absent on mock fixtures and
+  // on backends that predate them.
+  height?: number
+  centrality?: number
 }
 
 export interface SchemaEdge {
