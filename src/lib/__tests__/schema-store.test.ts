@@ -160,6 +160,42 @@ describe("schema-store – fetchAll inherited_attributes", () => {
   })
 })
 
+describe("schema-store – fetchAll height and centrality", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useSchemaStore.setState({ schemas: [], edges: [], loading: false })
+  })
+
+  it("maps height and centrality from the API", async () => {
+    mockGet.mockResolvedValueOnce({
+      schemas: [
+        { ref_id: "p-1", type: "Person", parent: "Thing", height: 1, centrality: 6 },
+        { ref_id: "t-1", type: "Tweet", parent: "Content", height: 2, centrality: 4 },
+      ],
+      edges: [],
+    })
+
+    await useSchemaStore.getState().fetchAll()
+
+    const byType = Object.fromEntries(useSchemaStore.getState().schemas.map((s) => [s.type, s]))
+    expect(byType.Person).toMatchObject({ height: 1, centrality: 6 })
+    expect(byType.Tweet).toMatchObject({ height: 2, centrality: 4 })
+  })
+
+  it("leaves them undefined when the API does not send them", async () => {
+    mockGet.mockResolvedValueOnce({
+      schemas: [{ ref_id: "p-1", type: "Person", parent: "Thing" }],
+      edges: [],
+    })
+
+    await useSchemaStore.getState().fetchAll()
+
+    const person = useSchemaStore.getState().schemas[0]
+    expect(person.height).toBeUndefined()
+    expect(person.centrality).toBeUndefined()
+  })
+})
+
 describe("schema-store – addSchema", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -193,5 +229,32 @@ describe("schema-store – addSchema", () => {
     mockPost.mockRejectedValueOnce(new TypeError("fetch failed"))
     const store = useSchemaStore.getState()
     await expect(store.addSchema(makeSchema({ ref_id: "new-2" }))).rejects.toThrow("Failed to save schema")
+  })
+})
+
+describe("schema-store – v2 endpoints", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useSchemaStore.setState({ schemas: [makeSchema()], edges: [], loading: false })
+  })
+
+  it("fetches the ontology from /v2/schema", async () => {
+    mockGet.mockResolvedValueOnce({ schemas: [], edges: [] })
+    await useSchemaStore.getState().fetchAll()
+    expect(mockGet).toHaveBeenCalledWith("/v2/schema")
+  })
+
+  it("sends type and relationship writes to /v2/schema", async () => {
+    mockPut.mockResolvedValueOnce({}).mockResolvedValueOnce({})
+    mockPost.mockResolvedValueOnce({}).mockResolvedValueOnce({})
+    const store = useSchemaStore.getState()
+
+    await store.updateSchema(makeSchema())
+    await store.addSchema(makeSchema({ ref_id: "new-3", type: "NewType3" }))
+    await store.addEdge({ ref_id: "e-1", source: "a", target: "b", source_type: "A", target_type: "B", edge_type: "LINKS" })
+    await store.updateEdge({ ref_id: "e-1", source: "a", target: "b", edge_type: "LINKS" })
+
+    expect(mockPut.mock.calls.map(([path]) => path)).toEqual(["/v2/schema/test-1", "/v2/schema/edge/e-1"])
+    expect(mockPost.mock.calls.map(([path]) => path)).toEqual(["/v2/schema", "/v2/schema/edge"])
   })
 })

@@ -5,6 +5,7 @@ import {
   categorizeField,
   fieldsForSchema,
   OPTIONAL_GROUP_ORDER,
+  schemaTypeComparator,
 } from "@/lib/node-schema-utils"
 import type { SchemaNode } from "@/lib/schema-types"
 
@@ -102,5 +103,54 @@ describe("fieldsForSchema — hidden attributes", () => {
 
   it("still hides pre-existing system attributes", () => {
     expect(keys).not.toContain("weight")
+  })
+})
+
+describe("schemaTypeComparator", () => {
+  const rank = (type: string, height?: number, centrality?: number) =>
+    ({ type, height, centrality }) as unknown as SchemaNode
+  const schemas = [
+    rank("Thing", 0, 5),
+    rank("Person", 1, 6),
+    rank("Organization", 1, 3),
+    rank("Topic", 1, 3),
+    rank("Tweet", 2, 4),
+  ]
+  const order = (types: string[], s: SchemaNode[] = schemas) =>
+    [...types].sort(schemaTypeComparator(s))
+
+  it("orders by height, then centrality, then name", () => {
+    expect(order(["Tweet", "Topic", "Organization", "Person", "Thing"])).toEqual([
+      "Thing",
+      "Person",
+      "Organization",
+      "Topic",
+      "Tweet",
+    ])
+  })
+
+  it("keeps the lower height first even when it is less central", () => {
+    expect(order(["Tweet", "Organization"])).toEqual(["Organization", "Tweet"])
+  })
+
+  it("puts types with no schema or no height last, A→Z", () => {
+    expect(order(["Unknown", "Clip", "Person"], [...schemas, rank("Clip")])).toEqual([
+      "Person",
+      "Clip",
+      "Unknown",
+    ])
+  })
+
+  it("is plain alphabetical when there is no ranking data", () => {
+    const unranked = [rank("Tweet"), rank("Person"), rank("Organization")]
+    expect(order(["Tweet", "Person", "Organization"], unranked)).toEqual([
+      "Organization",
+      "Person",
+      "Tweet",
+    ])
+  })
+
+  it("matches type names case-insensitively", () => {
+    expect(order(["person", "thing"])).toEqual(["thing", "person"])
   })
 })

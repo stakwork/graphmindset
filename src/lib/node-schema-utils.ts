@@ -49,6 +49,25 @@ export function fieldsForSchema(schema: SchemaNode): SchemaAttribute[] {
 // of a flat dump. Required ("core") fields are rendered separately, up front.
 export type FieldGroup = "content" | "meta" | "signal"
 
+// Orders node type names for pickers: lower height first (closer to the
+// ontology root), then higher centrality (more child + connected types), then
+// A→Z. Types with no schema or no height (e.g. "Unknown", or a backend that
+// predates ranking) sort after ranked ones — so with no ranking data at all
+// this is plain alphabetical. Type lookup is case-insensitive.
+export function schemaTypeComparator(schemas: SchemaNode[]): (a: string, b: string) => number {
+  const byType = new Map(schemas.map((s) => [s.type.toLowerCase(), s]))
+  return (a, b) => {
+    const sa = byType.get(a.toLowerCase())
+    const sb = byType.get(b.toLowerCase())
+    const heightA = sa?.height ?? Infinity
+    const heightB = sb?.height ?? Infinity
+    if (heightA !== heightB) return heightA - heightB
+    const centralityDiff = (sb?.centrality ?? 0) - (sa?.centrality ?? 0)
+    if (centralityDiff !== 0) return centralityDiff
+    return a.localeCompare(b)
+  }
+}
+
 export const OPTIONAL_GROUP_ORDER: FieldGroup[] = ["content", "meta", "signal"]
 
 export const OPTIONAL_GROUP_LABELS: Record<FieldGroup, string> = {

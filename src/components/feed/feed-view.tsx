@@ -8,6 +8,7 @@ import { useAppStore } from "@/stores/app-store"
 import { useSchemaStore } from "@/stores/schema-store"
 import { isMocksEnabled, MOCK_NODES, MOCK_EDGES } from "@/lib/mock-data"
 import { getLatestNodes } from "@/lib/graph-api"
+import { schemaTypeComparator } from "@/lib/node-schema-utils"
 import { FeedCard } from "./feed-card"
 import { HotTakes } from "./hot-takes"
 import { cn } from "@/lib/utils"
@@ -63,14 +64,17 @@ export function FeedView() {
     [nodes, searchTerm]
   )
 
+  // Dropdown order follows the ontology (height, then centrality, then name),
+  // not how many nodes of each type happen to be loaded; counts stay as hints.
   const typeCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const n of listNodes) {
       const t = n.node_type ?? "Unknown"
       counts.set(t, (counts.get(t) ?? 0) + 1)
     }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])
-  }, [listNodes])
+    const byRank = schemaTypeComparator(schemas)
+    return [...counts.entries()].sort(([a], [b]) => byRank(a, b))
+  }, [listNodes, schemas])
 
   const filtered = useMemo(
     () =>
