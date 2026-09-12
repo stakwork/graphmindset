@@ -232,19 +232,19 @@ describe("schema-store – addSchema", () => {
   })
 })
 
-describe("schema-store – v2 endpoints", () => {
+describe("schema-store – endpoints", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useSchemaStore.setState({ schemas: [makeSchema()], edges: [], loading: false })
   })
 
-  it("fetches the ontology from /v2/schema", async () => {
+  it("fetches the ontology from /schema/all", async () => {
     mockGet.mockResolvedValueOnce({ schemas: [], edges: [] })
     await useSchemaStore.getState().fetchAll()
-    expect(mockGet).toHaveBeenCalledWith("/v2/schema")
+    expect(mockGet).toHaveBeenCalledWith("/schema/all")
   })
 
-  it("sends type and relationship writes to /v2/schema", async () => {
+  it("sends type and relationship writes to /schema", async () => {
     mockPut.mockResolvedValueOnce({}).mockResolvedValueOnce({})
     mockPost.mockResolvedValueOnce({}).mockResolvedValueOnce({})
     const store = useSchemaStore.getState()
@@ -254,7 +254,7 @@ describe("schema-store – v2 endpoints", () => {
     await store.addEdge({ ref_id: "e-1", source: "a", target: "b", source_type: "A", target_type: "B", edge_type: "LINKS" })
     await store.updateEdge({ ref_id: "e-1", source: "a", target: "b", edge_type: "LINKS" })
 
-    expect(mockPut.mock.calls.map(([path]) => path)).toEqual(["/v2/schema/test-1", "/v2/schema/edge/e-1"])
-    expect(mockPost.mock.calls.map(([path]) => path)).toEqual(["/v2/schema", "/v2/schema/edge"])
+    expect(mockPut.mock.calls.map(([path]) => path)).toEqual(["/schema/test-1", "/schema/edge/e-1"])
+    expect(mockPost.mock.calls.map(([path]) => path)).toEqual(["/schema", "/schema/edge"])
   })
 })
