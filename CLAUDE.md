@@ -7,7 +7,7 @@ Knowledge graph explorer frontend. Rebuilds the core of sphinx-nav-fiber with Ne
 - Uses `sphinx-bridge` npm package (postMessage-based, not window.sphinx) for Sphinx app auth
 - Custom Dialog component using React createPortal (base-ui Dialog had portal issues with Next.js)
 - `.noise-bg` class uses `isolation: isolate` not `position: relative` (breaks fixed positioning on modals)
-- Schema/ontology visualization uses dagre for layout, rendered as SVG
+- Ontology page (`/admin/ontology`) has two views: the default network view reuses the main graph's `Neo4jCanvas` in standalone mode (`layoutKey`), fed by `src/lib/ontology-graph-data.ts`; the hierarchy view is a dagre tree rendered as SVG
 - All API requests go through `src/lib/api.ts` which appends signed message params and handles L402 402 retries
 - `NEXT_PUBLIC_USE_MOCKS=true` enables mock mode — skips all API calls, uses local fixtures
 

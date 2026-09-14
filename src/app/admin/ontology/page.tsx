@@ -1,20 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
+import { OntologyNeo4jGraph } from "./ontology-neo4j-graph"
 import { TypeEditor } from "./type-editor"
 import { EdgeTypePanel } from "./edge-type-panel"
 import { EdgeCreatePanel, type NewEdgeParams } from "./edge-create-panel"
 import { OntologyAgentPanel } from "./ontology-agent-panel"
-import { Plus, ArrowLeft, Box, Grid2x2, Search, ArrowRight, HelpCircle, Sparkles } from "lucide-react"
+import { Plus, ArrowLeft, Network, Share2, Search, ArrowRight, HelpCircle, Sparkles } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
-
-const OntologyGraph3D = dynamic(
-  () => import("./ontology-graph-3d").then((m) => ({ default: m.OntologyGraph3D })),
-  { ssr: false, loading: () => <div className="flex h-full items-center justify-center"><p className="text-muted-foreground animate-pulse">Loading 3D...</p></div> }
-)
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useSchemaStore, serializeAttributes } from "@/stores/schema-store"
@@ -27,7 +22,8 @@ export default function OntologyPage() {
   const isAdmin = useUserStore((s) => s.isAdmin)
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [view3D, setView3D] = useState(false)
+  // "network" (the main graph's 2D canvas) is the default; "hierarchy" is the dagre tree.
+  const [graphView, setGraphView] = useState<"network" | "hierarchy">("network")
   const [search, setSearch] = useState("")
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [sidebarTab, setSidebarTab] = useState<"nodes" | "edges">("nodes")
@@ -307,11 +303,11 @@ export default function OntologyPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => setView3D(!view3D)}
+            onClick={() => setGraphView((v) => (v === "network" ? "hierarchy" : "network"))}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            title={view3D ? "Switch to 2D" : "Switch to 3D"}
+            title={graphView === "network" ? "Switch to hierarchy view" : "Switch to network view"}
           >
-            {view3D ? <Grid2x2 className="h-4 w-4" /> : <Box className="h-4 w-4" />}
+            {graphView === "network" ? <Network className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
           </Button>
 
           <Button
@@ -460,12 +456,13 @@ export default function OntologyPage() {
 
       {/* Center: Ontology graph */}
       <div className="flex-1 min-w-0">
-        {view3D ? (
-          <OntologyGraph3D
+        {graphView === "network" ? (
+          <OntologyNeo4jGraph
             schemas={store.schemas}
             edges={store.edges}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            onClear={handleClearSelection}
             selectedEdgeType={selectedEdgeType}
           />
         ) : (
