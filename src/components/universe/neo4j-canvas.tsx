@@ -26,9 +26,11 @@ import {
 import {
   colorForLabel,
   wrapCaption,
+  NEO4J_NEUTRAL_COLOR,
   NEO4J_NODE_RADIUS,
   NEO4J_RELATIONSHIP_COLOR,
   NEO4J_RELATIONSHIP_FONT_SIZE,
+  type LabelColor,
 } from "@/lib/neo4j-style"
 import { HoverPreviewCard } from "./hover-preview-card"
 
@@ -92,6 +94,8 @@ const DRAG_THRESHOLD_PX = 3
 const LANE_SPACING = 28
 const EDGE_LABEL_MIN_ZOOM = 0.85
 const SELF_LOOP_SIZE = 40
+// Angle between neighboring self-loops on one node, so each keeps its own arc and label.
+const SELF_LOOP_SPREAD = (55 * Math.PI) / 180
 // Simulation heat while a node is dragged. Neo4j Browser keeps the rest of the
 // graph nearly still: low heat so only direct neighbors nudge, plus anchors
 // (below) that tether every other node to where it was.
@@ -451,9 +455,20 @@ function relGeometry(r: N4Rel): { d: string; lx: number; ly: number; angle: numb
   const s = r.source
   const t = r.target
   if (s === t) {
-    const top = s.y - s.radius
-    const d = `M ${s.x - 6} ${top + 2} C ${s.x - SELF_LOOP_SIZE} ${top - SELF_LOOP_SIZE}, ${s.x + SELF_LOOP_SIZE} ${top - SELF_LOOP_SIZE}, ${s.x + 6} ${top + 2}`
-    return { d, lx: s.x, ly: top - SELF_LOOP_SIZE * 0.75, angle: 0 }
+    // Loops fan out around the top of the node by lane: the loop is drawn
+    // pointing up, then rotated to its direction; the label sits on its apex,
+    // along the arc, kept upright.
+    const direction = -Math.PI / 2 + r.curve * SELF_LOOP_SPREAD
+    const cos = Math.cos(direction + Math.PI / 2)
+    const sin = Math.sin(direction + Math.PI / 2)
+    const at = (x: number, y: number) => `${s.x + x * cos - y * sin} ${s.y + x * sin + y * cos}`
+    const top = -s.radius
+    const d = `M ${at(-6, top + 2)} C ${at(-SELF_LOOP_SIZE, top - SELF_LOOP_SIZE)}, ${at(SELF_LOOP_SIZE, top - SELF_LOOP_SIZE)}, ${at(6, top + 2)}`
+    const apex = s.radius + SELF_LOOP_SIZE * 0.75
+    let labelAngle = (direction * 180) / Math.PI + 90
+    if (labelAngle > 90) labelAngle -= 180
+    if (labelAngle < -90) labelAngle += 180
+    return { d, lx: s.x + Math.cos(direction) * apex, ly: s.y + Math.sin(direction) * apex, angle: labelAngle }
   }
   const dx = t.x - s.x
   const dy = t.y - s.y
@@ -493,14 +508,30 @@ function relGeometry(r: N4Rel): { d: string; lx: number; ly: number; angle: numb
   return { d: `M ${sx} ${sy} Q ${cx} ${cy} ${tx} ${ty}`, lx, ly, angle }
 }
 
+// Relationship stroke opacity. With a focused node, its own relationships are
+// lit, the ones between its neighbors stay readable as context, and the rest
+// fade out. Quiet (hierarchy) edges stay a step below real relationships.
+function relOpacity(lit: boolean, quiet: boolean, focused: boolean, inNeighborhood: boolean): number {
+  const rest = quiet ? 0.4 : 0.6
+  if (lit) return quiet ? 0.8 : 1
+  if (!focused) return rest
+  return inNeighborhood ? rest * 0.75 : 0.18
+}
+
 type Gesture =
   | { kind: "pan"; startX: number; startY: number; tx: number; ty: number; moved: boolean }
   | { kind: "node"; node: N4Node; startX: number; startY: number; moved: boolean; wasPinned: boolean }
 
 const EMPTY_CAPTION: string[] = [""]
 
+// Palette color for a color group; a null group draws neutral grey.
+function groupColor(group: string | null): LabelColor {
+  return group === null ? NEO4J_NEUTRAL_COLOR : colorForLabel(group)
+}
+
 interface NodeGlyphProps {
   node: N4Node
+  color: LabelColor
   lines: string[]
   selected: boolean
   hot: boolean
@@ -520,6 +551,7 @@ interface NodeGlyphProps {
 // hover/selection changes only repaint the nodes whose props actually changed.
 const NodeGlyph = memo(function NodeGlyph({
   node,
+  color,
   lines,
   selected,
   hot,
@@ -534,7 +566,6 @@ const NodeGlyph = memo(function NodeGlyph({
   onLeave,
   onDoubleClick,
 }: NodeGlyphProps) {
-  const color = colorForLabel(node.type)
   return (
     <g
       ref={(el) => register(node.refId, el)}
@@ -576,13 +607,44 @@ interface Neo4jCanvasProps {
   onNodeSelect?: (node: ApiNode) => void
   /** Focus graph: this node starts at the center and the view fits the whole graph. */
   layoutRootRefId?: string
+  /**
+   * Standalone use outside the main graph (the ontology page): the layout
+   * rebuilds whenever this key changes, and the canvas neither reads nor
+   * writes the graph store — selection comes from `selectedRefId` instead.
+   */
+  layoutKey?: string
+  selectedRefId?: string | null
+  /**
+   * Color + legend group per node ref_id; null draws the node neutral grey.
+   * Defaults to each node's type.
+   */
+  nodeGroups?: Map<string, string | null>
+  /** Relationship type drawn as a quiet skeleton: thin dashed line, no arrowhead, no label. */
+  quietRelType?: string
+  /** Every caption is a candidate (collision-culled in input order), not only the best-connected nodes'. */
+  allCaptions?: boolean
 }
 
-export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRefId }: Neo4jCanvasProps) {
+export function Neo4jCanvas({
+  nodes,
+  edges,
+  schemas,
+  onNodeSelect,
+  layoutRootRefId,
+  layoutKey,
+  selectedRefId: standaloneSelectedRefId = null,
+  nodeGroups,
+  quietRelType,
+  allCaptions = false,
+}: Neo4jCanvasProps) {
+  const standalone = layoutKey !== undefined
   const dataVersion = useGraphStore((s) => s.dataVersion)
-  const selectedRefId = useGraphStore((s) => s.selectedNode?.ref_id ?? null)
-  const sidebarSelectedRefId = useGraphStore((s) => s.sidebarSelectedNode?.ref_id ?? null)
-  const sidebarHoveredRefId = useGraphStore((s) => s.hoveredNode?.ref_id ?? null)
+  const storeSelectedRefId = useGraphStore((s) => s.selectedNode?.ref_id ?? null)
+  const storeSidebarSelectedRefId = useGraphStore((s) => s.sidebarSelectedNode?.ref_id ?? null)
+  const storeSidebarHoveredRefId = useGraphStore((s) => s.hoveredNode?.ref_id ?? null)
+  const selectedRefId = standalone ? standaloneSelectedRefId : storeSelectedRefId
+  const sidebarSelectedRefId = standalone ? null : storeSidebarSelectedRefId
+  const sidebarHoveredRefId = standalone ? null : storeSidebarHoveredRefId
 
   const containerRef = useRef<HTMLDivElement>(null)
   const zoomLabelRef = useRef<HTMLSpanElement>(null)
@@ -597,12 +659,14 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
   const gesture = useRef<Gesture | null>(null)
   const dragging = useRef(false)
 
-  // Full rebuild only on a new dataset (dataVersion bump); appends are folded
-  // into the live model below without touching existing positions.
+  // Full rebuild only on a new dataset (dataVersion bump, or a new layoutKey
+  // when standalone); appends are folded into the live model below without
+  // touching existing positions.
+  const rebuildKey = standalone ? layoutKey : dataVersion
   const model = useMemo(
     () => buildModel(nodes, edges, layoutRootRefId),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes/edges/layoutRootRefId change together with dataVersion
-    [dataVersion]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes/edges/layoutRootRefId change together with the rebuild key
+    [rebuildKey]
   )
   const [structVersion, setStructVersion] = useState(0)
 
@@ -900,12 +964,14 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
 
   const handleNodeClick = useCallback(
     (node: N4Node) => {
-      const store = useGraphStore.getState()
-      store.setSidebarSelectedNode(null)
-      store.setHoveredNode(null)
+      if (!standalone) {
+        const store = useGraphStore.getState()
+        store.setSidebarSelectedNode(null)
+        store.setHoveredNode(null)
+      }
       onNodeSelect?.(node.api)
     },
-    [onNodeSelect]
+    [onNodeSelect, standalone]
   )
 
   const onPointerUp = useCallback(
@@ -915,7 +981,7 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
       if (!g) return
       if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
       if (g.kind === "pan") {
-        if (!g.moved) {
+        if (!g.moved && !standalone) {
           const store = useGraphStore.getState()
           store.setSidebarSelectedNode(null)
           store.setHoveredNode(null)
@@ -937,7 +1003,7 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
       }
       handleNodeClick(g.node)
     },
-    [ensureRunning, handleNodeClick, model]
+    [ensureRunning, handleNodeClick, model, standalone]
   )
 
   const onNodeDoubleClick = useCallback(
@@ -983,17 +1049,27 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
     // eslint-disable-next-line react-hooks/exhaustive-deps -- structVersion tracks in-place growth of model.nodes
   }, [model, schemas, structVersion])
 
+  const groupOf = useCallback(
+    (n: N4Node): string | null => (nodeGroups ? nodeGroups.get(n.refId) ?? null : n.type),
+    [nodeGroups]
+  )
+
   const legend = useMemo(() => {
-    const labels = new Map<string, number>()
+    const labels = new Map<string | null, number>()
     const relTypes = new Map<string, number>()
-    for (const n of model.nodes) labels.set(n.type, (labels.get(n.type) ?? 0) + 1)
-    for (const r of model.rels) relTypes.set(r.type, (relTypes.get(r.type) ?? 0) + 1)
+    for (const n of model.nodes) {
+      const group = groupOf(n)
+      labels.set(group, (labels.get(group) ?? 0) + 1)
+    }
+    for (const r of model.rels) {
+      if (r.type !== quietRelType) relTypes.set(r.type, (relTypes.get(r.type) ?? 0) + 1)
+    }
     return {
       labels: [...labels.entries()].sort((a, b) => b[1] - a[1]),
       relTypes: [...relTypes.entries()].sort((a, b) => b[1] - a[1]),
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- structVersion tracks in-place growth
-  }, [model, structVersion])
+  }, [model, structVersion, groupOf, quietRelType])
 
   const highlightedRefs = useMemo(() => {
     const s = new Set<string>()
@@ -1063,6 +1139,7 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
                 highlightedRefs.has(r.source.refId) ||
                 highlightedRefs.has(r.target.refId) ||
                 (hotRef !== null && (r.source.refId === hotRef || r.target.refId === hotRef))
+              const quiet = r.type === quietRelType
               const g = relGeometry(r)
               return (
                 <path
@@ -1073,9 +1150,15 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
                     relEls.current.set(r.key, cur)
                   }}
                   d={g.d}
-                  strokeWidth={lit ? 2.5 : 1.5}
-                  strokeOpacity={lit ? 1 : neighborhood.size ? 0.18 : 0.6}
-                  markerEnd="url(#neo4j-arrow)"
+                  strokeWidth={quiet ? (lit ? 1.5 : 1) : lit ? 2.5 : 1.5}
+                  strokeOpacity={relOpacity(
+                    lit,
+                    quiet,
+                    neighborhood.size > 0,
+                    neighborhood.has(r.source.refId) && neighborhood.has(r.target.refId)
+                  )}
+                  strokeDasharray={quiet ? "4 4" : undefined}
+                  markerEnd={quiet ? undefined : "url(#neo4j-arrow)"}
                 />
               )
             })}
@@ -1090,6 +1173,7 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
             style={{ pointerEvents: "none" }}
           >
             {model.rels.map((r) => {
+              if (r.type === quietRelType) return null
               const g = relGeometry(r)
               return (
                 <text
@@ -1101,7 +1185,13 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
                   }}
                   transform={`translate(${g.lx} ${g.ly}) rotate(${g.angle})`}
                   data-active={r.source.refId === focusRef || r.target.refId === focusRef}
-                  opacity={neighborhood.size && r.source.refId !== focusRef && r.target.refId !== focusRef ? 0.15 : 1}
+                  opacity={
+                    !neighborhood.size || r.source.refId === focusRef || r.target.refId === focusRef
+                      ? 1
+                      : neighborhood.has(r.source.refId) && neighborhood.has(r.target.refId)
+                        ? 0.7
+                        : 0.15
+                  }
                   dy="0.32em"
                   style={{ stroke: "var(--background)", strokeWidth: 3, paintOrder: "stroke", strokeLinejoin: "round" }}
                 >
@@ -1115,12 +1205,13 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
               <NodeGlyph
                 key={n.refId}
                 node={n}
+                color={groupColor(groupOf(n))}
                 lines={captions.get(n.refId) ?? EMPTY_CAPTION}
                 selected={highlightedRefs.has(n.refId)}
                 hot={hotRef === n.refId}
                 pinned={n.userPinned}
                 title={resolveNodeTitle(n.api, schemas)}
-                prominent={model.nodes.length <= 20 || prominentRefs.has(n.refId)}
+                prominent={allCaptions || model.nodes.length <= 20 || prominentRefs.has(n.refId)}
                 icon={typeIcon(n.type, schemas)}
                 dimmed={neighborhood.size > 0 && !neighborhood.has(n.refId)}
                 register={registerNodeEl}
@@ -1135,19 +1226,19 @@ export function Neo4jCanvas({ nodes, edges, schemas, onNodeSelect, layoutRootRef
       </svg>
 
       <details className="absolute bottom-4 left-4 z-20 max-w-[calc(100%-15rem)] rounded-lg border border-border/50 bg-background/95 text-xs backdrop-blur">
-        <summary className="cursor-pointer px-3 py-2 text-muted-foreground">Legend · {legend.labels.length} node types</summary>
+        <summary className="cursor-pointer px-3 py-2 text-muted-foreground">Legend · {legend.labels.length} {nodeGroups ? "groups" : "node types"}</summary>
         <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto p-3 pt-1">
         {legend.labels.map(([label, count]) => {
-          const c = colorForLabel(label)
-          const Icon = typeIcon(label, schemas)
+          const c = groupColor(label)
+          const Icon = label === null ? CircleDot : typeIcon(label, schemas)
           return (
             <span
-              key={`l:${label}`}
+              key={`l:${label ?? ""}`}
               className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium leading-4"
               style={{ background: c.fill, color: c.text, border: `1px solid ${c.border}` }}
             >
               <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-              {label} ({count})
+              {label ?? "Other"} ({count})
             </span>
           )
         })}

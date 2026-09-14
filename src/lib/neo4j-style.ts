@@ -30,6 +30,8 @@ export const NEO4J_CAPTION_LINE_HEIGHT = 11
 export const NEO4J_CAPTION_MAX_LINES = 3
 export const NEO4J_RELATIONSHIP_COLOR = "#A5ABB6"
 export const NEO4J_RELATIONSHIP_FONT_SIZE = 8
+// Neo4j Browser's grey, for nodes outside any colored label group.
+export const NEO4J_NEUTRAL_COLOR: LabelColor = { fill: "#A5ABB6", border: "#9AA1AC", text: "#2A2C34" }
 
 // Labels get a palette slot in first-seen order and keep it for the session,
 // exactly like Neo4j Browser (colors stay stable across queries).
