@@ -203,6 +203,10 @@ but matches the future verified form).
 - All `GET` requests against documented endpoints (see `/llms.txt`).
 - Programmatic content adds via `POST /api/v2/content` — be sensible
   with rate and source quality; spam and duplicates are filtered.
+  `content_type` must be one of the values in `/llms.txt` "Content
+  types" (`tweet`, `audio_video`, `document`, `webpage`, `arxiv_paper`,
+  `legal_document`). Anything else is `400 INVALID_CONTENT_TYPE`. The
+  most common mistake is `youtube_video` — YouTube is `audio_video`.
 - Identifying yourself in `User-Agent` is appreciated but not required.
 
 ## Common task → endpoint cheatsheet
@@ -210,7 +214,11 @@ but matches the future verified form).
 When the human says…                | Hit this endpoint
 ------------------------------------|-----------------------------------
 "search for X"                      | `GET /api/v2/nodes?q=X&limit=50`
-"add this URL"                      | `POST /api/v2/content` with `{content_type, source_link}`
+"add this tweet"                    | `POST /api/v2/content` `{content_type:"tweet", source_link}`
+"add this YouTube video"            | `POST /api/v2/content` `{content_type:"audio_video", source_link}`
+                                    | — it is `audio_video`, NOT `youtube_video` (rejected)
+"add this article / repo / URL"     | `POST /api/v2/content` `{content_type:"document", source_link}`
+                                    | Full type → node table: `/llms.txt` "Content types"
 "show / list my content"            | `GET /api/v2/content?sort_by=date&limit=100`
 "what have I added"                 | `GET /api/v2/content?sort_by=date&limit=100`
 "what's still processing"           | `GET /api/v2/content` and read `totalProcessing`
@@ -249,7 +257,9 @@ When the human says…                | Hit this endpoint
 "open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
 "what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`
 "how many nodes / topics / people"  | `GET /api/stats` (free)
-"subscribe to this RSS / channel"   | `POST /radar` with `{source, source_type}`
+"subscribe to this RSS / channel"   | `POST /radar` with `{source, source_type}` —
+  / "follow this handle"            | `source_type` ∈ `twitter_handle`, `youtube_channel`,
+                                    | `rss`. These are never a `content_type`.
 
 **For "my content" specifically: never fetch `/api/v2/nodes` and try to
 filter client-side.** Graph nodes have no `added_by` property and you

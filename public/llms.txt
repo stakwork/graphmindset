@@ -26,8 +26,13 @@
 4. Example calls:
    - Search: `GET /api/v2/nodes?q=<query>&limit=50&skip=0`
    - Inspect: `GET /api/v2/nodes/<ref_id>?expand=edges`
-   - Add: `POST /api/v2/content` body
+   - Add a tweet: `POST /api/v2/content` body
      `{"content_type":"tweet","source_link":"https://x.com/<user>/status/<id>"}`
+   - Add a YouTube video: same endpoint, body
+     `{"content_type":"audio_video","source_link":"https://www.youtube.com/watch?v=<id>"}`
+     The type is `audio_video` — there is **no** `youtube_video`. Check
+     the "Content types" table below before choosing any other type;
+     unknown types are rejected with `400 INVALID_CONTENT_TYPE`.
    - **List MY content / what I added** (the *only* correct way — do
      not fetch all nodes and try to filter client-side):
      `GET /api/v2/content?sort_by=date&limit=100` — the server filters
@@ -90,8 +95,8 @@ direct LN-node check (see `/agents.txt`). Any non-empty string after
 
 | Method | Path | Body | Purpose |
 |--------|------|------|---------|
-| POST | `/api/v2/content` | `{content_type, source_link}` | **Primary agent-facing add.** content_type ∈ {`tweet`, `youtube_video`, `youtube_short`, `youtube_live`, `youtube_channel`, `twitter_handle`, `rss`, `github_repository`, `web_page`, `document`, `link`}. Returns `{nodes:[{ref_id, project_id}], status:"Success"}`. |
-| POST | `/radar` | `{source, source_type, topics?}` | Subscribe to an external source (Twitter handle, YouTube channel, RSS, GitHub repo, topic). |
+| POST | `/api/v2/content` | `{content_type, source_link}` | **Primary agent-facing add.** `content_type` must be one of `tweet`, `audio_video`, `document`, `webpage`, `arxiv_paper`, `legal_document` — see "Content types" under Worked examples for which URL takes which type. Anything else (`youtube_video`, `youtube_channel`, `web_page`, `link`, `github_repository`, `twitter_handle`, …) is rejected with `400 INVALID_CONTENT_TYPE`. Returns `{nodes:[{ref_id, project_id}], status:"Success"}`. |
+| POST | `/radar` | `{source, source_type, topics?}` | Subscribe to an external source (Twitter handle, YouTube channel, RSS, GitHub repo, topic). The discriminator here is `source_type` (`twitter_handle`, `youtube_channel`, `rss`, …), which is **not** a `content_type` — sending those values to `/api/v2/content` fails. |
 | POST | `/api/v2/nodes` | `{node_type, node_data}` | Generic typed-node create. |
 | POST | `/api/v2/nodes/<ref_id>` | partial node | Update properties. |
 | DELETE | `/api/v2/nodes/<ref_id>` | — | Delete. |
@@ -160,6 +165,37 @@ Response shape:
 }
 ```
 
+### Content types — what `POST /api/v2/content` accepts
+
+The server maps `content_type` to the node it creates. Only the values
+below exist; anything else returns
+`400 {"errorCode":"INVALID_CONTENT_TYPE","message":"Unknown content_type: …"}`.
+
+| `content_type` | Example `source_link` | Resulting `node_type` | Status |
+|---|---|---|---|
+| `tweet` | `https://x.com/ClaudeDevs/status/2054639777685934564` | `Tweet` | verified live 2026-09-14 |
+| `audio_video` | `https://www.youtube.com/watch?v=96jN2OCOfLs` | `Episode` | verified live 2026-09-14 |
+| `document` | a blog post, article, or GitHub repo page, e.g. `https://github.com/<org>/<repo>` | `Document` | verified live 2026-09-14 |
+| `webpage` | `https://example.com/some-article` | `Document` | in the server's type map; not re-verified live |
+| `arxiv_paper` | `https://arxiv.org/abs/<id>` | `ArxivPaper` | in the server's type map; not re-verified live |
+| `legal_document` | `https://example.com/contract.pdf` | `LegalDocument` | in the server's type map; legal-skin deployments |
+
+Picking the type from a URL:
+
+- YouTube watch / `youtu.be` / shorts / live URL → `audio_video`.
+- Article, blog post, GitHub repository page, any other web page →
+  `document` (verified) or `webpage` (same resulting node type).
+- X/Twitter status URL → `tweet`.
+- A Twitter/X **handle**, a YouTube **channel**, or an RSS feed is not
+  content — it is a subscription. Use `POST /radar` with `source_type`
+  instead; those words are never valid as a `content_type`.
+
+Rejected as unknown `content_type` in live tests on 2026-09-14:
+`youtube_video`, `youtube`, `youtube_channel`, `web_page`, `link`,
+`github_repository`, `twitter_handle`. Do not send them. (In that
+test a rejected type did not keep the sats, but don't rely on the
+refund — get the type right first.)
+
 ### Add a tweet
 
 ```
@@ -178,6 +214,32 @@ Response:
 
 The backend then auto-extracts entities, topics, and edges. Poll
 `GET /api/v2/nodes/<ref_id>?expand=edges` to see them appear.
+
+### Add a YouTube video
+
+YouTube URLs use `content_type: "audio_video"`. `youtube_video` is
+rejected.
+
+```
+curl -sS -X POST \
+  -H 'Authorization: LSAT <macaroon>:paid' \
+  -H 'Content-Type: application/json' \
+  -d '{"content_type":"audio_video","source_link":"https://www.youtube.com/watch?v=96jN2OCOfLs"}' \
+  https://ai.sphinx.chat/api/v2/content
+```
+
+Success returns the same `{nodes:[{ref_id, project_id}], status:"Success"}`
+shape and creates an `Episode` node. Re-submitting a URL that is
+already in the graph does not create a second node; the response
+carries a message of the form:
+
+```
+Node already exists in the graph with node_key: episode-<normalised url>
+```
+
+Treat that as "already there" — look the node up rather than paying to
+retry. The free `GET /api/v2/nodes/check` preflight (see the Free /
+preflight table) lets you test for a duplicate before paying.
 
 ### Inspect a node and its neighbors
 
@@ -439,5 +501,8 @@ the amount, and paste you the `lnbc…` string.
 - `X-RateLimit-Limit: 50` per window on the L402 challenge endpoint.
 - `429` and `503` should be respected with exponential backoff.
 - `400 INVALID_DOMAIN` if you pass an unknown domain to search.
+- `400 INVALID_CONTENT_TYPE` if `content_type` is not in the "Content
+  types" table. YouTube → `audio_video`; articles / repos →
+  `document`; handles / channels / feeds → `POST /radar` (not content).
 - `404` after sending a valid LSAT to a non-existent path — your auth
   worked; the route is wrong (this is the silent failure to watch for).
