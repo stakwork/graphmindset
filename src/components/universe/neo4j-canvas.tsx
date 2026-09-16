@@ -16,6 +16,7 @@ import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "@/lib/graph-api
 import type { SchemaNode } from "@/lib/schema-types"
 import { useGraphStore } from "@/stores/graph-store"
 import { resolveNodeTitle } from "@/lib/node-display"
+import { isWebKit } from "@/lib/sphinx/detect"
 import {
   DEFAULT_FORCE_CONFIG,
   ForceSimulation,
@@ -670,6 +671,17 @@ export function Neo4jCanvas({
   )
   const [structVersion, setStructVersion] = useState(0)
 
+  // WebKit leaves stale pixels ("ghost trails") behind SVG elements whose
+  // transform attribute changes every frame, which is what the settle loop
+  // does to every node. Promoting the whole <svg> to its own compositing
+  // layer makes WebKit repaint it as a unit. Gated to WebKit because the
+  // layer costs GPU memory and drops subpixel text AA, and Chromium doesn't
+  // need it. Set in an effect so server and first client render match.
+  const [compositeSvg, setCompositeSvg] = useState(false)
+  useEffect(() => {
+    setCompositeSvg(isWebKit())
+  }, [])
+
   const [hoveredRefId, setHoveredRefId] = useState<string | null>(null)
   const [hoverCardNode, setHoverCardNode] = useState<ApiNode | null>(null)
   // Cursor is only tracked while a hover card is up, so plain mouse travel
@@ -1115,7 +1127,7 @@ export function Neo4jCanvas({
       <svg
         ref={svgRef}
         className="h-full w-full touch-none"
-        style={{ cursor: "grab" }}
+        style={{ cursor: "grab", willChange: compositeSvg ? "transform" : undefined }}
         onPointerDown={onBackgroundPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
