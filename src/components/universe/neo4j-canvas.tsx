@@ -583,7 +583,7 @@ const NodeGlyph = memo(function NodeGlyph({
       <title>{`${node.type}: ${title}`}</title>
       {selected && <circle r={node.radius + 6} fill="none" stroke={color.fill} strokeOpacity={0.35} strokeWidth={10} />}
       <circle r={node.radius + 5} fill={color.fill} fillOpacity={hot || selected ? 0.14 : 0.04} />
-      <circle r={node.radius} fill={color.fill} fillOpacity={0.3} stroke={hot || selected ? "#ffffff" : color.fill} strokeWidth={hot || selected ? 2 : 1.2} vectorEffect="non-scaling-stroke" />
+      <circle r={node.radius} fill={color.fill} fillOpacity={0.3} stroke={hot || selected ? "#ffffff" : color.fill} style={{ strokeWidth: `calc(${hot || selected ? 2 : 1.2}px * var(--ring-stroke, 1))` }} />
       <circle className="neo4j-node-dot" r={prominent ? 9 : 5} fill={color.fill} />
       <Icon className="neo4j-node-icon" x={-node.radius * 0.6} y={-node.radius * 0.6} width={node.radius * 1.2} height={node.radius * 1.2} color={color.fill} strokeWidth={1.8} aria-hidden="true" style={{ pointerEvents: "none" }} />
       <g className="neo4j-caption" style={{ transform: `translateY(${node.radius + 16}px) scale(var(--caption-scale, 1))`, pointerEvents: "none" }}>
@@ -715,6 +715,10 @@ export function Neo4jCanvas({
     viewportRef.current?.setAttribute("transform", `translate(${x} ${y}) scale(${k})`)
     viewportRef.current?.setAttribute("data-overview", String(k < 0.7))
     viewportRef.current?.style.setProperty("--caption-scale", String(Math.min(4, Math.max(1, 0.85 / k))))
+    // Ring stroke stays a constant screen width without vector-effect
+    // non-scaling-stroke, whose paint-invalidation bounds are unreliable in
+    // Chromium while a node is moved every frame (left ghost trails).
+    viewportRef.current?.style.setProperty("--ring-stroke", String(1 / k))
     if (zoomLabelRef.current) zoomLabelRef.current.textContent = `${Math.round(k * 100)}%`
     updateLabelVisibility()
     if (relLabelsRef.current) {
