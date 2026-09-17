@@ -142,7 +142,7 @@ vi.mock("@/lib/graph-api", () => ({
     audio_video: "Episode",
     document: "Document",
     webpage: "Document",
-    arxiv_paper: "ArxivPaper",
+    arxiv_paper: "Document",
     tweet: "Tweet",
     legal_document: "LegalDocument",
   },

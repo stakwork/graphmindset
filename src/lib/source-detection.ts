@@ -108,7 +108,7 @@ export const SOURCE_TYPE_LABELS: Record<string, string> = {
   [SOURCE_TYPES.WEB_PAGE]: "Web Page",
   [SOURCE_TYPES.DOCUMENT]: "Document",
   [SOURCE_TYPES.LINK]: "Link",
-  [SOURCE_TYPES.ARXIV_PAPER]: "arXiv Paper",
+  [SOURCE_TYPES.ARXIV_PAPER]: "Research Paper",
 }
 
 const SUBSCRIPTION_TYPES: string[] = [

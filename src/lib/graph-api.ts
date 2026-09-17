@@ -627,7 +627,7 @@ export const CONTENT_TYPE_TO_NODE_TYPE: Record<string, string> = {
   audio_video: "Episode",
   document: "Document",
   webpage: "Document",
-  arxiv_paper: "ArxivPaper",
+  arxiv_paper: "Document",
   tweet: "Tweet",
   legal_document: "LegalDocument",
 }
