@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { OntologyNeo4jGraph } from "./ontology-neo4j-graph"
@@ -8,14 +8,69 @@ import { TypeEditor } from "./type-editor"
 import { EdgeTypePanel } from "./edge-type-panel"
 import { EdgeCreatePanel, type NewEdgeParams } from "./edge-create-panel"
 import { OntologyAgentPanel } from "./ontology-agent-panel"
+import { DomainFilter } from "./domain-filter"
 import { Plus, ArrowLeft, Network, Share2, Search, ArrowRight, HelpCircle, Sparkles } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useSchemaStore, serializeAttributes } from "@/stores/schema-store"
-import { isMocksEnabled } from "@/lib/mock-data"
+import { isMocksEnabled, MOCK_DOMAINS } from "@/lib/mock-data"
+import { getSchemaDomains } from "@/lib/graph-api"
+import { filterSchemasByDomain, listSchemaDomains } from "@/lib/schema-domains"
 import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
 import type { SchemaNode, SchemaEdge, SchemaAttribute } from "@/lib/schema-types"
+
+// The set of hidden domain keys, persisted in localStorage and exposed as an
+// external store (same pattern as the graph pane's view mode): the server
+// snapshot is always "nothing hidden" so SSR and the first client render agree,
+// then the stored set takes over without a setState-in-effect.
+const DISABLED_DOMAINS_STORAGE_KEY = "ontology:disabled-domains"
+const NO_DISABLED_DOMAINS: ReadonlySet<string> = new Set()
+const disabledDomainsListeners = new Set<() => void>()
+let disabledDomainsCache: { raw: string | null; set: ReadonlySet<string> } = {
+  raw: null,
+  set: NO_DISABLED_DOMAINS,
+}
+function subscribeDisabledDomains(cb: () => void) {
+  disabledDomainsListeners.add(cb)
+  window.addEventListener("storage", cb)
+  return () => {
+    disabledDomainsListeners.delete(cb)
+    window.removeEventListener("storage", cb)
+  }
+}
+function readDisabledDomains(): ReadonlySet<string> {
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(DISABLED_DOMAINS_STORAGE_KEY)
+  } catch {
+    // storage unavailable — fall back to whatever this session last chose
+    return disabledDomainsCache.set
+  }
+  // Same raw string → same Set instance, as useSyncExternalStore requires.
+  if (raw === disabledDomainsCache.raw) return disabledDomainsCache.set
+  let set: ReadonlySet<string> = NO_DISABLED_DOMAINS
+  try {
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    if (Array.isArray(parsed)) {
+      set = new Set(parsed.filter((k): k is string => typeof k === "string").map((k) => k.toLowerCase()))
+    }
+  } catch {
+    // malformed entry — treat as nothing hidden
+  }
+  disabledDomainsCache = { raw, set }
+  return set
+}
+function writeDisabledDomains(next: ReadonlySet<string>) {
+  try {
+    if (next.size === 0) window.localStorage.removeItem(DISABLED_DOMAINS_STORAGE_KEY)
+    else window.localStorage.setItem(DISABLED_DOMAINS_STORAGE_KEY, JSON.stringify(Array.from(next).sort()))
+  } catch {
+    // storage unavailable (private mode) — keep the choice for this session only
+    disabledDomainsCache = { raw: disabledDomainsCache.raw, set: next }
+  }
+  for (const cb of disabledDomainsListeners) cb()
+}
 
 export default function OntologyPage() {
   const router = useRouter()
@@ -38,32 +93,86 @@ export default function OntologyPage() {
   const [showHelp, setShowHelp] = useState(false)
   // When true, the AI ontology-editor panel takes over the right-panel slot.
   const [showAgent, setShowAgent] = useState(false)
+  // Authoritative domain list from /v2/schema/domains (MOCK_DOMAINS in mock
+  // mode); unioned with the domains found on the loaded schemas below.
+  const [apiDomains, setApiDomains] = useState<string[]>([])
+  const disabledDomains = useSyncExternalStore(
+    subscribeDisabledDomains,
+    readDisabledDomains,
+    () => NO_DISABLED_DOMAINS
+  )
 
   useEffect(() => {
     if (isMocksEnabled()) {
       store.setSchemas(SMALL_SCHEMAS)
       store.setEdges(SMALL_EDGES)
+      setApiDomains(MOCK_DOMAINS.domains)
     } else {
       store.fetchAll()
+      getSchemaDomains()
+        .then((r) => setApiDomains(r.domains ?? []))
+        .catch(() => {
+          // the schemas' own domains still populate the filter
+        })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const domainOptions = useMemo(
+    () => listSchemaDomains(store.schemas, apiDomains),
+    [store.schemas, apiDomains]
+  )
+
+  // Pure domain filter applied before the data reaches either graph view and
+  // the sidebar lists. The store's schemas/edges are never mutated; the editing
+  // panels keep receiving the full store (parent pickers etc. need every type).
+  const filtered = useMemo(
+    () => filterSchemasByDomain(store.schemas, store.edges, disabledDomains),
+    [store.schemas, store.edges, disabledDomains]
+  )
+
+  // A selection that the filter just removed would point at nothing on the canvas.
+  useEffect(() => {
+    if (selectedId && !filtered.schemas.some((s) => s.ref_id === selectedId)) {
+      setSelectedId(null)
+    }
+  }, [filtered.schemas, selectedId])
+  useEffect(() => {
+    if (selectedEdgeType && !filtered.edges.some((e) => e.edge_type === selectedEdgeType)) {
+      setSelectedEdgeType(null)
+    }
+  }, [filtered.edges, selectedEdgeType])
+
+  const handleToggleDomain = useCallback(
+    (key: string) => {
+      const next = new Set(disabledDomains)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      writeDisabledDomains(next)
+    },
+    [disabledDomains]
+  )
+  const handleAllDomains = useCallback(() => writeDisabledDomains(NO_DISABLED_DOMAINS), [])
+  const handleNoDomains = useCallback(
+    () => writeDisabledDomains(new Set(domainOptions.map((d) => d.key))),
+    [domainOptions]
+  )
 
   const selected = store.schemas.find((s) => s.ref_id === selectedId) ?? null
 
   // Filter by type name, then sort alphabetically (by first letter).
   const visibleSchemas = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return store.schemas
+    return filtered.schemas
       .filter((s) => !q || s.type.toLowerCase().includes(q))
       .sort((a, b) => a.type.localeCompare(b.type))
-  }, [store.schemas, search])
+  }, [filtered.schemas, search])
 
   // Deduplicate edges by edge_type (exclude CHILD_OF), filter by edgeSearch, sort alphabetically
   const visibleEdgeTypes = useMemo(() => {
     const q = edgeSearch.trim().toLowerCase()
     const countMap = new Map<string, number>()
-    for (const e of store.edges) {
+    for (const e of filtered.edges) {
       if (e.edge_type === "CHILD_OF") continue
       countMap.set(e.edge_type, (countMap.get(e.edge_type) ?? 0) + 1)
     }
@@ -71,7 +180,7 @@ export default function OntologyPage() {
       .filter(([edgeType]) => !q || edgeType.toLowerCase().includes(q))
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([edgeType, count]) => ({ edgeType, count }))
-  }, [store.edges, edgeSearch])
+  }, [filtered.edges, edgeSearch])
 
   // Stable so the memoized OntologyGraph doesn't re-render on unrelated page updates.
   const handleClearSelection = useCallback(() => setSelectedId(null), [])
@@ -384,6 +493,15 @@ export default function OntologyPage() {
           </div>
         </div>
 
+        {/* Domain filter (applies to both graph views and the lists above) */}
+        <DomainFilter
+          domains={domainOptions}
+          disabled={disabledDomains}
+          onToggle={handleToggleDomain}
+          onAll={handleAllDomains}
+          onNone={handleNoDomains}
+        />
+
         {/* List */}
         <div className="relative z-10 flex-1 overflow-y-auto p-2 space-y-1">
           {sidebarTab === "nodes" ? (
@@ -458,8 +576,8 @@ export default function OntologyPage() {
       <div className="flex-1 min-w-0">
         {graphView === "network" ? (
           <OntologyNeo4jGraph
-            schemas={store.schemas}
-            edges={store.edges}
+            schemas={filtered.schemas}
+            edges={filtered.edges}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onClear={handleClearSelection}
@@ -467,8 +585,8 @@ export default function OntologyPage() {
           />
         ) : (
           <OntologyGraph
-            schemas={store.schemas}
-            edges={store.edges}
+            schemas={filtered.schemas}
+            edges={filtered.edges}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onClear={handleClearSelection}

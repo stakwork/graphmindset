@@ -20,13 +20,7 @@ import {
   type SchemaDomainsResponse,
 } from "@/lib/graph-api"
 import { MAX_LENGTHS } from "@/lib/input-limits"
-
-const DEFAULT_DOMAIN = "entity"
-
-/** The domain a schema type belongs to (lowercased; defaults to "entity"). */
-function domainKeyOf(s: SchemaNode): string {
-  return (s.domain || DEFAULT_DOMAIN).toLowerCase()
-}
+import { DEFAULT_DOMAIN, domainKeyOf } from "@/lib/schema-domains"
 
 function capitalize(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s
