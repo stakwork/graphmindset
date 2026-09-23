@@ -94,7 +94,8 @@ export function ontologyDigest(
   )
   out.push("")
   out.push(
-    "## Types (indent = CHILD_OF, specific under broader; [domain] on roots; own attributes after ':', '?' = optional; inherited attributes are implied by the tree)"
+    "## Types (indent = CHILD_OF, specific under broader; [domain] on roots; own attributes after ':', '?' = optional; " +
+      "subtypes inherit their ancestors' attributes, and every type inherits name and ?description from Thing)"
   )
   for (const r of roots) walk(r, 0)
   out.push(...lines)
