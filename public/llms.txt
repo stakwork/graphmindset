@@ -12,6 +12,9 @@
 2. Explore for free first (no auth required):
    - `GET /api/getPrice` — current price in sats of every paid route
    - `GET /api/stats`, `GET /api/about`, `GET /api/v2/schema/domains`
+   - `GET /api/v2/schema?domains=<a>,<b>` — full ontology (types with
+     `parent` inheritance + relationship schemas), optionally scoped
+     to a domain list from `/api/v2/schema/domains`
    - `GET /api/v2/nodes/topic-check?name=<name>`
    - `GET /api/v2/nodes/check?node_type=<T>&key=<k>`
 3. For paid actions (search, node lookup, content add):
@@ -86,7 +89,7 @@ direct LN-node check (see `/agents.txt`). Any non-empty string after
 | GET | `/api/v2/content?sort_by=date&limit=100` | **List the caller's own content / "my content" / "what I added".** Server-filtered by the LSAT identity in your `Authorization` header — never fetch `/api/v2/nodes` and filter client-side. Returns `{nodes, totalCount, totalProcessing}` where `totalProcessing` counts your submissions still being ingested. |
 | GET | `/api/v2/reviews?status=&type=&sort=&skip=&limit=` | Pending content reviews. |
 | GET | `/api/v2/schema/domains` | Domain roots, hidden_types, hidden_domains. |
-| GET | `/schema` | Full ontology. |
+| GET | `/api/v2/schema?domains=<a>,<b>` | Full ontology: `{schemas, edges}`. Each schema has `type`, `parent` (CHILD_OF inheritance), `domain`, `node_key`, `attributes`, `inherited_attributes`; each edge has `source`, `target`, `edge_type`. `domains` scopes to a comma-separated list. Do **not** pass `concise=true` or `include_attributes=false` — both drop `parent`. Replaces the deprecated `/schema/all`. |
 | GET | `/stats` | `{num_nodes, num_episodes, num_people, num_audio, num_video, num_tweet, num_documents, …}`. |
 | GET | `/about` | Graph identity (title, description). |
 | GET | `/balance` | Caller's sats balance. |

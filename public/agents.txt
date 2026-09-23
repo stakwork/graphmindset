@@ -255,7 +255,9 @@ When the human says…                | Hit this endpoint
                                     | `BELOW_MINIMUM` with the figure in `message`.
                                     | See "Withdrawing" below.
 "open this node" / "show details"   | `GET /api/v2/nodes/<ref_id>?expand=edges`
-"what node types exist"             | `GET /api/v2/schema/domains` (free) or `GET /schema`
+"what node types exist"             | `GET /api/v2/schema/domains` (free) or
+  / "show the ontology"             | `GET /api/v2/schema?domains=<a>,<b>` (free;
+                                    | types with `parent` + relationship schemas)
 "how many nodes / topics / people"  | `GET /api/stats` (free)
 "subscribe to this RSS / channel"   | `POST /radar` with `{source, source_type}` —
   / "follow this handle"            | `source_type` ∈ `twitter_handle`, `youtube_channel`,
@@ -373,6 +375,7 @@ asking the human to fund a token:
 - `GET /api/stats`
 - `GET /api/about`
 - `GET /api/v2/schema/domains`
+- `GET /api/v2/schema?domains=<a>,<b>` — full ontology, scoped by domain
 - `GET /api/v2/nodes/topic-check?name=<name>`
 - `GET /api/v2/nodes/check?node_type=<T>&key=<k>`
 
