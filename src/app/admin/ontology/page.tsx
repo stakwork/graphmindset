@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useRouter } from "next/navigation"
 import { OntologyGraph } from "./ontology-graph"
 import { OntologyNeo4jGraph } from "./ontology-neo4j-graph"
+import { OntologyOutline } from "./ontology-outline"
 import { TypeEditor } from "./type-editor"
 import { EdgeTypePanel } from "./edge-type-panel"
 import { EdgeCreatePanel, type NewEdgeParams } from "./edge-create-panel"
 import { OntologyAgentPanel } from "./ontology-agent-panel"
 import { DomainFilter } from "./domain-filter"
-import { Plus, ArrowLeft, Network, Share2, Search, ArrowRight, HelpCircle, Sparkles } from "lucide-react"
+import { Plus, ArrowLeft, Network, Share2, ListTree, Search, ArrowRight, HelpCircle, Sparkles } from "lucide-react"
 import { useUserStore } from "@/stores/user-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,10 +21,45 @@ import { filterSchemasByDomain, listSchemaDomains } from "@/lib/schema-domains"
 import { SMALL_SCHEMAS, SMALL_EDGES } from "./mock-small"
 import type { SchemaNode, SchemaEdge, SchemaAttribute } from "@/lib/schema-types"
 
+// Which view fills the centre column: "network" (the main graph's 2D canvas,
+// the default), "hierarchy" (the dagre tree) or "outline" (the collapsible
+// per-domain list). Remembered per browser through localStorage exposed as an
+// external store, same pattern as the graph pane's view mode: the server
+// snapshot is always "network" so SSR and the first client render agree, then
+// the stored choice takes over without a setState-in-effect.
+type OntologyView = "network" | "hierarchy" | "outline"
+const VIEW_STORAGE_KEY = "ontology:view"
+const VIEW_ORDER: OntologyView[] = ["network", "hierarchy", "outline"]
+const viewListeners = new Set<() => void>()
+function subscribeView(cb: () => void) {
+  viewListeners.add(cb)
+  window.addEventListener("storage", cb)
+  return () => {
+    viewListeners.delete(cb)
+    window.removeEventListener("storage", cb)
+  }
+}
+function readStoredView(): OntologyView {
+  try {
+    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY)
+    return raw === "hierarchy" || raw === "outline" ? raw : "network"
+  } catch {
+    return "network"
+  }
+}
+function writeStoredView(view: OntologyView) {
+  try {
+    window.localStorage.setItem(VIEW_STORAGE_KEY, view)
+  } catch {
+    // storage unavailable (private mode) — the choice just won't persist
+  }
+  for (const cb of viewListeners) cb()
+}
+
 // The set of hidden domain keys, persisted in localStorage and exposed as an
-// external store (same pattern as the graph pane's view mode): the server
-// snapshot is always "nothing hidden" so SSR and the first client render agree,
-// then the stored set takes over without a setState-in-effect.
+// external store (same pattern as the view above): the server snapshot is
+// always "nothing hidden" so SSR and the first client render agree, then the
+// stored set takes over without a setState-in-effect.
 const DISABLED_DOMAINS_STORAGE_KEY = "ontology:disabled-domains"
 const NO_DISABLED_DOMAINS: ReadonlySet<string> = new Set()
 const disabledDomainsListeners = new Set<() => void>()
@@ -77,8 +113,8 @@ export default function OntologyPage() {
   const isAdmin = useUserStore((s) => s.isAdmin)
   const store = useSchemaStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  // "network" (the main graph's 2D canvas) is the default; "hierarchy" is the dagre tree.
-  const [graphView, setGraphView] = useState<"network" | "hierarchy">("network")
+  const graphView = useSyncExternalStore(subscribeView, readStoredView, () => "network" as OntologyView)
+  const nextView = VIEW_ORDER[(VIEW_ORDER.indexOf(graphView) + 1) % VIEW_ORDER.length]
   const [search, setSearch] = useState("")
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [sidebarTab, setSidebarTab] = useState<"nodes" | "edges">("nodes")
@@ -412,11 +448,17 @@ export default function OntologyPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => setGraphView((v) => (v === "network" ? "hierarchy" : "network"))}
+            onClick={() => writeStoredView(nextView)}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            title={graphView === "network" ? "Switch to hierarchy view" : "Switch to network view"}
+            title={`Switch to ${nextView} view`}
           >
-            {graphView === "network" ? <Network className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+            {graphView === "network" ? (
+              <Network className="h-4 w-4" />
+            ) : graphView === "hierarchy" ? (
+              <Share2 className="h-4 w-4" />
+            ) : (
+              <ListTree className="h-4 w-4" />
+            )}
           </Button>
 
           <Button
@@ -582,6 +624,13 @@ export default function OntologyPage() {
             onSelect={setSelectedId}
             onClear={handleClearSelection}
             selectedEdgeType={selectedEdgeType}
+          />
+        ) : graphView === "outline" ? (
+          <OntologyOutline
+            schemas={filtered.schemas}
+            edges={filtered.edges}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
           />
         ) : (
           <OntologyGraph
