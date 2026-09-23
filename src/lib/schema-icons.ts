@@ -16,6 +16,16 @@ import {
   Wrench,
   Home,
   Heart,
+  Zap,
+  Terminal,
+  Hand,
+  KeyRound,
+  Crosshair,
+  ListOrdered,
+  Bug,
+  Layers,
+  Server,
+  ShieldAlert,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -41,6 +51,18 @@ const SCHEMA_ICON_MAP: Record<string, LucideIcon> = {
   ConstructionIcon: Wrench,
   HomeIcon: Home,
   InterestsIcon: Heart,
+  // Infosec ontology (Act / DigitalAct / PhysicalAct, Actor, Intention,
+  // EventSequence, CWE, SystemSchematic, System, Finding).
+  ZapIcon: Zap,
+  TerminalIcon: Terminal,
+  HandIcon: Hand,
+  KeyIcon: KeyRound,
+  CrosshairIcon: Crosshair,
+  ListOrderedIcon: ListOrdered,
+  BugIcon: Bug,
+  LayersIcon: Layers,
+  ServerIcon: Server,
+  ShieldAlertIcon: ShieldAlert,
 }
 
 /**
@@ -65,6 +87,16 @@ const ICON_ACCENT_MAP: Record<string, string> = {
   HomeIcon: "#34d399",      // emerald
   InterestsIcon: "#f43f5e", // rose
   NodesIcon: "#94a3b8",     // slate
+  ZapIcon: "#f59e0b",       // amber
+  TerminalIcon: "#38bdf8",  // sky
+  HandIcon: "#fb923c",      // orange
+  KeyIcon: "#a78bfa",       // violet
+  CrosshairIcon: "#f43f5e", // rose
+  ListOrderedIcon: "#818cf8", // indigo
+  BugIcon: "#ef4444",       // red
+  LayersIcon: "#2dd4bf",    // teal
+  ServerIcon: "#34d399",    // emerald
+  ShieldAlertIcon: "#f87171", // red
 }
 
 const DEFAULT_ICON: LucideIcon = CircleDot
