@@ -116,7 +116,7 @@ export default function DomainsPage() {
 
   // --- Write helpers ------------------------------------------------------
 
-  // Reassign a set of types to `domainValue` (PUT /schema each), then relabel
+  // Reassign a set of types to `domainValue` (PUT /v2/schema each), then relabel
   // existing nodes in the background.
   const assignTypesToDomain = useCallback(
     async (typeNames: string[], domainValue: string) => {
