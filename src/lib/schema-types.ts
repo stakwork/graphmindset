@@ -49,6 +49,6 @@ export interface SchemaEdge {
   target_type?: string
   // Attribute definitions for this edge type, e.g. { since: "?datetime",
   // role: "string" }. A leading "?" marks the attribute optional. Present on
-  // the live /schema/all payload; absent on some mock fixtures.
+  // the live /v2/schema payload; absent on some mock fixtures.
   attributes?: Record<string, string>
 }

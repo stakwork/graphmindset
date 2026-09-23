@@ -1,6 +1,6 @@
 import type { SchemaNode, SchemaEdge } from "@/lib/schema-types"
 
-// Trimmed from real /schema/all response
+// Trimmed from real /v2/schema response
 export const SMALL_SCHEMAS: SchemaNode[] = [
   {
     ref_id: "9e96b53a-c8ba-4f2a-9d4a-ced714d57e43",

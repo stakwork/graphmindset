@@ -13,7 +13,7 @@ Knowledge graph explorer frontend. Rebuilds the core of sphinx-nav-fiber with Ne
 
 ## Backend Services
 - **jarvis-boltwall**: Auth gateway (isAdmin, feature flags, L402 payments, radar/sources)
-- **jarvis-backend**: Graph data (v2/nodes, v2/edges, schema/all, stats, about)
+- **jarvis-backend**: Graph data (v2/nodes, v2/edges, v2/schema, stats, about)
 - Boltwall proxies most requests to jarvis-backend; schema endpoints go direct
 
 ## Transaction History

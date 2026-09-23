@@ -1377,7 +1377,7 @@ export async function dismissReview(
 }
 
 export async function getSchemaAudit(): Promise<SchemaAuditData> {
-  return api.get<SchemaAuditData>("/schema/audit")
+  return api.get<SchemaAuditData>("/v2/schema/audit")
 }
 
 // ── Legal document ingestion ─────────────────────────────────────────────────

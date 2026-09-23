@@ -62,7 +62,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     if (isMocksEnabled()) return
 
     try {
-      await api.put(`/schema/${updated.ref_id}`, {
+      await api.put(`/v2/schema/${updated.ref_id}`, {
         type: updated.type,
         parent: updated.parent,
         primary_color: updated.color,
@@ -93,7 +93,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     if (isMocksEnabled()) return schema.ref_id
 
     try {
-      const res = await api.post<{ ref_id?: string }>("/schema", {
+      const res = await api.post<{ ref_id?: string }>("/v2/schema", {
         type: schema.type,
         parent: schema.parent,
         primary_color: schema.color,
@@ -129,7 +129,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     if (isMocksEnabled()) return
 
     try {
-      await api.delete(`/schema/${refId}`)
+      await api.delete(`/v2/schema/${refId}`)
     } catch (err) {
       console.error("Failed to delete schema:", err)
       // Rollback
@@ -145,7 +145,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
 
     try {
       // The backend keys edge schemas off type NAMES, not ref_ids.
-      const res = await api.post<{ ref_id?: string }>("/schema/edge", {
+      const res = await api.post<{ ref_id?: string }>("/v2/schema/edge", {
         source: edge.source_type ?? edge.source,
         target: edge.target_type ?? edge.target,
         edge_type: edge.edge_type,
@@ -182,7 +182,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     if (isMocksEnabled()) return
 
     try {
-      await api.put(`/schema/edge/${edge.ref_id}`, {
+      await api.put(`/v2/schema/edge/${edge.ref_id}`, {
         edge_type: edge.edge_type,
         attributes: edge.attributes ?? {},
       })
@@ -204,7 +204,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
     if (isMocksEnabled()) return
 
     try {
-      await api.delete(`/schema/edge/${refId}`)
+      await api.delete(`/v2/schema/edge/${refId}`)
     } catch (err) {
       console.error("Failed to delete relationship:", err)
       // Rollback
@@ -235,7 +235,7 @@ export const useSchemaStore = create<SchemaState>((set) => ({
           centrality?: number
         }>
         edges: SchemaEdge[]
-      }>("/schema/all")
+      }>("/v2/schema")
 
       const schemas: SchemaNode[] = (res.schemas ?? []).map((s) => ({
         ref_id: s.ref_id,

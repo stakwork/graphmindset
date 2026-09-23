@@ -61,7 +61,7 @@ src/
 
 - `GET /isAdmin` — auth + feature flags (boltwall)
 - `GET /v2/nodes` — search/list nodes (jarvis-backend)
-- `GET /schema/all` — ontology schemas + edges (jarvis-backend)
+- `GET /v2/schema` — ontology schemas + edges, `?domains=` to scope (jarvis-backend)
 - `POST /radar` — add content source (boltwall)
 - `POST /boost` — boost a node with Lightning (boltwall)
 - `GET /about` — graph metadata (jarvis-backend)

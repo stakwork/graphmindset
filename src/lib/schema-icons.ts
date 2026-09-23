@@ -21,7 +21,7 @@ import type { LucideIcon } from "lucide-react"
 
 /**
  * Maps jarvis schema icon names to lucide-react components.
- * Icon names come from the /schema/all API response (e.g. "TwitterIcon", "VideoIcon").
+ * Icon names come from the /v2/schema API response (e.g. "TwitterIcon", "VideoIcon").
  */
 const SCHEMA_ICON_MAP: Record<string, LucideIcon> = {
   NodesIcon: CircleDot,
