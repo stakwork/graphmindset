@@ -24,6 +24,7 @@ type GroupBy = "edge_type" | "node_type"
 export function ConnectionsSection({ nodeRefId, schemas, currentNode, onNavigate }: ConnectionsSectionProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>("edge_type")
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<{ edgeRefId: string; message: string } | null>(null)
   const nodes = useGraphStore((s) => s.nodes)
   const edges = useGraphStore((s) => s.edges)
   const removeEdge = useGraphStore((s) => s.removeEdge)
@@ -72,11 +73,13 @@ export function ConnectionsSection({ nodeRefId, schemas, currentNode, onNavigate
     if (!isAdmin) return
     try {
       await deleteEdge(edgeRefId)
+      removeEdge(edgeRefId)
+      setConfirmingDelete(null)
+      setDeleteError(null)
     } catch {
-      // Best-effort — remove locally regardless
+      setConfirmingDelete(null)
+      setDeleteError({ edgeRefId, message: "Could not remove connection. Please try again." })
     }
-    removeEdge(edgeRefId)
-    setConfirmingDelete(null)
   }
 
   return (
@@ -134,51 +137,64 @@ export function ConnectionsSection({ nodeRefId, schemas, currentNode, onNavigate
               </p>
               {conns.map((conn, i) => {
                 const isConfirming = confirmingDelete === conn.edge_ref_id
+                const rowError =
+                  conn.edge_ref_id !== undefined && deleteError?.edgeRefId === conn.edge_ref_id
+                    ? deleteError.message
+                    : null
                 return (
-                  <div
-                    key={`${conn.peer.ref_id}-${i}`}
-                    className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 bg-muted/20 border border-border/20 hover:bg-muted/40 transition-colors"
-                  >
-                    <button
-                      className="flex-1 flex items-center justify-between gap-2 cursor-pointer text-left min-w-0"
-                      onClick={() => onNavigate?.(conn.peer)}
+                  <div key={`${conn.peer.ref_id}-${i}`} className="space-y-0.5">
+                    <div
+                      className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 bg-muted/20 border border-border/20 hover:bg-muted/40 transition-colors"
                     >
-                      <span className="text-xs truncate min-w-0">{resolveTitle(conn.peer)}</span>
-                      <Badge
-                        variant="outline"
-                        className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono shrink-0"
+                      <button
+                        className="flex-1 flex items-center justify-between gap-2 cursor-pointer text-left min-w-0"
+                        onClick={() => onNavigate?.(conn.peer)}
                       >
-                        {displayNodeType(conn.peer.node_type)}
-                      </Badge>
-                    </button>
-                    {isAdmin && conn.edge_ref_id !== undefined && (
-                      isConfirming ? (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <span className="text-[9px] text-muted-foreground">Remove?</span>
-                          <button
-                            onClick={() => handleConfirmDelete(conn.edge_ref_id!)}
-                            className="text-[9px] font-mono text-destructive hover:text-destructive/80 transition-colors"
-                            aria-label="Confirm remove"
-                          >
-                            Yes
-                          </button>
-                          <button
-                            onClick={() => setConfirmingDelete(null)}
-                            className="text-[9px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-                            aria-label="Cancel remove"
-                          >
-                            No
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmingDelete(conn.edge_ref_id!)}
-                          className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
-                          aria-label="Remove connection"
+                        <span className="text-xs truncate min-w-0">{resolveTitle(conn.peer)}</span>
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] px-1.5 py-0 h-4 border-border/50 text-muted-foreground font-mono shrink-0"
                         >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      )
+                          {displayNodeType(conn.peer.node_type)}
+                        </Badge>
+                      </button>
+                      {isAdmin && conn.edge_ref_id !== undefined && (
+                        isConfirming ? (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[9px] text-muted-foreground">Remove?</span>
+                            <button
+                              onClick={() => handleConfirmDelete(conn.edge_ref_id!)}
+                              className="text-[9px] font-mono text-destructive hover:text-destructive/80 transition-colors"
+                              aria-label="Confirm remove"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              onClick={() => setConfirmingDelete(null)}
+                              className="text-[9px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+                              aria-label="Cancel remove"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setConfirmingDelete(conn.edge_ref_id!)
+                              setDeleteError(null)
+                            }}
+                            className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                            aria-label="Remove connection"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )
+                      )}
+                    </div>
+                    {rowError && (
+                      <p role="alert" className="px-2 text-[9px] text-destructive">
+                        {rowError}
+                      </p>
                     )}
                   </div>
                 )
