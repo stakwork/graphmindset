@@ -250,6 +250,32 @@ describe("ConnectionsSection – admin delete", () => {
     expect(screen.queryByText("Remove?")).toBeNull()
   })
 
+  it("keeps the edge and shows an inline error when deleteEdge fails", async () => {
+    mockIsAdmin = true
+    mockDeleteEdge.mockRejectedValueOnce(new Error("500"))
+    render(<ConnectionsSection nodeRefId="n1" schemas={[]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Remove connection" }))
+    fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not remove connection")
+    expect(mockDeleteEdge).toHaveBeenCalledWith("edge-ref-1")
+    expect(mockRemoveEdge).not.toHaveBeenCalled()
+    expect(screen.getByText("Blockchain")).toBeInTheDocument()
+    expect(screen.queryByText("Remove?")).toBeNull()
+  })
+
+  it("clears the error when a remove is retried", async () => {
+    mockIsAdmin = true
+    mockDeleteEdge.mockRejectedValueOnce(new Error("500"))
+    render(<ConnectionsSection nodeRefId="n1" schemas={[]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Remove connection" }))
+    fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }))
+    await screen.findByRole("alert")
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove connection" }))
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
   it("hides trash for edges without ref_id even when isAdmin=true", () => {
     mockIsAdmin = true
     mockEdges = [EDGE_MENTIONS_N2] // no ref_id

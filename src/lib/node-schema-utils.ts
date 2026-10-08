@@ -5,7 +5,8 @@ import type { SchemaNode, SchemaAttribute } from "@/lib/schema-types"
 // graph-internal moderation knobs, unique_source_id is for dedup of
 // ingested content (Stakwork). date_added_to_graph is auto-set.
 // project_id is the graph association and pub_key/pubkey are provenance —
-// both set by the backend, not typed by hand.
+// both set by the backend, not typed by hand. deleted_at, deleted_at_backfilled
+// and is_deleted are the soft-delete markers, reserved for the backend.
 export const SYSTEM_ATTRIBUTES = new Set([
   "weight",
   "is_muted",
@@ -15,6 +16,9 @@ export const SYSTEM_ATTRIBUTES = new Set([
   "project_id",
   "pub_key",
   "pubkey",
+  "deleted_at",
+  "deleted_at_backfilled",
+  "is_deleted",
 ])
 
 // A field is hidden from every node form when it's a system/book-keeping

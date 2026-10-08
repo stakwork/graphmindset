@@ -216,6 +216,9 @@ describe("fieldsForSchema (from node-schema-utils)", () => {
     expect(SYSTEM_ATTRIBUTES.has("is_muted")).toBe(true)
     expect(SYSTEM_ATTRIBUTES.has("unique_source_id")).toBe(true)
     expect(SYSTEM_ATTRIBUTES.has("owner_reference_id")).toBe(true)
+    expect(SYSTEM_ATTRIBUTES.has("deleted_at")).toBe(true)
+    expect(SYSTEM_ATTRIBUTES.has("deleted_at_backfilled")).toBe(true)
+    expect(SYSTEM_ATTRIBUTES.has("is_deleted")).toBe(true)
     expect(SYSTEM_ATTRIBUTES.has("date_added_to_graph")).toBe(true)
   })
 
