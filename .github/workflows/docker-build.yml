@@ -9,6 +9,10 @@ on:
 jobs:
   push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     name: Build and push graphmindset image
     steps:
       - name: Check out from Git
@@ -22,6 +26,17 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Build and push
         run: |
-          docker build --no-cache -t "${{ secrets.DOCKER_HUB_USER }}/graphmindset:${{ env.RELEASE_TAG }}" -t "${{ secrets.DOCKER_HUB_USER }}/graphmindset:latest" .
+          docker build --no-cache --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} --label org.opencontainers.image.revision=${{ github.sha }} -t "${{ secrets.DOCKER_HUB_USER }}/graphmindset:${{ env.RELEASE_TAG }}" -t "${{ secrets.DOCKER_HUB_USER }}/graphmindset:latest" .
           docker push "${{ secrets.DOCKER_HUB_USER }}/graphmindset:${{ env.RELEASE_TAG }}"
           docker push "${{ secrets.DOCKER_HUB_USER }}/graphmindset:latest"
+      - name: Get image digest
+        id: digest
+        run: |
+          echo "digest=$(docker buildx imagetools inspect "${{ secrets.DOCKER_HUB_USER }}/graphmindset:${{ env.RELEASE_TAG }}" --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
+      # Verify with: gh attestation verify oci://index.docker.io/<namespace>/graphmindset@sha256:<digest> --owner stakwork
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: index.docker.io/${{ secrets.DOCKER_HUB_USER }}/graphmindset
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
