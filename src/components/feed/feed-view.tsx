@@ -11,6 +11,7 @@ import { getLatestNodes } from "@/lib/graph-api"
 import { schemaTypeComparator } from "@/lib/node-schema-utils"
 import { FeedCard } from "./feed-card"
 import { HotTakes } from "./hot-takes"
+import { GraphStats } from "./graph-stats"
 import { cn } from "@/lib/utils"
 
 export function FeedView() {
@@ -91,6 +92,7 @@ export function FeedView() {
 
   return (
     <div className="h-full w-full overflow-y-auto overflow-x-hidden">
+      {showHotTakes && <GraphStats />}
       {showHotTakes && <HotTakes />}
 
       {(showHotTakes || typeCounts.length > 1) && (
