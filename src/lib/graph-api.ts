@@ -34,8 +34,7 @@ interface NodesListResponse {
 }
 
 export interface StatsResponse {
-  node_count?: number
-  cve_count?: number
+  node_count: number
   num_nodes: number
   num_episodes: number
   num_people: number
